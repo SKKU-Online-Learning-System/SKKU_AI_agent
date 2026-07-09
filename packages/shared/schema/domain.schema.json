@@ -1,0 +1,182 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://skku-course-agent.local/schema/domain.schema.json",
+  "title": "SKKU Course Agent Domain Schema",
+  "type": "object",
+  "$defs": {
+    "UserRole": {
+      "type": "string",
+      "enum": ["student", "instructor", "admin"]
+    },
+    "CourseAgentStatus": {
+      "type": "string",
+      "enum": ["draft", "active", "disabled"]
+    },
+    "CourseMaterialStatus": {
+      "type": "string",
+      "enum": ["uploaded", "processing", "ready", "failed"]
+    },
+    "ChatSessionStatus": {
+      "type": "string",
+      "enum": ["open", "archived"]
+    },
+    "ChatMessageRole": {
+      "type": "string",
+      "enum": ["user", "assistant", "system"]
+    },
+    "User": {
+      "type": "object",
+      "required": ["id", "email", "name", "role", "createdAt", "updatedAt"],
+      "properties": {
+        "id": { "type": "string" },
+        "email": { "type": "string", "format": "email" },
+        "name": { "type": "string" },
+        "role": { "$ref": "#/$defs/UserRole" },
+        "department": { "type": ["string", "null"] },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      }
+    },
+    "Course": {
+      "type": "object",
+      "required": [
+        "id",
+        "code",
+        "title",
+        "term",
+        "instructorId",
+        "agentStatus",
+        "createdAt",
+        "updatedAt"
+      ],
+      "properties": {
+        "id": { "type": "string" },
+        "code": { "type": "string" },
+        "title": { "type": "string" },
+        "term": { "type": "string" },
+        "instructorId": { "type": "string" },
+        "agentStatus": { "$ref": "#/$defs/CourseAgentStatus" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      }
+    },
+    "CourseMaterial": {
+      "type": "object",
+      "required": [
+        "id",
+        "courseId",
+        "uploadedBy",
+        "title",
+        "fileName",
+        "fileType",
+        "storageUri",
+        "status",
+        "createdAt",
+        "updatedAt"
+      ],
+      "properties": {
+        "id": { "type": "string" },
+        "courseId": { "type": "string" },
+        "uploadedBy": { "type": "string" },
+        "title": { "type": "string" },
+        "fileName": { "type": "string" },
+        "fileType": { "type": "string" },
+        "storageUri": { "type": "string" },
+        "status": { "$ref": "#/$defs/CourseMaterialStatus" },
+        "checksum": { "type": ["string", "null"] },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      }
+    },
+    "DocumentChunk": {
+      "type": "object",
+      "required": [
+        "id",
+        "materialId",
+        "courseId",
+        "chunkIndex",
+        "content",
+        "metadata",
+        "createdAt"
+      ],
+      "properties": {
+        "id": { "type": "string" },
+        "materialId": { "type": "string" },
+        "courseId": { "type": "string" },
+        "chunkIndex": { "type": "integer", "minimum": 0 },
+        "content": { "type": "string" },
+        "embeddingModel": { "type": ["string", "null"] },
+        "tokenCount": { "type": ["integer", "null"], "minimum": 0 },
+        "metadata": { "type": "object", "additionalProperties": true },
+        "createdAt": { "type": "string", "format": "date-time" }
+      }
+    },
+    "Citation": {
+      "type": "object",
+      "required": ["materialId", "chunkId", "title"],
+      "properties": {
+        "materialId": { "type": "string" },
+        "chunkId": { "type": "string" },
+        "title": { "type": "string" },
+        "page": { "type": ["integer", "null"], "minimum": 1 },
+        "score": { "type": ["number", "null"] },
+        "snippet": { "type": ["string", "null"] }
+      }
+    },
+    "ChatSession": {
+      "type": "object",
+      "required": [
+        "id",
+        "userId",
+        "courseId",
+        "status",
+        "createdAt",
+        "updatedAt"
+      ],
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "courseId": { "type": "string" },
+        "title": { "type": ["string", "null"] },
+        "status": { "$ref": "#/$defs/ChatSessionStatus" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      }
+    },
+    "ChatLog": {
+      "type": "object",
+      "required": [
+        "id",
+        "sessionId",
+        "courseId",
+        "userId",
+        "role",
+        "message",
+        "citations",
+        "createdAt"
+      ],
+      "properties": {
+        "id": { "type": "string" },
+        "sessionId": { "type": "string" },
+        "courseId": { "type": "string" },
+        "userId": { "type": "string" },
+        "role": { "$ref": "#/$defs/ChatMessageRole" },
+        "message": { "type": "string" },
+        "citations": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/Citation" }
+        },
+        "latencyMs": { "type": ["integer", "null"], "minimum": 0 },
+        "createdAt": { "type": "string", "format": "date-time" }
+      }
+    }
+  },
+  "properties": {
+    "user": { "$ref": "#/$defs/User" },
+    "course": { "$ref": "#/$defs/Course" },
+    "courseMaterial": { "$ref": "#/$defs/CourseMaterial" },
+    "documentChunk": { "$ref": "#/$defs/DocumentChunk" },
+    "chatSession": { "$ref": "#/$defs/ChatSession" },
+    "chatLog": { "$ref": "#/$defs/ChatLog" }
+  }
+}

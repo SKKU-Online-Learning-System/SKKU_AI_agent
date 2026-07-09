@@ -1,0 +1,22 @@
+{
+  "name": "skku-course-agent",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Course Agent MVP for SKKU AI-centered university program.",
+  "packageManager": "npm@10.8.0",
+  "workspaces": [
+    "apps/frontend",
+    "packages/shared"
+  ],
+  "scripts": {
+    "dev:frontend": "npm run dev --workspace @skku-course-agent/frontend",
+    "build:frontend": "npm run build --workspace @skku-course-agent/frontend",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "lint": "npm run lint --workspaces --if-present"
+  },
+  "overrides": {
+    "next@16.2.10": {
+      "postcss": "8.5.16"
+    }
+  }
+}
