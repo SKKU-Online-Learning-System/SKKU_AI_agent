@@ -1,19 +1,19 @@
 from app.models.domain import (
     Base,
-    ChatLog,
-    ChatSession,
     Course,
+    CourseAccess,
     CourseMaterial,
-    DocumentChunk,
+    CourseMaterialStatus,
     User,
+    UserRole,
 )
 
 __all__ = [
     "Base",
-    "ChatLog",
-    "ChatSession",
     "Course",
+    "CourseAccess",
     "CourseMaterial",
-    "DocumentChunk",
+    "CourseMaterialStatus",
     "User",
+    "UserRole",
 ]

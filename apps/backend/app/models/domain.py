@@ -5,7 +5,17 @@ from enum import Enum
 from typing import Optional
 from uuid import uuid4
 
-from sqlalchemy import DateTime, ForeignKey, Integer, JSON, String, Text, func
+from sqlalchemy import (
+    BigInteger,
+    Boolean,
+    CheckConstraint,
+    DateTime,
+    ForeignKey,
+    String,
+    Text,
+    UniqueConstraint,
+    func,
+)
 from sqlalchemy import Enum as SQLEnum
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
@@ -20,161 +30,201 @@ class Base(DeclarativeBase):
 
 class UserRole(str, Enum):
     student = "student"
-    instructor = "instructor"
+    professor = "professor"
     admin = "admin"
 
 
-class CourseAgentStatus(str, Enum):
-    draft = "draft"
-    active = "active"
-    disabled = "disabled"
-
-
 class CourseMaterialStatus(str, Enum):
-    uploaded = "uploaded"
+    pending = "pending"
     processing = "processing"
-    ready = "ready"
+    completed = "completed"
     failed = "failed"
-
-
-class ChatSessionStatus(str, Enum):
-    open = "open"
-    archived = "archived"
-
-
-class ChatMessageRole(str, Enum):
-    user = "user"
-    assistant = "assistant"
-    system = "system"
 
 
 class User(Base):
     __tablename__ = "users"
+    __table_args__ = (
+        CheckConstraint(
+            "password_hash IS NOT NULL OR external_auth_id IS NOT NULL",
+            name="ck_users_auth_identity",
+        ),
+    )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
-    email: Mapped[str] = mapped_column(String(255), unique=True, index=True, nullable=False)
     name: Mapped[str] = mapped_column(String(120), nullable=False)
-    role: Mapped[UserRole] = mapped_column(SQLEnum(UserRole), nullable=False)
-    department: Mapped[Optional[str]] = mapped_column(String(120), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    email: Mapped[str] = mapped_column(String(255), unique=True, index=True, nullable=False)
+    password_hash: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    external_auth_id: Mapped[Optional[str]] = mapped_column(
+        String(255),
+        unique=True,
+        index=True,
+        nullable=True,
+    )
+    school_id: Mapped[Optional[str]] = mapped_column(
+        String(80),
+        unique=True,
+        index=True,
+        nullable=True,
+    )
+    role: Mapped[UserRole] = mapped_column(
+        SQLEnum(
+            UserRole,
+            name="user_role",
+            native_enum=False,
+            create_constraint=True,
+            validate_strings=True,
+        ),
+        nullable=False,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+    )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),
         onupdate=func.now(),
+        nullable=False,
     )
 
-    courses: Mapped[list[Course]] = relationship(back_populates="instructor")
+    courses: Mapped[list[Course]] = relationship(back_populates="professor")
+    course_accesses: Mapped[list[CourseAccess]] = relationship(
+        back_populates="user",
+        passive_deletes=True,
+    )
+    uploaded_materials: Mapped[list[CourseMaterial]] = relationship(
+        back_populates="uploader",
+        foreign_keys="CourseMaterial.uploaded_by",
+    )
 
 
 class Course(Base):
     __tablename__ = "courses"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
-    code: Mapped[str] = mapped_column(String(40), index=True, nullable=False)
-    title: Mapped[str] = mapped_column(String(255), nullable=False)
-    term: Mapped[str] = mapped_column(String(40), index=True, nullable=False)
-    instructor_id: Mapped[str] = mapped_column(ForeignKey("users.id"), nullable=False)
-    agent_status: Mapped[CourseAgentStatus] = mapped_column(
-        SQLEnum(CourseAgentStatus),
-        default=CourseAgentStatus.draft,
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    semester: Mapped[str] = mapped_column(String(40), index=True, nullable=False)
+    description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    professor_id: Mapped[str] = mapped_column(
+        ForeignKey("users.id", ondelete="RESTRICT"),
+        index=True,
         nullable=False,
     )
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    is_active: Mapped[bool] = mapped_column(
+        Boolean,
+        default=True,
+        server_default="true",
+        nullable=False,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+    )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),
         onupdate=func.now(),
+        nullable=False,
     )
 
-    instructor: Mapped[User] = relationship(back_populates="courses")
-    materials: Mapped[list[CourseMaterial]] = relationship(back_populates="course")
-    chunks: Mapped[list[DocumentChunk]] = relationship(back_populates="course")
-    chat_sessions: Mapped[list[ChatSession]] = relationship(back_populates="course")
+    professor: Mapped[User] = relationship(back_populates="courses")
+    access_entries: Mapped[list[CourseAccess]] = relationship(
+        back_populates="course",
+        passive_deletes=True,
+    )
+    materials: Mapped[list[CourseMaterial]] = relationship(
+        back_populates="course",
+        passive_deletes=True,
+    )
+
+
+class CourseAccess(Base):
+    __tablename__ = "course_access"
+    __table_args__ = (
+        UniqueConstraint("course_id", "user_id", name="uq_course_access_course_user"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    course_id: Mapped[str] = mapped_column(
+        ForeignKey("courses.id", ondelete="CASCADE"),
+        index=True,
+        nullable=False,
+    )
+    user_id: Mapped[str] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"),
+        index=True,
+        nullable=False,
+    )
+    access_role: Mapped[str] = mapped_column(
+        String(40),
+        default="student",
+        server_default="student",
+        nullable=False,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+    )
+
+    course: Mapped[Course] = relationship(back_populates="access_entries")
+    user: Mapped[User] = relationship(back_populates="course_accesses")
 
 
 class CourseMaterial(Base):
     __tablename__ = "course_materials"
-
-    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
-    course_id: Mapped[str] = mapped_column(ForeignKey("courses.id"), index=True, nullable=False)
-    uploaded_by: Mapped[str] = mapped_column(ForeignKey("users.id"), nullable=False)
-    title: Mapped[str] = mapped_column(String(255), nullable=False)
-    file_name: Mapped[str] = mapped_column(String(255), nullable=False)
-    file_type: Mapped[str] = mapped_column(String(120), nullable=False)
-    storage_uri: Mapped[str] = mapped_column(String(512), nullable=False)
-    status: Mapped[CourseMaterialStatus] = mapped_column(
-        SQLEnum(CourseMaterialStatus),
-        default=CourseMaterialStatus.uploaded,
-        nullable=False,
-    )
-    checksum: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True),
-        server_default=func.now(),
-        onupdate=func.now(),
+    __table_args__ = (
+        CheckConstraint(
+            "file_size >= 0",
+            name="ck_course_materials_file_size_non_negative",
+        ),
     )
 
-    course: Mapped[Course] = relationship(back_populates="materials")
-    chunks: Mapped[list[DocumentChunk]] = relationship(back_populates="material")
-
-
-class DocumentChunk(Base):
-    __tablename__ = "document_chunks"
-
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
-    material_id: Mapped[str] = mapped_column(
-        ForeignKey("course_materials.id"),
+    course_id: Mapped[str] = mapped_column(
+        ForeignKey("courses.id", ondelete="CASCADE"),
         index=True,
         nullable=False,
     )
-    course_id: Mapped[str] = mapped_column(ForeignKey("courses.id"), index=True, nullable=False)
-    chunk_index: Mapped[int] = mapped_column(Integer, nullable=False)
-    content: Mapped[str] = mapped_column(Text, nullable=False)
-    embedding_model: Mapped[Optional[str]] = mapped_column(String(120), nullable=True)
-    token_count: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
-    metadata_: Mapped[dict] = mapped_column("metadata", JSON, default=dict, nullable=False)
-    embedding: Mapped[Optional[list[float]]] = mapped_column(JSON, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-
-    material: Mapped[CourseMaterial] = relationship(back_populates="chunks")
-    course: Mapped[Course] = relationship(back_populates="chunks")
-
-
-class ChatSession(Base):
-    __tablename__ = "chat_sessions"
-
-    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
-    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True, nullable=False)
-    course_id: Mapped[str] = mapped_column(ForeignKey("courses.id"), index=True, nullable=False)
-    title: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
-    status: Mapped[ChatSessionStatus] = mapped_column(
-        SQLEnum(ChatSessionStatus),
-        default=ChatSessionStatus.open,
+    uploaded_by: Mapped[str] = mapped_column(
+        ForeignKey("users.id", ondelete="RESTRICT"),
+        index=True,
         nullable=False,
     )
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    file_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    original_file_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    file_type: Mapped[str] = mapped_column(String(40), nullable=False)
+    file_size: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    storage_path: Mapped[str] = mapped_column(Text, nullable=False)
+    processing_status: Mapped[CourseMaterialStatus] = mapped_column(
+        SQLEnum(
+            CourseMaterialStatus,
+            name="course_material_status",
+            native_enum=False,
+            create_constraint=True,
+            validate_strings=True,
+        ),
+        default=CourseMaterialStatus.pending,
+        server_default=CourseMaterialStatus.pending.value,
+        nullable=False,
+    )
+    processing_error: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+    )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),
         onupdate=func.now(),
+        nullable=False,
     )
 
-    course: Mapped[Course] = relationship(back_populates="chat_sessions")
-    logs: Mapped[list[ChatLog]] = relationship(back_populates="session")
-
-
-class ChatLog(Base):
-    __tablename__ = "chat_logs"
-
-    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
-    session_id: Mapped[str] = mapped_column(ForeignKey("chat_sessions.id"), index=True, nullable=False)
-    course_id: Mapped[str] = mapped_column(ForeignKey("courses.id"), index=True, nullable=False)
-    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True, nullable=False)
-    role: Mapped[ChatMessageRole] = mapped_column(SQLEnum(ChatMessageRole), nullable=False)
-    message: Mapped[str] = mapped_column(Text, nullable=False)
-    citations: Mapped[list[dict]] = mapped_column(JSON, default=list, nullable=False)
-    latency_ms: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-
-    session: Mapped[ChatSession] = relationship(back_populates="logs")
+    course: Mapped[Course] = relationship(back_populates="materials")
+    uploader: Mapped[User] = relationship(
+        back_populates="uploaded_materials",
+        foreign_keys=[uploaded_by],
+    )
