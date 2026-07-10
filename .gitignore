@@ -24,3 +24,4 @@ __pycache__/
 *.sqlite
 uploads/
 local_vector_store/
+.worktrees/
