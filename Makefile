@@ -1,7 +1,13 @@
-.PHONY: dev-db dev-api dev-web test-api test-rag typecheck-web
+.PHONY: dev-db migrate-db seed-db dev-api dev-web test-api test-rag typecheck-web
 
 dev-db:
 	docker compose up -d db
+
+migrate-db:
+	cd apps/backend && python -m alembic upgrade head
+
+seed-db:
+	cd apps/backend && python -m app.db.seed
 
 dev-api:
 	uvicorn app.main:app --reload --app-dir apps/backend --host 0.0.0.0 --port 8000

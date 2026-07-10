@@ -58,7 +58,36 @@ docker compose up -d db
 make dev-db
 ```
 
-### 2. Backend 실행
+### 2. DB 마이그레이션 및 Seed
+
+최초 실행 또는 DB 스키마가 변경된 뒤에는 Alembic 마이그레이션을 적용합니다.
+
+```bash
+make migrate-db
+make seed-db
+```
+
+Windows PowerShell에서 `make` 없이 실행하려면 다음 명령을 사용합니다.
+
+```powershell
+cd apps/backend
+python -m alembic upgrade head
+python -m app.db.seed
+```
+
+Seed 명령은 여러 번 실행해도 중복 데이터를 만들지 않습니다. 로컬 개발용 계정은
+다음과 같으며 공통 비밀번호는 `password123`입니다.
+
+| 역할 | 이메일 |
+| --- | --- |
+| 관리자 | `admin@skku.edu` |
+| 교수자 | `professor@skku.edu` |
+| 학생 | `student@skku.edu` |
+
+Seed 후 `2026-2` 학기의 `인공지능개론`, `소프트웨어공학` 과목이 생성됩니다. 교수자
+계정은 두 과목의 담당 교수자이며 학생 계정은 두 과목 모두에 접근할 수 있습니다.
+
+### 3. Backend 실행
 
 ```bash
 python3 -m venv .venv
@@ -81,7 +110,7 @@ API 문서:
 http://localhost:8000/docs
 ```
 
-### 3. Frontend 실행
+### 4. Frontend 실행
 
 ```bash
 npm install
