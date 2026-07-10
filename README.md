@@ -142,6 +142,8 @@ make typecheck-web
 ## 현재 포함된 기본 API
 
 - `GET /api/health`
+- `POST /api/auth/login`
+- `GET /api/auth/me`
 - `GET /api/courses`
 - `POST /api/courses`
 - `GET /api/courses/{course_id}/materials`
@@ -150,12 +152,31 @@ make typecheck-web
 - `POST /api/chat/sessions/{session_id}/messages`
 - `GET /api/admin/stats`
 
+## 인증 API 확인
+
+Seed 학생 계정으로 로그인합니다.
+
+```bash
+curl -X POST http://localhost:8000/api/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"email":"student@skku.edu","password":"password123"}'
+```
+
+응답의 `access_token`을 사용해 현재 사용자를 조회합니다.
+
+```bash
+curl http://localhost:8000/api/auth/me \
+  -H "Authorization: Bearer <access_token>"
+```
+
+JWT 로그아웃은 서버 상태를 변경하지 않습니다. 클라이언트가 보관한 access token을
+삭제하면 로그아웃됩니다.
+
 ## 다음 단계
 
-1. Alembic 마이그레이션 추가 및 SQLAlchemy 모델을 실제 DB 테이블로 생성
-2. 사용자 인증/JWT, 역할 기반 접근 제어 구현
-3. 강의자료 업로드 저장소와 텍스트 추출 파이프라인 구현
-4. pgvector 테이블/인덱스 및 course-scoped similarity search 구현
-5. OpenAI 임베딩/답변 생성 연결과 citation 포맷 확정
-6. 채팅 세션/로그 저장, 관리자 통계 집계
-7. 프론트엔드 API 연동, 교수자/관리자 화면 분리
+1. 역할 기반 접근 제어와 과목 API DB 연동
+2. 강의자료 업로드 저장소와 텍스트 추출 파이프라인 구현
+3. pgvector 테이블/인덱스 및 course-scoped similarity search 구현
+4. OpenAI 임베딩/답변 생성 연결과 citation 포맷 확정
+5. 채팅 세션/로그 저장, 관리자 통계 집계
+6. 프론트엔드 API 연동, 교수자/관리자 화면 분리
