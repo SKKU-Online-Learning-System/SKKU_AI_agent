@@ -22,7 +22,10 @@ def test_alembic_upgrade_and_downgrade_stage_two_schema(tmp_path: Path) -> None:
         "course_access",
         "course_materials",
     }
-    assert {column["name"] for column in inspector.get_columns("course_materials")} == {
+    material_columns = {
+        column["name"]: column for column in inspector.get_columns("course_materials")
+    }
+    assert set(material_columns) == {
         "id",
         "course_id",
         "uploaded_by",
@@ -36,6 +39,7 @@ def test_alembic_upgrade_and_downgrade_stage_two_schema(tmp_path: Path) -> None:
         "created_at",
         "updated_at",
     }
+    assert material_columns["processing_status"]["default"] == "'pending'"
 
     command.downgrade(config, "base")
 

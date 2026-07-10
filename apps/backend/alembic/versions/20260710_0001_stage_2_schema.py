@@ -151,7 +151,12 @@ def upgrade() -> None:
         sa.Column("file_type", sa.String(length=40), nullable=False),
         sa.Column("file_size", sa.BigInteger(), nullable=False),
         sa.Column("storage_path", sa.Text(), nullable=False),
-        sa.Column("processing_status", course_material_status, nullable=False),
+        sa.Column(
+            "processing_status",
+            course_material_status,
+            server_default="pending",
+            nullable=False,
+        ),
         sa.Column("processing_error", sa.Text(), nullable=True),
         sa.Column(
             "created_at",
