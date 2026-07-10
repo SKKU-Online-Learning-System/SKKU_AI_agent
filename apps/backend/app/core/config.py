@@ -18,6 +18,8 @@ class Settings(BaseSettings):
     database_url: str = "postgresql+psycopg://course_agent:course_agent@localhost:5432/course_agent"
     openai_api_key: Optional[str] = None
     jwt_secret: str = "local-dev-change-me"
+    jwt_algorithm: str = "HS256"
+    jwt_expires_in: int = Field(default=3600, gt=0)
 
     vector_db_provider: Literal["pgvector", "local"] = "pgvector"
     vector_db_url: Optional[str] = None
