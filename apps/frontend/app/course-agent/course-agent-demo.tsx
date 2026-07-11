@@ -124,7 +124,9 @@ export default function CourseAgentDemo() {
       const personality = personalityOptions.find(
         (option) => option.id === state.student.personality
       )?.label;
-      const citations = [...(studentInitialMessages.find((message) => message.citations.length)?.citations ?? [])];
+      const citations = [
+        ...(studentInitialMessages.find((message) => message.citations.length)?.citations ?? [])
+      ];
       response = {
         id: `student-assistant-${roleState.messages.length + 2}`,
         role: "assistant",
@@ -173,19 +175,27 @@ export default function CourseAgentDemo() {
               type="button"
               aria-pressed={state.activeRole === "student"}
               onClick={() => dispatch({ type: "set-role", role: "student" })}
-            >학생</button>
+            >
+              학생
+            </button>
             <button
               type="button"
               aria-pressed={state.activeRole === "professor"}
               onClick={() => dispatch({ type: "set-role", role: "professor" })}
-            >교수</button>
+            >
+              교수
+            </button>
           </div>
         </header>
         <div className="course-layout">
           <aside className="course-navigation" aria-label="과목 탐색 메뉴">
             <nav>
               {courseNavItems.map((item) => (
-                <button key={item.label} type="button" aria-current={item.active ? "page" : undefined}>
+                <button
+                  key={item.label}
+                  type="button"
+                  aria-current={item.active ? "page" : undefined}
+                >
                   <UiIcon name={item.icon} />
                   {item.label}
                 </button>
