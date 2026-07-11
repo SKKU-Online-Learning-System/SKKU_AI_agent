@@ -8,7 +8,9 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint . --max-warnings=0",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "@skku-course-agent/shared": "file:../../packages/shared",
@@ -22,6 +24,7 @@
     "@types/react-dom": "^18.3.0",
     "eslint": "^9.39.0",
     "eslint-config-next": "^16.2.10",
-    "typescript": "^5.5.4"
+    "typescript": "^5.5.4",
+    "vitest": "^3.2.4"
   }
 }
