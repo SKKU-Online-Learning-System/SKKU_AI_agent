@@ -50,7 +50,7 @@ describe("validateAttachment", () => {
 
     expect(validateAttachment(image, "student")).toBeNull();
     expect(validateAttachment(hugePdf, "professor")).toBe(
-      "援먯닔 李멸퀬 臾몄꽌???뚯씪??20MB ?댄븯留?泥⑤??????덉뒿?덈떎."
+      "교수 참고 문서의 파일은 20MB 이하만 첨부할 수 있습니다."
     );
   });
 });

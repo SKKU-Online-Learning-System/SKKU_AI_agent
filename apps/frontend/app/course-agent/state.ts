@@ -68,11 +68,11 @@ export function validateAttachment(file: File, role: AgentRole): string | null {
   const limitMb = role === "professor" ? 20 : 10;
   if (!allowed.includes(extension)) {
     return role === "professor"
-      ? "PDF, PPTX, DOCX, TXT ?뚯씪留?泥⑤??????덉뒿?덈떎."
-      : "PDF, DOCX, TXT, PNG, JPG, JPEG ?뚯씪留?泥⑤??????덉뒿?덈떎.";
+      ? "PDF, PPTX, DOCX, TXT 파일만 첨부할 수 있습니다."
+      : "PDF, DOCX, TXT, PNG, JPG, JPEG 파일만 첨부할 수 있습니다.";
   }
   if (file.size > limitMb * 1024 * 1024) {
-    return `${role === "professor" ? "援먯닔 李멸퀬 臾몄꽌" : "?숈깮 泥⑤? ?뚯씪"}???뚯씪??${limitMb}MB ?댄븯留?泥⑤??????덉뒿?덈떎.`;
+    return `${role === "professor" ? "교수 참고 문서" : "학생 첨부 파일"}의 파일은 ${limitMb}MB 이하만 첨부할 수 있습니다.`;
   }
   return null;
 }
