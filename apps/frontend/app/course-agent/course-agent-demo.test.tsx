@@ -14,7 +14,7 @@ import CourseAgentDemo from "./course-agent-demo";
 
 const settingsKey = "skku-course-agent-settings-v1";
 
-function roleButton(name: "학생" | "교수") {
+function roleButton(name: "학생" | "교수" | "관리자") {
   return screen.getByRole("button", { name });
 }
 
@@ -33,6 +33,24 @@ afterEach(() => {
 });
 
 describe("CourseAgentDemo client interactions", () => {
+  it("navigates every role through its allowed Canvas menu", () => {
+    render(<CourseAgentDemo />);
+    fireEvent.click(roleButton("관리자"));
+    fireEvent.click(screen.getByRole("button", { name: "사용자 및 권한" }));
+
+    expect(screen.getByRole("heading", { name: "사용자 및 권한" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "최근 대화" })).not.toBeInTheDocument();
+  });
+
+  it("exposes the mobile navigation toggle", () => {
+    render(<CourseAgentDemo />);
+    const toggle = screen.getByRole("button", { name: "과목 메뉴 열기" });
+
+    fireEvent.click(toggle);
+
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+  });
+
   it("switches unrestricted roles and retains the student personality", () => {
     render(<CourseAgentDemo />);
 

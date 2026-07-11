@@ -6,6 +6,17 @@ import {
 } from "./state";
 
 describe("courseAgentReducer", () => {
+  it("moves each role to its default allowed screen", () => {
+    const professor = courseAgentReducer(createInitialState(), {
+      type: "set-role",
+      role: "professor"
+    });
+    const admin = courseAgentReducer(professor, { type: "set-role", role: "admin" });
+
+    expect(professor.activeScreen).toBe("professor-dashboard");
+    expect(admin.activeScreen).toBe("admin-dashboard");
+  });
+
   it("switches roles without mixing role-specific state", () => {
     const studentState = courseAgentReducer(createInitialState(), {
       type: "set-personality",

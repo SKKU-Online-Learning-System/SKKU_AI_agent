@@ -1,4 +1,20 @@
-export type AgentRole = "student" | "professor";
+import { getDefaultScreen } from "./navigation";
+
+export type AgentRole = "student" | "professor" | "admin";
+export type ScreenId =
+  | "student-login"
+  | "student-courses"
+  | "student-chat"
+  | "student-history"
+  | "professor-dashboard"
+  | "professor-materials"
+  | "professor-settings"
+  | "professor-logs"
+  | "admin-dashboard"
+  | "admin-courses"
+  | "admin-users"
+  | "admin-materials"
+  | "admin-logs";
 export type PersonalityId =
   | "default"
   | "professional"
@@ -26,6 +42,7 @@ export type DemoMessage = {
 
 export type CourseAgentState = {
   activeRole: AgentRole;
+  activeScreen: ScreenId;
   student: {
     personality: PersonalityId;
     attachments: AttachmentItem[];
@@ -36,10 +53,15 @@ export type CourseAgentState = {
     attachments: AttachmentItem[];
     messages: DemoMessage[];
   };
+  admin: {
+    attachments: AttachmentItem[];
+    messages: DemoMessage[];
+  };
 };
 
 export type CourseAgentAction =
   | { type: "set-role"; role: AgentRole }
+  | { type: "set-screen"; screen: ScreenId }
   | { type: "set-personality"; personality: PersonalityId }
   | { type: "toggle-material"; materialId: string; selectable: boolean }
   | { type: "set-materials"; materialIds: string[] }
@@ -50,12 +72,14 @@ export type CourseAgentAction =
 export function createInitialState(): CourseAgentState {
   return {
     activeRole: "student",
+    activeScreen: "student-chat",
     student: { personality: "default", attachments: [], messages: [] },
     professor: {
       selectedMaterialIds: ["material-week-01"],
       attachments: [],
       messages: []
-    }
+    },
+    admin: { attachments: [], messages: [] }
   };
 }
 
@@ -81,7 +105,10 @@ export function courseAgentReducer(
   state: CourseAgentState,
   action: CourseAgentAction
 ): CourseAgentState {
-  if (action.type === "set-role") return { ...state, activeRole: action.role };
+  if (action.type === "set-role") {
+    return { ...state, activeRole: action.role, activeScreen: getDefaultScreen(action.role) };
+  }
+  if (action.type === "set-screen") return { ...state, activeScreen: action.screen };
   if (action.type === "set-personality") {
     return { ...state, student: { ...state.student, personality: action.personality } };
   }
@@ -150,11 +177,15 @@ export function courseAgentReducer(
       }
     };
   }
-  return {
+  if (action.role === "professor") return {
     ...state,
     professor: {
       ...state.professor,
       messages: [...state.professor.messages, action.message]
     }
+  };
+  return {
+    ...state,
+    admin: { ...state.admin, messages: [...state.admin.messages, action.message] }
   };
 }

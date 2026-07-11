@@ -3,14 +3,17 @@
 import { useEffect, useReducer, useState } from "react";
 import {
   activeCourse,
-  courseNavItems,
   materials,
   personalityOptions,
   professorInitialMessages,
   railItems,
   studentInitialMessages
 } from "./demo-data";
+import { AdminScreen } from "./admin-screens";
+import { roleNavigation } from "./navigation";
+import { ProfessorScreen } from "./professor-screens";
 import { ProfessorControls, StudentControls } from "./role-controls";
+import { StudentScreen } from "./student-screens";
 import {
   courseAgentReducer,
   createInitialState,
@@ -32,7 +35,7 @@ function initialState(): CourseAgentState {
 }
 
 function isRole(value: unknown): value is AgentRole {
-  return value === "student" || value === "professor";
+  return value === "student" || value === "professor" || value === "admin";
 }
 
 export default function CourseAgentDemo() {
@@ -40,6 +43,7 @@ export default function CourseAgentDemo() {
   const [question, setQuestion] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [hydrated, setHydrated] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
 
   useEffect(() => {
     try {
@@ -100,6 +104,11 @@ export default function CourseAgentDemo() {
 
   const roleState = state[state.activeRole];
   const canSubmit = question.trim().length > 0 || roleState.attachments.length > 0;
+  const navigation = roleNavigation[state.activeRole];
+  const activeNavigation = navigation.find((item) => item.id === state.activeScreen);
+  const showAgent =
+    state.activeScreen === "student-chat" ||
+    (state.activeRole === "professor" && state.activeScreen === "professor-dashboard");
 
   const submit = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -166,10 +175,15 @@ export default function CourseAgentDemo() {
       </aside>
       <div className="course-workspace">
         <header className="course-header">
-          <button type="button" aria-label="메뉴 열기">
+          <button
+            type="button"
+            aria-label={menuOpen ? "과목 메뉴 닫기" : "과목 메뉴 열기"}
+            aria-expanded={menuOpen}
+            onClick={() => setMenuOpen((open) => !open)}
+          >
             ☰
           </button>
-          <strong>문제해결_SWE2026_41(조재민)</strong>
+          <strong>문제해결_SWE2026_41(조재민) 〉 {activeNavigation?.label}</strong>
           <div className="role-switch" role="group" aria-label="사용자 역할">
             <button
               type="button"
@@ -185,16 +199,28 @@ export default function CourseAgentDemo() {
             >
               교수
             </button>
+            <button
+              type="button"
+              aria-pressed={state.activeRole === "admin"}
+              onClick={() => dispatch({ type: "set-role", role: "admin" })}
+            >
+              관리자
+            </button>
           </div>
         </header>
         <div className="course-layout">
-          <aside className="course-navigation" aria-label="과목 탐색 메뉴">
+          <aside className="course-navigation" data-open={menuOpen} aria-label="과목 탐색 메뉴">
+            <p className="term-label">2026년 1학기</p>
             <nav>
-              {courseNavItems.map((item) => (
+              {navigation.map((item) => (
                 <button
-                  key={item.label}
+                  key={item.id}
                   type="button"
-                  aria-current={item.active ? "page" : undefined}
+                  aria-current={state.activeScreen === item.id ? "page" : undefined}
+                  onClick={() => {
+                    dispatch({ type: "set-screen", screen: item.id });
+                    setMenuOpen(false);
+                  }}
                 >
                   <UiIcon name={item.icon} />
                   {item.label}
@@ -202,7 +228,15 @@ export default function CourseAgentDemo() {
               ))}
             </nav>
           </aside>
-          <section className="agent-workspace" aria-labelledby="agent-title">
+          <div className="screen-content">
+          {state.activeRole === "student" && state.activeScreen !== "student-chat" ? (
+            <StudentScreen screen={state.activeScreen} />
+          ) : null}
+          {state.activeRole === "professor" ? (
+            <ProfessorScreen screen={state.activeScreen} />
+          ) : null}
+          {state.activeRole === "admin" ? <AdminScreen screen={state.activeScreen} /> : null}
+          {showAgent ? <section className="agent-workspace" aria-labelledby="agent-title">
             <h1 id="agent-title">AI 코스 에이전트</h1>
             <p className="safe-notice">
               <UiIcon name="shield" /> SAFE: 강의자료를 우선하고 근거가 부족하면 명시합니다.
@@ -253,12 +287,13 @@ export default function CourseAgentDemo() {
               <aside className="role-controls">
                 {state.activeRole === "student" ? (
                   <StudentControls state={state} dispatch={dispatch} />
-                ) : (
+                ) : state.activeRole === "professor" ? (
                   <ProfessorControls materials={materials} state={state} dispatch={dispatch} />
-                )}
+                ) : null}
               </aside>
             </div>
-          </section>
+          </section> : null}
+          </div>
         </div>
       </div>
     </main>

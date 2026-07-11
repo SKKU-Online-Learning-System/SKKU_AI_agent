@@ -15,6 +15,95 @@ export const activeCourse: Course = {
   updatedAt: now
 };
 
+export const demoCourses: Course[] = [
+  activeCourse,
+  {
+    ...activeCourse,
+    id: "course-data-201",
+    code: "ICE3045_42",
+    title: "기계학습개론 ICE3045_42(권민혜)",
+    instructorId: "user-prof-kwon",
+    agentStatus: "disabled"
+  },
+  {
+    ...activeCourse,
+    id: "course-ai-301",
+    code: "AI301_01",
+    title: "생성형 AI 활용 AI301_01(김교수)",
+    instructorId: "user-prof-kim"
+  }
+];
+
+export type DemoConversation = {
+  id: string;
+  question: string;
+  answer: string;
+  createdAt: string;
+};
+
+export type DemoLog = {
+  id: string;
+  role: "student" | "professor";
+  course: string;
+  user: string;
+  question: string;
+  source: string;
+  model: string;
+  responseTime: number;
+  createdAt: string;
+};
+
+export type DashboardMetric = { label: string; value: string; detail: string };
+
+export const demoConversations: DemoConversation[] = [
+  {
+    id: "conversation-1",
+    question: "RAG가 일반 LLM과 다른 점은 무엇인가요?",
+    answer: "강의자료에서 관련 내용을 먼저 검색하고 출처와 함께 답변합니다.",
+    createdAt: "2026-07-09 14:32"
+  },
+  {
+    id: "conversation-2",
+    question: "과제 1은 어떤 개념부터 복습해야 하나요?",
+    answer: "정답 대신 2주차 검색·임베딩 개념부터 점검해 보세요.",
+    createdAt: "2026-07-08 19:14"
+  }
+];
+
+export const demoLogs: DemoLog[] = [
+  {
+    id: "log-1",
+    role: "student",
+    course: "문제해결 SWE2026_41",
+    user: "학생 20******12",
+    question: "RAG 검색 순서를 설명해 주세요.",
+    source: "2주차 RAG 개요 p.7",
+    model: "gpt-4.1-mini",
+    responseTime: 2.4,
+    createdAt: "2026-07-09 14:32"
+  },
+  {
+    id: "log-2",
+    role: "professor",
+    course: "생성형 AI 활용 AI301_01",
+    user: "김교수",
+    question: "3주차 자료 처리 상태를 점검해 주세요.",
+    source: "출처 없음",
+    model: "gpt-4.1-mini",
+    responseTime: 1.8,
+    createdAt: "2026-07-09 11:08"
+  }
+];
+
+export const dashboardMetrics: DashboardMetric[] = [
+  { label: "전체 사용자", value: "1,284", detail: "주간 활성 642명" },
+  { label: "활성 과목", value: "18", detail: "전체 21개 과목" },
+  { label: "이번 주 질문", value: "3,842", detail: "지난주 대비 12% 증가" },
+  { label: "출처 포함률", value: "94.6%", detail: "목표 90% 이상" },
+  { label: "평균 응답 시간", value: "3.2초", detail: "목표 10초 이내" },
+  { label: "자료 처리 성공률", value: "98.1%", detail: "실패 3건" }
+];
+
 export const materials: CourseMaterial[] = [
   {
     id: "material-week-01",
