@@ -72,7 +72,7 @@ export function validateAttachment(file: File, role: AgentRole): string | null {
       : "PDF, DOCX, TXT, PNG, JPG, JPEG 파일만 첨부할 수 있습니다.";
   }
   if (file.size > limitMb * 1024 * 1024) {
-    return `${role === "professor" ? "교수 참고 문서" : "학생 첨부 파일"}의 파일은 ${limitMb}MB 이하만 첨부할 수 있습니다.`;
+    return `${role === "professor" ? "교수 참고 문서" : "학생 첨부 파일"}는 파일당 ${limitMb}MB 이하만 첨부할 수 있습니다.`;
   }
   return null;
 }

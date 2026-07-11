@@ -50,7 +50,7 @@ describe("validateAttachment", () => {
 
     expect(validateAttachment(image, "student")).toBeNull();
     expect(validateAttachment(hugePdf, "professor")).toBe(
-      "교수 참고 문서의 파일은 20MB 이하만 첨부할 수 있습니다."
+      "교수 참고 문서는 파일당 20MB 이하만 첨부할 수 있습니다."
     );
   });
 });
