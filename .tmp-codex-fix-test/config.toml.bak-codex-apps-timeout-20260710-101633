@@ -1,0 +1,128 @@
+model = "gpt-5.5"
+approval_policy = "never"
+model_reasoning_effort = "medium"
+notify = [ "C:\\Users\\이용하\\AppData\\Local\\OpenAI\\Codex\\runtimes\\cua_node\\1b23c930bdf84ed6\\bin\\node_modules\\@oai\\sky\\bin\\windows\\codex-computer-use.exe", "turn-ended" ]
+service_tier = "default"
+personality = "pragmatic"
+[projects.'c:\users\이용하\desktop\mrdang-backend-develop']
+trust_level = "trusted"
+
+[projects.'c:\users\이용하\desktop\mvp-frontend-nextjs']
+trust_level = "trusted"
+
+[projects.'c:\users\이용하\desktop\mrdang-backend']
+trust_level = "trusted"
+
+[projects.'c:\users\이용하\desktop\hw3']
+trust_level = "trusted"
+
+[projects.'c:\users\이용하\desktop\mrdang']
+trust_level = "trusted"
+
+[projects.'c:\users\이용하']
+trust_level = "trusted"
+
+[projects.'c:\users\이용하\desktop\codex_study']
+trust_level = "trusted"
+
+[projects.'c:\windows\system32']
+trust_level = "trusted"
+
+[projects.'c:\users\이용하\desktop\videcoding\study-01']
+trust_level = "trusted"
+
+[projects.'c:\users\이용하\desktop\videcoding\study-02']
+trust_level = "trusted"
+
+[projects.'c:\users\이용하\documents\codex\2026-07-09\notion-plugin-notion-openai-curated-remote']
+trust_level = "trusted"
+
+[projects.'c:\users\이용하\desktop\videcoding\study-03']
+trust_level = "trusted"
+
+[projects.'c:\users\이용하\documents\codex\2026-07-09\notion-ai-3']
+trust_level = "trusted"
+
+[projects.'c:\users\이용하\desktop\skku_ai_agent']
+trust_level = "trusted"
+
+[projects.'c:\users\이용하\documents\new project']
+trust_level = "trusted"
+
+[projects.'c:\users\이용하\documents\commit-hero']
+trust_level = "trusted"
+
+[windows]
+sandbox = "unelevated"
+
+[marketplaces.openai-bundled]
+last_updated = "2026-07-10T01:11:50Z"
+source_type = "local"
+source = '\\?\C:\Users\이용하\.codex\.tmp\bundled-marketplaces\openai-bundled'
+
+[marketplaces.devbrother-skills]
+last_updated = "2026-07-09T11:20:17Z"
+last_revision = "de4998a1ad579d3d8654faf66a9e9a9ae09af894"
+source_type = "git"
+source = "https://github.com/devbrother2024/skills.git"
+
+[plugins."github@openai-curated"]
+enabled = true
+
+[plugins."browser@openai-bundled"]
+enabled = true
+
+[plugins."computer-use@openai-bundled"]
+enabled = true
+
+[plugins."chrome@openai-bundled"]
+enabled = true
+
+[plugins."devbrother-skills@devbrother-skills"]
+enabled = true
+
+[desktop]
+conversationDetailMode = "STEPS_COMMANDS"
+keepRemoteControlAwakeWhilePluggedIn = true
+appearanceTheme = "dark"
+followUpQueueMode = "queue"
+
+[desktop.open-in-target-preferences]
+global = "vscode"
+
+[desktop.open-in-target-preferences.perPath]
+'C:\Users\이용하\Desktop\mvp-frontend-nextjs' = "vscode"
+
+[features]
+js_repl = false
+memories = true
+
+[mcp_servers.node_repl]
+args = []
+command = 'C:\Users\이용하\AppData\Local\OpenAI\Codex\runtimes\cua_node\1b23c930bdf84ed6\bin\node_repl.exe'
+startup_timeout_sec = 120
+
+[mcp_servers.node_repl.env]
+NODE_REPL_NATIVE_PIPE_CONNECT_TIMEOUT_MS = "1000"
+NODE_REPL_NODE_MODULE_DIRS = 'C:\Users\이용하\AppData\Local\OpenAI\Codex\runtimes\cua_node\1b23c930bdf84ed6\bin\node_modules'
+NODE_REPL_NODE_PATH = 'C:\Users\이용하\AppData\Local\OpenAI\Codex\runtimes\cua_node\1b23c930bdf84ed6\bin\node.exe'
+NODE_REPL_TRUSTED_CODE_PATHS = 'C:\Users\이용하\.codex'
+CODEX_HOME = 'C:\Users\이용하\.codex'
+NODE_REPL_TRUSTED_BROWSER_CLIENT_SHA256S = "566be6ef352eb3de899adc56a9cd7b5e46c8f65b00e56b5630dd7a580e10cbea,97669f77b3ca7114a2df05d55646416ea34b28100c07213ef9f643803449ef2f"
+BROWSER_USE_AVAILABLE_BACKENDS = "chrome,iab"
+NODE_REPL_INSTRUCTIONS_USE_CASE_BROWSER = "Control the in-app browser in conjunction with the Browser Plugin."
+NODE_REPL_INSTRUCTIONS_USE_CASE_CHROME = "Control the Chrome browser in conjunction with the Chrome Plugin. Prefer this method of controlling Chrome over alternatives (such as Computer Use) unless the user explicitly mentions an alternative."
+BROWSER_USE_CODEX_APP_BUILD_FLAVOR = "prod"
+BROWSER_USE_CODEX_APP_VERSION = "26.623.141536"
+SKY_CUA_NATIVE_PIPE = "1"
+SKY_CUA_NATIVE_PIPE_DIRECTORY = '\\.\pipe\codex-computer-use-e08ae1c0-0e59-4df0-aeca-d78bbee88845'
+CODEX_CLI_PATH = 'C:\Users\이용하\AppData\Local\OpenAI\Codex\bin\ea1c60319a1dcb19\codex.exe'
+
+[tui.model_availability_nux]
+"gpt-5.5" = 4
+
+[memories]
+use_memories = true
+generate_memories = true
+
+
