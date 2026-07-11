@@ -1,7 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import { materials, personalityOptions } from "./demo-data";
-import { ProfessorControls, StudentControls } from "./role-controls";
+import { AttachmentList, ProfessorControls, StudentControls } from "./role-controls";
 import { createInitialState } from "./state";
 
 describe("StudentControls", () => {
@@ -16,6 +16,28 @@ describe("StudentControls", () => {
     expect(markup).toContain(
       'accept=".pdf,.docx,.txt,.png,.jpg,.jpeg,image/png,image/jpeg"'
     );
+  });
+});
+
+describe("AttachmentList", () => {
+  it("renders a meaningful alt for an image preview", () => {
+    const markup = renderToStaticMarkup(
+      <AttachmentList
+        role="student"
+        attachments={[
+          {
+            id: "attachment-1",
+            name: "lecture-diagram.png",
+            size: 1024,
+            type: "image/png",
+            previewUrl: "blob:lecture-diagram"
+          }
+        ]}
+        dispatch={vi.fn()}
+      />
+    );
+
+    expect(markup).toContain('alt="lecture-diagram.png 미리보기"');
   });
 });
 

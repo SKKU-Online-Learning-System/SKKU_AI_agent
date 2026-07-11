@@ -18,11 +18,21 @@ type AttachmentControlProps = {
   dispatch: React.Dispatch<CourseAgentAction>;
 };
 
-type AttachmentListProps = AttachmentControlProps;
+type AttachmentListProps = AttachmentControlProps & {
+  createdUrls?: React.MutableRefObject<Set<string>>;
+};
 
-export function AttachmentList({ role, attachments, dispatch }: AttachmentListProps) {
+export function AttachmentList({
+  role,
+  attachments,
+  dispatch,
+  createdUrls
+}: AttachmentListProps) {
   const removeAttachment = (attachment: AttachmentItem) => {
-    if (attachment.previewUrl) URL.revokeObjectURL(attachment.previewUrl);
+    if (attachment.previewUrl) {
+      URL.revokeObjectURL(attachment.previewUrl);
+      createdUrls?.current.delete(attachment.previewUrl);
+    }
     dispatch({ type: "remove-attachment", role, attachmentId: attachment.id });
   };
 
@@ -32,7 +42,7 @@ export function AttachmentList({ role, attachments, dispatch }: AttachmentListPr
         <li key={attachment.id}>
           {attachment.previewUrl ? (
             // eslint-disable-next-line @next/next/no-img-element
-            <img src={attachment.previewUrl} alt="" />
+            <img src={attachment.previewUrl} alt={`${attachment.name} 미리보기`} />
           ) : null}
           <span>{attachment.name}</span>
           <button type="button" onClick={() => removeAttachment(attachment)}>
@@ -96,7 +106,12 @@ function AttachmentControl({ role, attachments, dispatch }: AttachmentControlPro
         <input type="file" multiple accept={accept} hidden onChange={addAttachments} />
       </label>
       {error ? <p role="alert">{error}</p> : null}
-      <AttachmentList role={role} attachments={attachments} dispatch={dispatch} />
+      <AttachmentList
+        role={role}
+        attachments={attachments}
+        dispatch={dispatch}
+        createdUrls={createdUrls}
+      />
     </div>
   );
 }
