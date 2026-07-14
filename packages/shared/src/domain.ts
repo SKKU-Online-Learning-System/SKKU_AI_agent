@@ -1,4 +1,4 @@
-export type UserRole = "student" | "instructor" | "admin";
+export type UserRole = "student" | "professor" | "admin";
 
 export type CourseAgentStatus = "draft" | "active" | "disabled";
 

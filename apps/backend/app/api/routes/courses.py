@@ -1,28 +1,70 @@
-from datetime import datetime, timezone
-from uuid import uuid4
+from typing import Annotated, Optional
 
-from fastapi import APIRouter, status
+from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy.orm import Session
 
+from app.api.deps import get_current_user, require_course_access, require_role
+from app.db.session import get_db
+from app.models import Course, User, UserRole
 from app.schemas import CourseCreate, CourseRead
+from app.services.rbac_service import list_accessible_courses
 
 router = APIRouter(prefix="/courses", tags=["courses"])
 
 
+def course_to_read(course: Course, code: Optional[str] = None) -> CourseRead:
+    return CourseRead(
+        id=course.id,
+        code=code or course.id,
+        title=course.name,
+        term=course.semester,
+        instructor_id=course.professor_id,
+        agent_status="active" if course.is_active else "disabled",
+        created_at=course.created_at,
+        updated_at=course.updated_at,
+    )
+
+
 @router.get("", response_model=list[CourseRead])
-async def list_courses() -> list[CourseRead]:
-    return []
+def list_courses(
+    session: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user)],
+) -> list[CourseRead]:
+    return [course_to_read(course) for course in list_accessible_courses(session, current_user)]
 
 
 @router.post("", response_model=CourseRead, status_code=status.HTTP_201_CREATED)
-async def create_course(payload: CourseCreate) -> CourseRead:
-    now = datetime.now(timezone.utc)
-    return CourseRead(
-        id=str(uuid4()),
-        code=payload.code,
-        title=payload.title,
-        term=payload.term,
-        instructor_id=payload.instructor_id,
-        agent_status=payload.agent_status,
-        created_at=now,
-        updated_at=now,
+def create_course(
+    payload: CourseCreate,
+    session: Annotated[Session, Depends(get_db)],
+    _current_user: Annotated[User, Depends(require_role(UserRole.admin))],
+) -> CourseRead:
+    professor = session.get(User, payload.instructor_id)
+    if professor is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Professor not found",
+        )
+    if professor.role != UserRole.professor:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Instructor must have professor role",
+        )
+
+    course = Course(
+        name=payload.title,
+        semester=payload.term,
+        description=None,
+        professor_id=professor.id,
+        is_active=payload.agent_status == "active",
     )
+    session.add(course)
+    session.commit()
+    session.refresh(course)
+
+    return course_to_read(course, code=payload.code)
+
+
+@router.get("/{course_id}", response_model=CourseRead)
+def get_course(course: Annotated[Course, Depends(require_course_access)]) -> CourseRead:
+    return course_to_read(course)

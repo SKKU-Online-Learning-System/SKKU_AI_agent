@@ -6,7 +6,7 @@
   "$defs": {
     "UserRole": {
       "type": "string",
-      "enum": ["student", "instructor", "admin"]
+      "enum": ["student", "professor", "admin"]
     },
     "CourseAgentStatus": {
       "type": "string",

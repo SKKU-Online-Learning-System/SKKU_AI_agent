@@ -19,7 +19,7 @@ class CamelModel(BaseModel):
     )
 
 
-UserRole = Literal["student", "instructor", "admin"]
+UserRole = Literal["student", "professor", "admin"]
 CourseAgentStatus = Literal["draft", "active", "disabled"]
 CourseMaterialStatus = Literal["uploaded", "processing", "ready", "failed"]
 ChatSessionStatus = Literal["open", "archived"]

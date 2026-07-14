@@ -1,6 +1,13 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 
-router = APIRouter(prefix="/admin", tags=["admin"])
+from app.api.deps import require_role
+from app.models import UserRole
+
+router = APIRouter(
+    prefix="/admin",
+    tags=["admin"],
+    dependencies=[Depends(require_role(UserRole.admin))],
+)
 
 
 @router.get("/stats")
