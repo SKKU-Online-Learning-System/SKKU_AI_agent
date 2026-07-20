@@ -1,5 +1,6 @@
 from collections.abc import Generator
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 from uuid import UUID
 
@@ -244,13 +245,29 @@ def test_stage2_admin_professor_student_flow(stage2_api: Stage2Api) -> None:
         assert storage_path.is_file()
         assert stored_material.file_name != stored_material.original_file_name
         UUID(Path(stored_material.file_name).stem)
+        stored_material.created_at = datetime(2020, 1, 1, tzinfo=timezone.utc)
+        session.commit()
+
+    second_uploaded = stage2_api.upload(
+        stage2_api.professor_course_id,
+        professor_token,
+        "week2.txt",
+        b"next",
+    )
+    assert second_uploaded.status_code == 202
+    second_material = second_uploaded.json()
+    with stage2_api.session_factory() as session:
+        second_stored_material = session.get(CourseMaterial, second_material["id"])
+        assert second_stored_material is not None
+        second_storage_path = Path(second_stored_material.storage_path)
+        assert second_storage_path.is_file()
 
     listed = stage2_api.get(
         f"/api/courses/{stage2_api.professor_course_id}/materials",
         professor_token,
     )
     assert listed.status_code == 200
-    assert [item["id"] for item in listed.json()] == [material["id"]]
+    assert [item["id"] for item in listed.json()] == [second_material["id"], material["id"]]
     assert stage2_api.upload(
         stage2_api.professor_course_id,
         student_token,
@@ -267,9 +284,16 @@ def test_stage2_admin_professor_student_flow(stage2_api: Stage2Api) -> None:
         headers=stage2_api.headers(professor_token),
     )
     assert deleted.status_code == 204
+    second_deleted = stage2_api.client.delete(
+        f"/api/courses/{stage2_api.professor_course_id}/materials/{second_material['id']}",
+        headers=stage2_api.headers(professor_token),
+    )
+    assert second_deleted.status_code == 204
     with stage2_api.session_factory() as session:
         assert session.get(CourseMaterial, material["id"]) is None
+        assert session.get(CourseMaterial, second_material["id"]) is None
     assert not storage_path.exists()
+    assert not second_storage_path.exists()
 
     other_course_upload = stage2_api.upload(
         stage2_api.inaccessible_course_id,

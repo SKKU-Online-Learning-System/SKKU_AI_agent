@@ -27,7 +27,7 @@ async def list_materials(
         session.scalars(
             select(CourseMaterial)
             .where(CourseMaterial.course_id == course.id)
-            .order_by(CourseMaterial.created_at)
+            .order_by(CourseMaterial.created_at.desc())
         )
     )
 
