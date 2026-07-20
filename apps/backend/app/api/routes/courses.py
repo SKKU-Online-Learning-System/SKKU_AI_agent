@@ -47,7 +47,7 @@ def create_course(
         )
     if professor.role != UserRole.professor:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=422,
             detail="Instructor must have professor role",
         )
 

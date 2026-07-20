@@ -44,6 +44,22 @@ class CourseCreate(CamelModel):
     agent_status: CourseAgentStatus = "draft"
 
 
+class AdminCourseCreate(CamelModel):
+    name: str = Field(min_length=1, max_length=255)
+    semester: str = Field(min_length=1, max_length=40)
+    description: Optional[str] = None
+    professor_id: str
+    is_active: bool = True
+
+
+class AdminCourseUpdate(CamelModel):
+    name: Optional[str] = Field(default=None, min_length=1, max_length=255)
+    semester: Optional[str] = Field(default=None, min_length=1, max_length=40)
+    description: Optional[str] = None
+    professor_id: Optional[str] = None
+    is_active: Optional[bool] = None
+
+
 class CourseRead(CamelModel):
     id: str
     code: str
@@ -53,6 +69,29 @@ class CourseRead(CamelModel):
     agent_status: CourseAgentStatus
     created_at: datetime
     updated_at: datetime
+
+
+class AdminCourseRead(CamelModel):
+    id: str
+    name: str
+    semester: str
+    description: Optional[str] = None
+    professor_id: str
+    professor_name: str
+    is_active: bool
+    student_access_count: int
+    created_at: datetime
+    updated_at: datetime
+
+
+class AdminCourseAccessRead(CamelModel):
+    id: str
+    course_id: str
+    user_id: str
+    user_name: str
+    user_email: EmailStr
+    access_role: str
+    created_at: datetime
 
 
 class CourseMaterialRead(CamelModel):

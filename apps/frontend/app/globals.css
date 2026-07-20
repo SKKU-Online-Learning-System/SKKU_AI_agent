@@ -33,6 +33,7 @@ body {
 
 button,
 input,
+select,
 textarea {
   font: inherit;
 }
@@ -349,6 +350,243 @@ p {
 .role-page-grid span {
   color: var(--icampus-muted);
   font-size: 13px;
+}
+
+.admin-course-page {
+  display: grid;
+  gap: 18px;
+}
+
+.admin-page-header {
+  align-items: end;
+  border-bottom: 1px solid var(--icampus-border);
+  display: flex;
+  gap: 16px;
+  justify-content: space-between;
+  padding-bottom: 16px;
+}
+
+.admin-page-header > div {
+  display: grid;
+  gap: 8px;
+}
+
+.admin-page-header h1 {
+  font-size: 26px;
+  line-height: 1.25;
+}
+
+.admin-page-header p {
+  color: var(--icampus-muted);
+  line-height: 1.55;
+}
+
+.primary-action,
+.secondary-action,
+.form-actions a,
+.table-actions a {
+  align-items: center;
+  border-radius: 3px;
+  display: inline-flex;
+  font-weight: 700;
+  justify-content: center;
+  min-height: 38px;
+  padding: 0 12px;
+  text-decoration: none;
+}
+
+.primary-action,
+.admin-course-form button,
+.admin-filter-bar button {
+  background: var(--icampus-teal);
+  border: 1px solid #075964;
+  color: white;
+}
+
+.secondary-action,
+.form-actions a,
+.table-actions a {
+  background: white;
+  border: 1px solid #98a3aa;
+  color: #34434b;
+}
+
+.admin-filter-bar {
+  align-items: end;
+  background: white;
+  border: 1px solid var(--icampus-border-soft);
+  border-radius: 4px;
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(4, minmax(120px, 1fr)) auto;
+  padding: 14px;
+}
+
+.admin-filter-bar label,
+.admin-course-form label {
+  color: #33434b;
+  display: grid;
+  font-size: 13px;
+  font-weight: 700;
+  gap: 7px;
+}
+
+.admin-filter-bar input,
+.admin-filter-bar select,
+.admin-course-form input,
+.admin-course-form select,
+.admin-course-form textarea {
+  background: white;
+  border: 1px solid #9ba6ad;
+  border-radius: 3px;
+  min-height: 40px;
+  padding: 8px 10px;
+}
+
+.admin-course-form textarea {
+  resize: vertical;
+}
+
+.admin-filter-bar button,
+.admin-course-form button {
+  border-radius: 3px;
+  font-weight: 700;
+  min-height: 40px;
+  padding: 0 14px;
+}
+
+.admin-filter-bar input:focus,
+.admin-filter-bar select:focus,
+.admin-course-form input:focus,
+.admin-course-form select:focus,
+.admin-course-form textarea:focus {
+  border-color: var(--icampus-teal);
+  box-shadow: 0 0 0 2px rgba(11, 111, 123, 0.12);
+  outline: 0;
+}
+
+.admin-alert,
+.admin-success {
+  border-radius: 3px;
+  font-size: 13px;
+  line-height: 1.45;
+  padding: 10px 12px;
+}
+
+.admin-alert {
+  background: #fff1f0;
+  border: 1px solid #f0b8b3;
+  color: var(--danger);
+}
+
+.admin-success {
+  background: #eff8f1;
+  border: 1px solid #b9dbbf;
+  color: var(--success);
+}
+
+.admin-table-wrap {
+  background: white;
+  border: 1px solid var(--icampus-border-soft);
+  border-radius: 4px;
+  overflow-x: auto;
+}
+
+.admin-table {
+  border-collapse: collapse;
+  min-width: 920px;
+  width: 100%;
+}
+
+.admin-table th,
+.admin-table td {
+  border-bottom: 1px solid var(--icampus-border-soft);
+  padding: 12px;
+  text-align: left;
+  vertical-align: top;
+}
+
+.admin-table th {
+  background: #f3f6f8;
+  color: #34434b;
+  font-size: 13px;
+}
+
+.admin-table td {
+  font-size: 14px;
+  line-height: 1.45;
+}
+
+.admin-table td:first-child {
+  display: grid;
+  gap: 4px;
+  min-width: 220px;
+}
+
+.admin-table td:first-child span {
+  color: var(--icampus-muted);
+  font-size: 12px;
+}
+
+.admin-table td > span[data-active] {
+  background: #eff8f1;
+  border: 1px solid #b9dbbf;
+  border-radius: 999px;
+  color: var(--success);
+  display: inline-flex;
+  font-size: 12px;
+  font-weight: 800;
+  padding: 3px 8px;
+}
+
+.admin-table td > span[data-active="false"] {
+  background: #f6f7f8;
+  border-color: #d7dde2;
+  color: var(--icampus-muted);
+}
+
+.table-actions,
+.form-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.table-actions button {
+  background: white;
+  border: 1px solid #98a3aa;
+  border-radius: 3px;
+  color: #34434b;
+  font-weight: 700;
+  min-height: 38px;
+  padding: 0 12px;
+}
+
+.admin-course-form {
+  background: white;
+  border: 1px solid var(--icampus-border-soft);
+  border-radius: 4px;
+  display: grid;
+  gap: 16px;
+  max-width: 760px;
+  padding: 18px;
+}
+
+.checkbox-field {
+  align-items: center;
+  display: flex !important;
+  gap: 8px !important;
+}
+
+.checkbox-field input {
+  accent-color: var(--icampus-teal);
+  min-height: auto;
+  padding: 0;
+}
+
+.form-actions {
+  border-top: 1px solid var(--icampus-border-soft);
+  padding-top: 16px;
 }
 
 .icampus-shell {
@@ -902,6 +1140,15 @@ p {
 
   .app-content {
     padding: 18px 14px;
+  }
+
+  .admin-page-header {
+    align-items: start;
+    display: grid;
+  }
+
+  .admin-filter-bar {
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .icampus-shell {

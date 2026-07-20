@@ -4,7 +4,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   accessTokenStorageKey,
   apiRequest,
+  createAdminCourse,
   clearAccessToken,
+  listAdminCourses,
   loginRequest,
   saveAccessToken
 } from "./api";
@@ -60,5 +62,56 @@ describe("api client", () => {
     expect(localStorage.getItem(accessTokenStorageKey)).toBe("issued-token");
     clearAccessToken();
     expect(localStorage.getItem(accessTokenStorageKey)).toBeNull();
+  });
+
+  it("builds admin course filter queries and JSON payloads", async () => {
+    saveAccessToken("admin-token");
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(Response.json([]))
+      .mockResolvedValueOnce(
+        Response.json({
+          id: "course-1",
+          name: "AI",
+          semester: "2026-2",
+          description: null,
+          professorId: "professor-1",
+          professorName: "Professor",
+          isActive: true,
+          studentAccessCount: 0,
+          createdAt: "2026-07-20T00:00:00.000Z",
+          updatedAt: "2026-07-20T00:00:00.000Z"
+        })
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await listAdminCourses({
+      isActive: true,
+      keyword: "AI",
+      professorId: "professor-1",
+      semester: "2026-2"
+    });
+    await createAdminCourse({
+      name: "AI",
+      semester: "2026-2",
+      description: null,
+      professorId: "professor-1",
+      isActive: true
+    });
+
+    expect(fetchMock.mock.calls[0][0]).toContain(
+      "/api/admin/courses?semester=2026-2&is_active=true&professor_id=professor-1&keyword=AI"
+    );
+    expect(fetchMock.mock.calls[1][0]).toContain("/api/admin/courses");
+    expect(fetchMock.mock.calls[1][1]?.method).toBe("POST");
+    expect(fetchMock.mock.calls[1][1]?.body).toBe(
+      JSON.stringify({
+        name: "AI",
+        semester: "2026-2",
+        description: null,
+        professorId: "professor-1",
+        isActive: true
+      })
+    );
   });
 });

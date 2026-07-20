@@ -1,5 +1,9 @@
 from app.schemas.auth import AuthUserRead, LoginRequest, LoginResponse
 from app.schemas.domain import (
+    AdminCourseAccessRead,
+    AdminCourseCreate,
+    AdminCourseRead,
+    AdminCourseUpdate,
     ChatLogRead,
     ChatRequest,
     ChatResponse,
@@ -13,6 +17,10 @@ from app.schemas.domain import (
 )
 
 __all__ = [
+    "AdminCourseAccessRead",
+    "AdminCourseCreate",
+    "AdminCourseRead",
+    "AdminCourseUpdate",
     "AuthUserRead",
     "ChatLogRead",
     "ChatRequest",
