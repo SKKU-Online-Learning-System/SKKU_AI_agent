@@ -40,31 +40,32 @@ export default function LoginPage() {
   };
 
   return (
-    <main className="login-page">
-      <section className="login-panel" aria-labelledby="login-title">
-        <div>
-          <span>SKKU Course Agent</span>
-          <h1 id="login-title">로그인</h1>
-          <p>강의자료 기반 AI 코스 에이전트에 접속합니다.</p>
-        </div>
+    <main className="icampus-login-page">
+      <section className="icampus-login" aria-labelledby="login-title">
+        <h1 id="login-title">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img alt="성균관대학교 i-Campus" src="/icampus-login-logo.png" />
+        </h1>
         <form onSubmit={handleSubmit}>
           <label>
-            이메일
+            <span>아이디 또는 이메일</span>
             <input
-              autoComplete="email"
+              autoComplete="username"
               name="email"
               onChange={(event) => setEmail(event.target.value)}
+              placeholder="ID"
               required
               type="email"
               value={email}
             />
           </label>
           <label>
-            비밀번호
+            <span>비밀번호</span>
             <input
               autoComplete="current-password"
               name="password"
               onChange={(event) => setPassword(event.target.value)}
+              placeholder="Password"
               required
               type="password"
               value={password}
@@ -72,9 +73,12 @@ export default function LoginPage() {
           </label>
           {errorMessage ? <p role="alert">{errorMessage}</p> : null}
           <button disabled={isSubmitting || status === "loading"} type="submit">
-            {isSubmitting ? "로그인 중" : "로그인"}
+            {isSubmitting ? "LOGIN..." : "LOGIN"}
           </button>
         </form>
+        <p className="icampus-login-help">
+          성균관대학교 강의자료 기반 AI 코스 에이전트입니다.
+        </p>
       </section>
     </main>
   );

@@ -108,102 +108,66 @@ p {
   font-weight: 700;
 }
 
-.login-page {
-  align-items: center;
-  background:
-    linear-gradient(135deg, rgba(6, 59, 104, 0.94), rgba(11, 111, 123, 0.86)),
-    url("/skku-logo-white.PNG") left 28px top 28px / 88px 88px no-repeat,
-    var(--icampus-navy);
-  display: grid;
-  min-height: 100vh;
-  padding: 24px;
-}
-
-.login-panel {
+.icampus-login-page {
   background: white;
-  border: 1px solid #d6dde3;
-  border-radius: 4px;
-  display: grid;
-  gap: 26px;
-  justify-self: center;
-  max-width: 440px;
-  padding: 32px;
-  width: min(100%, 440px);
+  min-height: 100vh;
+  padding: 96px 24px 40px;
 }
 
-.login-panel > div {
-  display: grid;
-  gap: 7px;
+.icampus-login {
+  margin: 0 auto;
+  max-width: 600px;
 }
 
-.login-panel span {
-  color: var(--icampus-teal);
-  font-size: 13px;
-  font-weight: 800;
-  text-transform: uppercase;
+.icampus-login h1 {
+  border-bottom: 1px solid #d9d9d9;
+  margin: 0 0 48px;
+  padding: 24px 0;
 }
 
-.login-panel h1 {
-  font-size: 28px;
-  line-height: 1.2;
+.icampus-login h1 img {
+  display: block;
+  height: auto;
+  width: 283px;
 }
 
-.login-panel p {
-  color: var(--icampus-muted);
-  line-height: 1.5;
+.icampus-login form {
+  margin: 0 auto;
+  max-width: 400px;
 }
 
-.login-panel form {
-  display: grid;
-  gap: 16px;
+.icampus-login label {
+  display: block;
 }
 
-.login-panel label {
-  color: #33434b;
-  display: grid;
-  font-size: 13px;
-  font-weight: 700;
-  gap: 7px;
+.icampus-login label span {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
 }
 
-.login-panel input {
-  border: 1px solid #9ba6ad;
-  border-radius: 3px;
-  min-height: 44px;
-  padding: 10px 12px;
+.icampus-login input {
+  border: 1px solid #dedede;
+  min-height: 58px;
+  padding: 0 18px;
+  width: 100%;
 }
 
-.login-panel input:focus {
-  border-color: var(--icampus-teal);
-  box-shadow: 0 0 0 2px rgba(11, 111, 123, 0.14);
-  outline: 0;
+.icampus-login label + label input {
+  border-top: 0;
 }
 
-.login-panel [role="alert"] {
-  background: #fff1f0;
-  border: 1px solid #f0b8b3;
-  color: var(--danger);
-  font-size: 13px;
-  line-height: 1.45;
-  padding: 10px 12px;
-}
-
-.login-panel button {
-  align-items: center;
-  background: var(--icampus-teal);
-  border: 1px solid #075964;
-  border-radius: 3px;
+.icampus-login button {
+  background: #4e8e0d;
+  border: 0;
   color: white;
-  display: inline-flex;
-  font-weight: 700;
-  justify-content: center;
-  min-height: 42px;
-  padding: 0 16px;
-}
-
-.login-panel button:disabled {
-  background: #aeb8bd;
-  border-color: #aeb8bd;
+  font-size: 22px;
+  font-weight: 800;
+  min-height: 65px;
+  margin-top: 20px;
+  width: 100%;
 }
 
 .icampus-app-shell {
