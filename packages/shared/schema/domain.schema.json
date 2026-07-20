@@ -45,6 +45,7 @@
         "title",
         "term",
         "instructorId",
+        "instructorName",
         "agentStatus",
         "createdAt",
         "updatedAt"
@@ -55,6 +56,7 @@
         "title": { "type": "string" },
         "term": { "type": "string" },
         "instructorId": { "type": "string" },
+        "instructorName": { "type": "string" },
         "agentStatus": { "$ref": "#/$defs/CourseAgentStatus" },
         "createdAt": { "type": "string", "format": "date-time" },
         "updatedAt": { "type": "string", "format": "date-time" }

@@ -7,9 +7,13 @@ import {
   apiRequest,
   createAdminCourse,
   clearAccessToken,
+  deleteCourseMaterial,
   listAdminCourses,
+  listCourseMaterials,
+  listCourses,
   loginRequest,
-  saveAccessToken
+  saveAccessToken,
+  uploadCourseMaterial
 } from "./api";
 
 beforeEach(() => {
@@ -129,5 +133,48 @@ describe("api client", () => {
       status: 0,
       message: "API 서버에 연결할 수 없습니다. 백엔드 실행 상태와 API 주소를 확인해 주세요."
     } satisfies Partial<ApiError>);
+  });
+
+  it("lists courses", async () => {
+    const fetchMock = vi.fn<typeof fetch>(async () => Response.json([]));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await listCourses();
+
+    expect(fetchMock.mock.calls[0][0]).toContain("/api/courses");
+    expect(fetchMock.mock.calls[0][1]?.method).toBeUndefined();
+  });
+
+  it("lists materials for a course", async () => {
+    const fetchMock = vi.fn<typeof fetch>(async () => Response.json([]));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await listCourseMaterials("course-1");
+
+    expect(fetchMock.mock.calls[0][0]).toContain("/api/courses/course-1/materials");
+    expect(fetchMock.mock.calls[0][1]?.method).toBeUndefined();
+  });
+
+  it("uploads a material with FormData without forcing JSON content type", async () => {
+    const fetchMock = vi.fn<typeof fetch>(async () => Response.json({}));
+    vi.stubGlobal("fetch", fetchMock);
+    const file = new File(["notes"], "week1.txt", { type: "text/plain" });
+
+    await uploadCourseMaterial("course-1", file);
+
+    const [, options] = fetchMock.mock.calls[0];
+    expect(options?.method).toBe("POST");
+    expect(options?.body).toBeInstanceOf(FormData);
+    expect(new Headers(options?.headers).has("Content-Type")).toBe(false);
+  });
+
+  it("deletes a material from a course", async () => {
+    const fetchMock = vi.fn<typeof fetch>(async () => new Response(null, { status: 204 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await deleteCourseMaterial("course-1", "material-1");
+
+    expect(fetchMock.mock.calls[0][0]).toContain("/api/courses/course-1/materials/material-1");
+    expect(fetchMock.mock.calls[0][1]?.method).toBe("DELETE");
   });
 });

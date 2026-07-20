@@ -28,6 +28,7 @@ export interface Course {
   title: string;
   term: string;
   instructorId: string;
+  instructorName: string;
   agentStatus: CourseAgentStatus;
   createdAt: string;
   updatedAt: string;

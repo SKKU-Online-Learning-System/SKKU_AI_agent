@@ -12,13 +12,18 @@ from app.services.rbac_service import list_accessible_courses
 router = APIRouter(prefix="/courses", tags=["courses"])
 
 
-def course_to_read(course: Course, code: Optional[str] = None) -> CourseRead:
+def course_to_read(
+    course: Course,
+    code: Optional[str] = None,
+    instructor_name: Optional[str] = None,
+) -> CourseRead:
     return CourseRead(
         id=course.id,
         code=code or course.id,
         title=course.name,
         term=course.semester,
         instructor_id=course.professor_id,
+        instructor_name=instructor_name or course.professor.name,
         agent_status="active" if course.is_active else "disabled",
         created_at=course.created_at,
         updated_at=course.updated_at,
@@ -62,7 +67,7 @@ def create_course(
     session.commit()
     session.refresh(course)
 
-    return course_to_read(course, code=payload.code)
+    return course_to_read(course, code=payload.code, instructor_name=professor.name)
 
 
 @router.get("/{course_id}", response_model=CourseRead)

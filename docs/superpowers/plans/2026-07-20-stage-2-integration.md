@@ -107,7 +107,7 @@ Expected: `pytest`, `ruff`, FastAPI, SQLAlchemy import 성공.
 ```python
 def test_professor_uploads_lists_and_deletes_material(material_api) -> None:
     uploaded = material_api.upload("professor", "owned", "week1.txt", b"note")
-    assert uploaded.status_code == 201
+    assert uploaded.status_code == 202
     body = uploaded.json()
     assert body["courseId"] == material_api.courses["owned"]
     assert body["originalFileName"] == "week1.txt"

@@ -54,6 +54,31 @@ export type AdminCourseFilters = {
   keyword?: string;
 };
 
+export type CourseSummary = {
+  id: string;
+  code: string;
+  title: string;
+  term: string;
+  instructorId: string;
+  instructorName: string;
+  agentStatus: "draft" | "active" | "disabled";
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type CourseMaterial = {
+  id: string;
+  courseId: string;
+  uploadedBy: string;
+  originalFileName: string;
+  fileType: string;
+  fileSize: number;
+  processingStatus: "pending" | "processing" | "completed" | "failed";
+  processingError?: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
 export class ApiError extends Error {
   status: number;
 
@@ -141,6 +166,29 @@ export function loginRequest(email: string, password: string): Promise<LoginResp
 
 export function fetchCurrentUser(accessToken?: string | null): Promise<AuthUser> {
   return apiRequest<AuthUser>("/api/auth/me", { accessToken });
+}
+
+export function listCourses(): Promise<CourseSummary[]> {
+  return apiRequest<CourseSummary[]>("/api/courses");
+}
+
+export function listCourseMaterials(courseId: string): Promise<CourseMaterial[]> {
+  return apiRequest<CourseMaterial[]>(`/api/courses/${courseId}/materials`);
+}
+
+export function uploadCourseMaterial(courseId: string, file: File): Promise<CourseMaterial> {
+  const body = new FormData();
+  body.set("file", file);
+  return apiRequest<CourseMaterial>(`/api/courses/${courseId}/materials`, {
+    body,
+    method: "POST"
+  });
+}
+
+export function deleteCourseMaterial(courseId: string, materialId: string): Promise<void> {
+  return apiRequest<void>(`/api/courses/${courseId}/materials/${materialId}`, {
+    method: "DELETE"
+  });
 }
 
 function adminCourseQuery(filters: AdminCourseFilters = {}): string {

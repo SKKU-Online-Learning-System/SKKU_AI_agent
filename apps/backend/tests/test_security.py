@@ -5,6 +5,7 @@ from datetime import datetime, timedelta, timezone
 import pytest
 from argon2 import PasswordHasher
 from jose import jwt
+from pydantic import ValidationError
 
 from app.core.config import Settings
 
@@ -17,8 +18,43 @@ def load_security_module():
 def test_auth_settings_have_secure_token_configuration() -> None:
     settings = Settings(_env_file=None)
 
+    assert settings.app_env == "local"
+    assert settings.jwt_secret == "local-dev-change-me"
     assert settings.jwt_algorithm == "HS256"
     assert settings.jwt_expires_in == 3600
+
+
+def test_local_settings_allow_documented_development_jwt_placeholder() -> None:
+    settings = Settings(
+        app_env="local",
+        jwt_secret="replace-with-a-long-random-secret",
+        _env_file=None,
+    )
+
+    assert settings.jwt_secret == "replace-with-a-long-random-secret"
+
+
+@pytest.mark.parametrize(
+    "jwt_secret",
+    [
+        "local-dev-change-me",
+        "replace-with-a-long-random-secret",
+        "short-production-secret",
+    ],
+)
+def test_nonlocal_settings_reject_insecure_jwt_secrets(jwt_secret: str) -> None:
+    with pytest.raises(ValidationError, match="JWT_SECRET"):
+        Settings(app_env="production", jwt_secret=jwt_secret, _env_file=None)
+
+
+def test_nonlocal_settings_accept_unique_jwt_secret_of_at_least_32_characters() -> None:
+    settings = Settings(
+        app_env="production",
+        jwt_secret="u9N4qT2mX7vL5cR8pK3sD6hJ1wF0aBzY",
+        _env_file=None,
+    )
+
+    assert settings.jwt_secret == "u9N4qT2mX7vL5cR8pK3sD6hJ1wF0aBzY"
 
 
 def test_password_service_verifies_argon2_hash_without_leaking_hash_errors() -> None:

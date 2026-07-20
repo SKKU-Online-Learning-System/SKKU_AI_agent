@@ -589,6 +589,163 @@ p {
   padding-top: 16px;
 }
 
+.course-list-page,
+.material-manager {
+  display: grid;
+  gap: 18px;
+}
+
+.course-list-page > header,
+.material-manager > header {
+  border-bottom: 1px solid var(--icampus-border);
+  display: grid;
+  gap: 8px;
+  padding-bottom: 16px;
+}
+
+.course-list-page h1,
+.material-manager h1 {
+  font-size: 26px;
+  line-height: 1.25;
+}
+
+.course-list-page header p,
+.material-manager header p {
+  color: var(--icampus-muted);
+  line-height: 1.55;
+}
+
+.course-table-wrap {
+  background: white;
+  border: 1px solid var(--icampus-border-soft);
+  border-radius: 4px;
+  overflow-x: auto;
+}
+
+.course-table {
+  border-collapse: collapse;
+  min-width: 680px;
+  width: 100%;
+}
+
+.course-table th,
+.course-table td {
+  border-bottom: 1px solid var(--icampus-border-soft);
+  padding: 12px;
+  text-align: left;
+  vertical-align: middle;
+}
+
+.course-table th {
+  background: #f3f6f8;
+  color: #34434b;
+  font-size: 13px;
+}
+
+.course-table td {
+  font-size: 14px;
+  line-height: 1.45;
+}
+
+.course-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.course-table button,
+.material-upload-form button {
+  background: var(--icampus-teal);
+  border: 1px solid #075964;
+  border-radius: 3px;
+  color: white;
+  font-weight: 700;
+  min-height: 38px;
+  padding: 0 12px;
+}
+
+.course-table button:disabled,
+.material-upload-form button:disabled {
+  background: #aeb8bd;
+  border-color: #aeb8bd;
+}
+
+.material-course-select,
+.material-upload-form label {
+  color: #33434b;
+  display: grid;
+  font-size: 13px;
+  font-weight: 700;
+  gap: 7px;
+}
+
+.material-course-select {
+  max-width: 520px;
+}
+
+.material-course-select select,
+.material-upload-form input {
+  background: white;
+  border: 1px solid #9ba6ad;
+  border-radius: 3px;
+  min-height: 40px;
+  padding: 8px 10px;
+}
+
+.material-upload-form {
+  align-items: end;
+  background: white;
+  border: 1px solid var(--icampus-border-soft);
+  border-radius: 4px;
+  display: grid;
+  gap: 12px;
+  grid-template-columns: minmax(260px, 1fr) auto;
+  padding: 14px;
+}
+
+.material-upload-form > p {
+  color: var(--icampus-muted);
+  font-size: 12px;
+  grid-column: 1 / -1;
+  line-height: 1.45;
+}
+
+.material-status {
+  background: #f6f7f8;
+  border: 1px solid #d7dde2;
+  border-radius: 999px;
+  color: var(--icampus-muted);
+  display: inline-flex;
+  font-size: 12px;
+  font-weight: 800;
+  padding: 3px 8px;
+}
+
+.material-status[data-status="active"],
+.material-status[data-status="completed"] {
+  background: #eff8f1;
+  border-color: #b9dbbf;
+  color: var(--success);
+}
+
+.material-status[data-status="pending"],
+.material-status[data-status="processing"],
+.material-status[data-status="draft"] {
+  background: #fff8e5;
+  border-color: #e5cf8d;
+  color: var(--warning);
+}
+
+.material-status[data-status="failed"] {
+  background: #fff1f0;
+  border-color: #f0b8b3;
+  color: var(--danger);
+}
+
+.empty-state {
+  color: var(--icampus-muted);
+  padding: 28px 12px !important;
+  text-align: center !important;
+}
+
 .icampus-shell {
   display: grid;
   grid-template-columns: 84px minmax(0, 1fr);
@@ -1151,6 +1308,15 @@ p {
     grid-template-columns: minmax(0, 1fr);
   }
 
+  .material-upload-form {
+    align-items: stretch;
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .material-upload-form > p {
+    grid-column: auto;
+  }
+
   .icampus-shell {
     display: block;
   }
@@ -1219,6 +1385,12 @@ p {
 
   .chat-column {
     min-height: 600px;
+  }
+}
+
+@media (max-width: 760px) {
+  .course-table-wrap {
+    max-width: calc(100vw - 28px);
   }
 }
 

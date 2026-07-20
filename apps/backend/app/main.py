@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.routes import admin, auth, chat, courses, health, materials
 from app.core.config import get_settings
+from app.middleware.upload_request_limit import UploadRequestSizeLimitMiddleware
 
 
 def create_app() -> FastAPI:
@@ -19,6 +20,10 @@ def create_app() -> FastAPI:
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
+    )
+    app.add_middleware(
+        UploadRequestSizeLimitMiddleware,
+        max_body_size=settings.max_upload_request_size_bytes,
     )
 
     app.include_router(health.router, prefix="/api")

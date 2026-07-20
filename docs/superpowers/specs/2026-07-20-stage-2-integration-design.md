@@ -76,7 +76,7 @@ API 계약은 다음과 같다.
 - `POST /api/courses/{course_id}/materials`
   - 과목 관리 권한 필요
   - `multipart/form-data`의 `file` 수신
-  - 파일 저장과 `CourseMaterial` 생성 후 HTTP 201 반환
+  - 파일 저장과 `CourseMaterial` 생성 후 HTTP 202 반환
 - `DELETE /api/courses/{course_id}/materials/{material_id}`
   - 과목 관리 권한 필요
   - 해당 과목 자료만 삭제 가능

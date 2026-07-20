@@ -10,6 +10,7 @@ export const activeCourse: Course = {
   title: "문제해결 SWE2026_41(조재민)",
   term: "2026-1",
   instructorId: "user-prof-kim",
+  instructorName: "김교수",
   agentStatus: "active",
   createdAt: now,
   updatedAt: now
