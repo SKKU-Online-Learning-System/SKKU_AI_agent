@@ -24,6 +24,7 @@ const activeCourse = {
   title: "인공지능개론",
   term: "2026-2",
   instructorId: "professor-1",
+  instructorName: "김교수",
   agentStatus: "active" as const,
   createdAt: "2026-07-20T00:00:00Z",
   updatedAt: "2026-07-20T00:00:00Z"
@@ -41,6 +42,8 @@ describe("CourseListClient", () => {
     render(<CourseListClient audience="student" />);
 
     expect(await screen.findByText("인공지능개론")).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: "담당 교수" })).toBeInTheDocument();
+    expect(screen.getByText("김교수")).toBeInTheDocument();
     expect(screen.getByText("2026-2")).toBeInTheDocument();
     expect(screen.getByText("활성")).toBeInTheDocument();
   });

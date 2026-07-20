@@ -1,8 +1,10 @@
+import logging
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
+from starlette.concurrency import run_in_threadpool
 
 from app.api.deps import (
     get_current_user,
@@ -16,6 +18,7 @@ from app.schemas import CourseMaterialRead
 from app.services.material_service import MaterialValidationError, remove_stored_file, save_upload
 
 router = APIRouter(tags=["materials"])
+logger = logging.getLogger(__name__)
 
 
 @router.get("/courses/{course_id}/materials", response_model=list[CourseMaterialRead])
@@ -66,13 +69,15 @@ async def upload_material(
     )
     session.add(material)
     try:
-        session.commit()
+        session.flush()
         session.refresh(material)
+        response = CourseMaterialRead.model_validate(material)
+        session.commit()
     except Exception:
         session.rollback()
-        remove_stored_file(stored.storage_path)
+        await run_in_threadpool(remove_stored_file, stored.storage_path)
         raise
-    return material
+    return response
 
 
 @router.delete(
@@ -96,4 +101,11 @@ async def delete_material(
     storage_path = material.storage_path
     session.delete(material)
     session.commit()
-    remove_stored_file(storage_path)
+    try:
+        await run_in_threadpool(remove_stored_file, storage_path)
+    except OSError:
+        logger.exception(
+            "Material file cleanup failed after database delete: material_id=%s storage_path=%s",
+            material_id,
+            storage_path,
+        )

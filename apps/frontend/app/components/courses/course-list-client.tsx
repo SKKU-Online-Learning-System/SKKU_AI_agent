@@ -79,6 +79,7 @@ export function CourseListClient({ audience }: CourseListClientProps) {
               <tr>
                 <th scope="col">과목명</th>
                 <th scope="col">과목 코드</th>
+                <th scope="col">담당 교수</th>
                 <th scope="col">학기</th>
                 <th scope="col">에이전트 상태</th>
               </tr>
@@ -86,11 +87,11 @@ export function CourseListClient({ audience }: CourseListClientProps) {
             <tbody>
               {isLoading ? (
                 <tr>
-                  <td colSpan={4}>과목 목록을 불러오고 있습니다.</td>
+                  <td colSpan={5}>과목 목록을 불러오고 있습니다.</td>
                 </tr>
               ) : courses.length === 0 ? (
                 <tr>
-                  <td className="empty-state" colSpan={4}>
+                  <td className="empty-state" colSpan={5}>
                     {emptyMessage}
                   </td>
                 </tr>
@@ -101,6 +102,7 @@ export function CourseListClient({ audience }: CourseListClientProps) {
                       <strong>{course.title}</strong>
                     </td>
                     <td>{course.code}</td>
+                    <td>{course.instructorName}</td>
                     <td>{course.term}</td>
                     <td>
                       <span

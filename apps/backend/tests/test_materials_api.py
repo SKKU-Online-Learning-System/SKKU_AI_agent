@@ -1,20 +1,26 @@
+import asyncio
 from collections.abc import Generator
 from dataclasses import dataclass
+from io import BytesIO
 from pathlib import Path
+from threading import get_ident
 from uuid import UUID
 
 import pytest
+from fastapi import UploadFile
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
+from app.api.routes import materials as materials_routes
 from app.core.config import Settings, get_settings
 from app.core.security import JWTService
 from app.db.session import get_db
 from app.main import app
 from app.models import Base, Course, CourseAccess, CourseMaterial, CourseMaterialStatus, User, UserRole
+from app.services.material_service import save_upload
 
 
 @dataclass(frozen=True)
@@ -266,3 +272,116 @@ def test_failed_database_insert_leaves_no_record_or_file(
     assert [path for path in material_api.upload_dir.rglob("*") if path.is_file()] == []
     with material_api.session_factory() as session:
         assert session.scalars(select(CourseMaterial)).all() == []
+
+
+def test_failed_database_refresh_rolls_back_record_and_removes_file(
+    material_api: MaterialApiContext,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fail_refresh(self: Session, instance: object) -> None:
+        raise SQLAlchemyError("refresh unavailable")
+
+    monkeypatch.setattr(Session, "refresh", fail_refresh)
+
+    response = material_api.upload("professor", "owned", "week1.txt", b"note")
+
+    assert response.status_code == 500
+    assert [path for path in material_api.upload_dir.rglob("*") if path.is_file()] == []
+    with material_api.session_factory() as session:
+        assert session.scalars(select(CourseMaterial)).all() == []
+
+
+def test_delete_succeeds_when_stored_file_is_already_missing(
+    material_api: MaterialApiContext,
+) -> None:
+    missing_path = material_api.upload_dir / "already-missing.txt"
+    with material_api.session_factory() as session:
+        material = CourseMaterial(
+            course_id=material_api.courses["owned"],
+            uploaded_by=material_api.users["professor"],
+            file_name=missing_path.name,
+            original_file_name="already-missing.txt",
+            file_type="txt",
+            file_size=4,
+            storage_path=str(missing_path),
+            processing_status=CourseMaterialStatus.pending,
+        )
+        session.add(material)
+        session.commit()
+        material_id = material.id
+
+    response = material_api.client.delete(
+        f"/api/courses/{material_api.courses['owned']}/materials/{material_id}",
+        headers=material_api.headers("professor"),
+    )
+
+    assert response.status_code == 204
+    assert response.content == b""
+    with material_api.session_factory() as session:
+        assert session.get(CourseMaterial, material_id) is None
+
+
+def test_delete_keeps_committed_204_and_logs_post_commit_unlink_failure(
+    material_api: MaterialApiContext,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    uploaded = material_api.upload("professor", "owned", "week1.txt", b"note").json()
+    with material_api.session_factory() as session:
+        material = session.get(CourseMaterial, uploaded["id"])
+        assert material is not None
+        storage_path = material.storage_path
+
+    def fail_unlink(path: str | Path) -> None:
+        raise OSError("simulated unlink failure")
+
+    monkeypatch.setattr(materials_routes, "remove_stored_file", fail_unlink)
+
+    response = material_api.client.delete(
+        f"/api/courses/{material_api.courses['owned']}/materials/{uploaded['id']}",
+        headers=material_api.headers("professor"),
+    )
+
+    assert response.status_code == 204
+    assert response.content == b""
+    assert uploaded["id"] in caplog.text
+    assert storage_path in caplog.text
+    assert storage_path not in response.text
+    with material_api.session_factory() as session:
+        assert session.get(CourseMaterial, uploaded["id"]) is None
+
+
+def test_save_upload_writes_destination_off_the_event_loop(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    event_loop_thread = get_ident()
+    write_threads: list[int] = []
+
+    class RecordingDestination:
+        def __enter__(self) -> "RecordingDestination":
+            return self
+
+        def __exit__(self, *args: object) -> None:
+            self.close()
+
+        def write(self, chunk: bytes) -> int:
+            write_threads.append(get_ident())
+            return len(chunk)
+
+        def close(self) -> None:
+            return None
+
+    destination = RecordingDestination()
+
+    def open_destination(self: Path, mode: str) -> RecordingDestination:
+        assert mode == "wb"
+        return destination
+
+    monkeypatch.setattr(Path, "open", open_destination)
+    upload = UploadFile(file=BytesIO(b"note"), filename="week1.txt")
+
+    asyncio.run(save_upload(upload, "course-1", tmp_path, max_size_bytes=4))
+
+    assert write_threads
+    assert all(thread_id != event_loop_thread for thread_id in write_threads)

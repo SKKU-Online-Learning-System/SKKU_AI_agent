@@ -38,6 +38,7 @@ const course = {
   title: "인공지능개론",
   term: "2026-2",
   instructorId: "professor-1",
+  instructorName: "김교수",
   agentStatus: "active" as const,
   createdAt: "2026-07-20T00:00:00Z",
   updatedAt: "2026-07-20T00:00:00Z"
@@ -117,6 +118,8 @@ describe("ProfessorMaterialsClient", () => {
     );
     expect(await screen.findByText("week-2.txt")).toBeInTheDocument();
     expect(screen.getByText("처리 대기")).toBeInTheDocument();
+    expect(screen.getAllByRole("row")[1]).toHaveTextContent("week-2.txt");
+    expect(screen.getAllByRole("row")[2]).toHaveTextContent("lecture.txt");
   });
 
   it("keeps a row until delete succeeds and blocks duplicate deletion", async () => {

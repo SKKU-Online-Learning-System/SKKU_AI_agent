@@ -170,7 +170,7 @@ export function ProfessorMaterialsClient() {
         operationFile
       );
       if (selectedCourseIdRef.current !== operationCourseId) return;
-      setMaterials((current) => [...current, uploadedMaterial]);
+      setMaterials((current) => [uploadedMaterial, ...current]);
       resetSelectedFile();
     } catch (error) {
       if (selectedCourseIdRef.current !== operationCourseId) return;

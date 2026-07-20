@@ -66,6 +66,7 @@ class CourseRead(CamelModel):
     title: str
     term: str
     instructor_id: str
+    instructor_name: str
     agent_status: CourseAgentStatus
     created_at: datetime
     updated_at: datetime

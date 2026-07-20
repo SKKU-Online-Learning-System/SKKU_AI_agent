@@ -58,6 +58,7 @@ export type CourseSummary = {
   title: string;
   term: string;
   instructorId: string;
+  instructorName: string;
   agentStatus: "draft" | "active" | "disabled";
   createdAt: string;
   updatedAt: string;

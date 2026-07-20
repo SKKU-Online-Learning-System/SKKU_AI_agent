@@ -3,6 +3,7 @@ from pathlib import Path
 from uuid import uuid4
 
 from fastapi import UploadFile
+from starlette.concurrency import run_in_threadpool
 
 ALLOWED_MATERIAL_EXTENSIONS = frozenset({".pdf", ".pptx", ".docx", ".txt"})
 READ_CHUNK_SIZE = 1024 * 1024
@@ -36,19 +37,22 @@ async def save_upload(
     storage_path = Path(upload_dir) / course_id / internal_file_name
     file_size = 0
     try:
-        storage_path.parent.mkdir(parents=True, exist_ok=True)
-        with storage_path.open("wb") as destination:
+        await run_in_threadpool(storage_path.parent.mkdir, parents=True, exist_ok=True)
+        destination = await run_in_threadpool(storage_path.open, "wb")
+        try:
             while chunk := await file.read(READ_CHUNK_SIZE):
                 file_size += len(chunk)
                 if file_size > max_size_bytes:
                     raise MaterialValidationError(
                         f"Uploaded file exceeds the {max_size_bytes} byte limit"
                     )
-                destination.write(chunk)
+                await run_in_threadpool(destination.write, chunk)
+        finally:
+            await run_in_threadpool(destination.close)
         if file_size == 0:
             raise MaterialValidationError("Uploaded file must not be empty")
     except Exception:
-        remove_stored_file(storage_path)
+        await run_in_threadpool(remove_stored_file, storage_path)
         raise
 
     return StoredUpload(

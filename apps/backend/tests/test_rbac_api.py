@@ -1,17 +1,18 @@
 from collections.abc import Generator
 from dataclasses import dataclass
+from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from app.core.config import get_settings
+from app.core.config import Settings, get_settings
 from app.core.security import JWTService
 from app.db.session import get_db
 from app.main import app
-from app.models import Base, Course, CourseAccess, User, UserRole
+from app.models import Base, Course, CourseAccess, CourseMaterial, User, UserRole
 
 
 @dataclass(frozen=True)
@@ -20,6 +21,8 @@ class RBACApiContext:
     tokens: dict[str, str]
     users: dict[str, str]
     courses: dict[str, str]
+    session_factory: sessionmaker[Session]
+    upload_dir: Path
 
 
 def add_user(session: Session, email: str, role: UserRole) -> User:
@@ -35,7 +38,7 @@ def add_user(session: Session, email: str, role: UserRole) -> User:
 
 
 @pytest.fixture
-def rbac_api() -> Generator[RBACApiContext, None, None]:
+def rbac_api(tmp_path: Path) -> Generator[RBACApiContext, None, None]:
     engine = create_engine(
         "sqlite://",
         connect_args={"check_same_thread": False},
@@ -92,7 +95,18 @@ def rbac_api() -> Generator[RBACApiContext, None, None]:
         with testing_session() as session:
             yield session
 
-    settings = get_settings()
+    repository_upload_dir = Path(__file__).resolve().parents[3] / "uploads"
+    repository_files_before = (
+        {
+            path.relative_to(repository_upload_dir)
+            for path in repository_upload_dir.rglob("*")
+            if path.is_file()
+        }
+        if repository_upload_dir.exists()
+        else set()
+    )
+    upload_dir = tmp_path / "uploads"
+    settings = Settings(upload_dir=str(upload_dir), _env_file=None)
     token_service = JWTService(
         settings.jwt_secret,
         settings.jwt_algorithm,
@@ -105,14 +119,27 @@ def rbac_api() -> Generator[RBACApiContext, None, None]:
 
     app.dependency_overrides.clear()
     app.dependency_overrides[get_db] = override_get_db
+    app.dependency_overrides[get_settings] = lambda: settings
     with TestClient(app) as client:
         yield RBACApiContext(
             client=client,
             tokens=tokens,
             users=user_ids,
             courses=course_ids,
+            session_factory=testing_session,
+            upload_dir=upload_dir,
         )
     app.dependency_overrides.clear()
+    repository_files_after = (
+        {
+            path.relative_to(repository_upload_dir)
+            for path in repository_upload_dir.rglob("*")
+            if path.is_file()
+        }
+        if repository_upload_dir.exists()
+        else set()
+    )
+    assert repository_files_after == repository_files_before
 
 
 def auth_headers(context: RBACApiContext, user_name: str) -> dict[str, str]:
@@ -201,6 +228,38 @@ def test_course_list_returns_only_accessible_courses(rbac_api: RBACApiContext) -
     }
 
 
+def test_course_list_and_detail_include_persisted_instructor_name(
+    rbac_api: RBACApiContext,
+) -> None:
+    student_list = rbac_api.client.get(
+        "/api/courses",
+        headers=auth_headers(rbac_api, "student"),
+    )
+    student_detail = rbac_api.client.get(
+        f"/api/courses/{rbac_api.courses['owned']}",
+        headers=auth_headers(rbac_api, "student"),
+    )
+    created = rbac_api.client.post(
+        "/api/courses",
+        headers=auth_headers(rbac_api, "admin"),
+        json={
+            "code": "SEC101",
+            "title": "Secure Contracts",
+            "term": "2027-1",
+            "instructorId": rbac_api.users["professor"],
+            "instructorName": "Spoofed Client Name",
+            "agentStatus": "active",
+        },
+    )
+
+    assert student_list.status_code == 200
+    assert student_list.json()[0]["instructorName"] == "professor-api@skku.edu"
+    assert student_detail.status_code == 200
+    assert student_detail.json()["instructorName"] == "professor-api@skku.edu"
+    assert created.status_code == 201
+    assert created.json()["instructorName"] == "professor-api@skku.edu"
+
+
 def test_material_upload_requires_course_manage_permission(rbac_api: RBACApiContext) -> None:
     def upload_as(user_name: str, course_name: str):
         return rbac_api.client.post(
@@ -221,6 +280,13 @@ def test_material_upload_requires_course_manage_permission(rbac_api: RBACApiCont
     assert student_own.status_code == 403
     assert admin_other.status_code == 202
     assert admin_other.json()["uploadedBy"] == rbac_api.users["admin"]
+    with rbac_api.session_factory() as session:
+        stored_paths = [
+            Path(material.storage_path).resolve()
+            for material in session.scalars(select(CourseMaterial)).all()
+        ]
+    assert stored_paths
+    assert all(path.is_relative_to(rbac_api.upload_dir.resolve()) for path in stored_paths)
 
 
 def test_chat_session_requires_course_access(rbac_api: RBACApiContext) -> None:

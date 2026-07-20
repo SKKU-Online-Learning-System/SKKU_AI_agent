@@ -3,8 +3,15 @@ from __future__ import annotations
 from functools import lru_cache
 from typing import Literal, Optional
 
-from pydantic import Field
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+INSECURE_JWT_SECRETS = frozenset(
+    {
+        "local-dev-change-me",
+        "replace-with-a-long-random-secret",
+    }
+)
 
 
 class Settings(BaseSettings):
@@ -29,6 +36,18 @@ class Settings(BaseSettings):
     backend_cors_origins: str = Field(default="http://localhost:3000")
     upload_dir: str = "uploads"
     max_upload_size_bytes: int = Field(default=20 * 1024 * 1024, gt=0)
+    max_upload_request_size_bytes: int = Field(default=21 * 1024 * 1024, gt=0)
+
+    @model_validator(mode="after")
+    def validate_nonlocal_jwt_secret(self) -> "Settings":
+        if self.app_env != "local" and (
+            self.jwt_secret in INSECURE_JWT_SECRETS or len(self.jwt_secret) < 32
+        ):
+            raise ValueError(
+                "JWT_SECRET must be a unique secret of at least 32 characters "
+                "when APP_ENV is not local"
+            )
+        return self
 
     @property
     def cors_origins(self) -> list[str]:

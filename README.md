@@ -92,15 +92,16 @@ Copy-Item .env.example .env
 Copy-Item apps\frontend\.env.local.example apps\frontend\.env.local
 ```
 
-루트 `.env`는 API/DB 설정 파일입니다. 기본값은 로컬 Docker DB와 프런트엔드 Origin(`http://localhost:3000`)을 대상으로 합니다. 실제 배포 전에는 특히 `JWT_SECRET`과 `OPENAI_API_KEY`를 교체하고, `.env`는 커밋하지 마세요.
+루트 `.env`는 API/DB 설정 파일입니다. 기본값은 `APP_ENV=local`, 로컬 Docker DB, 프런트엔드 Origin(`http://localhost:3000`)을 대상으로 합니다. 예시 `JWT_SECRET`은 로컬 개발 전용입니다. `APP_ENV`가 `local`이 아닌 환경에서는 예시 키를 사용할 수 없으며, 고유하게 생성한 32자 이상의 임의 키로 교체해야 API가 시작됩니다. 실제 배포 전에는 `OPENAI_API_KEY`도 설정하고, `.env`는 커밋하지 마세요.
 
 | 변수 | 기본값 | 용도 |
 | --- | --- | --- |
 | `DATABASE_URL` | `postgresql+psycopg://course_agent:course_agent@localhost:5432/course_agent` | API DB 연결 |
-| `JWT_SECRET` | `replace-with-a-long-random-secret` | JWT 서명 키 |
+| `JWT_SECRET` | `replace-with-a-long-random-secret` | 로컬 전용 JWT 예시 키. 비로컬 환경은 고유한 32자 이상 키 필요 |
 | `BACKEND_CORS_ORIGINS` | `http://localhost:3000` | 허용할 웹 Origin |
 | `UPLOAD_DIR` | `uploads` | 업로드 파일 저장 루트 |
 | `MAX_UPLOAD_SIZE_BYTES` | `20971520` | 파일당 최대 크기(20 MiB, 안내상 20MB) |
+| `MAX_UPLOAD_REQUEST_SIZE_BYTES` | `22020096` | multipart 오버헤드를 포함한 업로드 요청 본문 한도(21 MiB) |
 | `VECTOR_DB_PROVIDER` | `pgvector` | 향후 벡터 저장소 제공자 |
 | `VECTOR_DB_COLLECTION` | `course_document_chunks` | 향후 문서 청크 컬렉션/테이블 이름 |
 
@@ -302,12 +303,13 @@ JWT 로그아웃은 서버 상태를 바꾸지 않습니다. 클라이언트가 
 | 최대 크기 | `MAX_UPLOAD_SIZE_BYTES=20971520` (20 MiB/안내상 20MB) |
 | 빈 파일 | HTTP 422로 거절 |
 | 허용되지 않은 확장자·최대 크기 초과 | HTTP 422로 거절 |
+| 업로드 요청 본문 한도 초과 | HTTP 413으로 파싱 완료 전에 거절 |
 | 내부 파일명 | 원본 확장자를 유지한 UUID 파일명 (`<uuid>.<ext>`) |
 | 기본 저장 위치 | 저장소 루트에서 API를 실행할 때 `uploads/<course_id>/<uuid>.<ext>` |
 | 원본 파일명 | 표시용 `originalFileName` 메타데이터로 보존, 내부 경로는 API에 노출하지 않음 |
 | 새 자료 상태 | DB 내부 `processing_status=pending`, API 응답 `processingStatus: "pending"` |
 
-성공한 업로드는 HTTP **202 Accepted**를 반환합니다. 자료의 실제 파일 저장과 DB 행 생성은 완료되지만, 이 상태는 문서 내용이 처리되었다는 뜻이 아니라 3단계 처리를 기다린다는 뜻입니다. 파일 저장 후 DB 커밋에 실패하면 저장된 파일은 제거됩니다.
+성공한 업로드는 HTTP **202 Accepted**를 반환합니다. 자료의 실제 파일 저장과 DB 행 생성은 완료되지만, 이 상태는 문서 내용이 처리되었다는 뜻이 아니라 3단계 처리를 기다린다는 뜻입니다. 파일 저장 후 DB 커밋에 실패하면 저장된 파일은 제거됩니다. 운영 환경의 리버스 프록시도 `MAX_UPLOAD_REQUEST_SIZE_BYTES`와 일치하는 요청 본문 한도를 적용해 과도한 업로드를 애플리케이션에 도달하기 전에 차단하세요.
 
 ## 자동 테스트
 
@@ -371,9 +373,9 @@ npm.cmd run build:frontend
 
 ### 파일 검증과 정리
 
-- [ ] `.exe` 등 허용되지 않은 확장자, 빈 파일, 20MB 초과 파일을 API에 업로드하면 각각 422이고 성공 자료 행이나 저장 파일이 남지 않는다.
+- [ ] `.exe` 등 허용되지 않은 확장자, 빈 파일, 파일 한도를 조금 초과한 파일을 API에 업로드하면 각각 422이고 성공 자료 행이나 저장 파일이 남지 않는다. multipart 요청 본문 한도까지 초과하면 413이다.
 - [ ] 성공 파일의 서버 내부 이름은 원본명과 다른 UUID이며, 저장 위치가 `uploads/<course_id>/` 아래임을 확인한다. API 응답에는 내부 파일명과 저장 경로가 노출되지 않는다.
-- [ ] 수동 검증에서 만든 임시 과목과 자료를 정리하고, 비활성화했던 Seed 과목은 다시 활성화한다.
+- [ ] 과목 삭제 API는 아직 없으므로 수동 검증에는 일회용 DB를 사용하거나 임시 과목을 비활성화한다. 업로드한 임시 자료는 삭제하고, 비활성화했던 Seed 과목은 다시 활성화한다.
 
 ## 아직 구현되지 않은 기능
 
