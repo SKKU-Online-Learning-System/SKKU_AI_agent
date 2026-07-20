@@ -27,6 +27,8 @@ class Settings(BaseSettings):
     vector_db_embedding_dim: int = 1536
 
     backend_cors_origins: str = Field(default="http://localhost:3000")
+    upload_dir: str = "uploads"
+    max_upload_size_bytes: int = Field(default=20 * 1024 * 1024, gt=0)
 
     @property
     def cors_origins(self) -> list[str]:

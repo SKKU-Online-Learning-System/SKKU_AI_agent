@@ -21,7 +21,7 @@ class CamelModel(BaseModel):
 
 UserRole = Literal["student", "professor", "admin"]
 CourseAgentStatus = Literal["draft", "active", "disabled"]
-CourseMaterialStatus = Literal["uploaded", "processing", "ready", "failed"]
+CourseMaterialStatus = Literal["pending", "processing", "completed", "failed"]
 ChatSessionStatus = Literal["open", "archived"]
 ChatMessageRole = Literal["user", "assistant", "system"]
 
@@ -98,12 +98,11 @@ class CourseMaterialRead(CamelModel):
     id: str
     course_id: str
     uploaded_by: str
-    title: str
-    file_name: str
+    original_file_name: str
     file_type: str
-    storage_uri: str
-    status: CourseMaterialStatus
-    checksum: Optional[str] = None
+    file_size: int
+    processing_status: CourseMaterialStatus
+    processing_error: Optional[str] = None
     created_at: datetime
     updated_at: datetime
 
