@@ -1,9 +1,17 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor
+} from "@testing-library/react";
 import "@testing-library/jest-dom/vitest";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "../../lib/api";
+import type { CourseMaterial } from "../../lib/api";
 import { ProfessorMaterialsClient } from "./professor-materials-client";
 
 const apiMocks = vi.hoisted(() => ({
@@ -35,14 +43,21 @@ const course = {
   updatedAt: "2026-07-20T00:00:00Z"
 };
 
-const material = {
+const secondCourse = {
+  ...course,
+  id: "course-2",
+  code: "AI202",
+  title: "기계학습개론"
+};
+
+const material: CourseMaterial = {
   id: "material-1",
   courseId: "course-1",
   uploadedBy: "professor-1",
   originalFileName: "lecture.txt",
   fileType: "txt",
   fileSize: 1024,
-  processingStatus: "completed" as const,
+  processingStatus: "completed",
   processingError: null,
   createdAt: "2026-07-20T00:00:00Z",
   updatedAt: "2026-07-20T00:00:00Z"
@@ -50,12 +65,22 @@ const material = {
 
 afterEach(() => {
   cleanup();
-  vi.clearAllMocks();
+  vi.resetAllMocks();
 });
 
 function arrangeLoadedMaterials() {
   apiMocks.listCourses.mockResolvedValue([course]);
   apiMocks.listCourseMaterials.mockResolvedValue([material]);
+}
+
+function deferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, reject, resolve };
 }
 
 describe("ProfessorMaterialsClient", () => {
@@ -94,20 +119,31 @@ describe("ProfessorMaterialsClient", () => {
     expect(screen.getByText("처리 대기")).toBeInTheDocument();
   });
 
-  it("deletes a material from the list only after the API succeeds", async () => {
+  it("keeps a row until delete succeeds and blocks duplicate deletion", async () => {
     arrangeLoadedMaterials();
-    apiMocks.deleteCourseMaterial.mockResolvedValue(undefined);
+    const deletion = deferred<void>();
+    apiMocks.deleteCourseMaterial.mockReturnValue(deletion.promise);
     render(<ProfessorMaterialsClient />);
     await screen.findByText("lecture.txt");
 
-    fireEvent.click(screen.getByRole("button", { name: "lecture.txt 삭제" }));
+    const deleteButton = screen.getByRole("button", { name: "lecture.txt 삭제" });
+    fireEvent.click(deleteButton);
+    fireEvent.click(deleteButton);
 
-    await waitFor(() =>
-      expect(apiMocks.deleteCourseMaterial).toHaveBeenCalledWith(
-        "course-1",
-        "material-1"
-      )
+    expect(apiMocks.deleteCourseMaterial).toHaveBeenCalledTimes(1);
+    expect(apiMocks.deleteCourseMaterial).toHaveBeenCalledWith(
+      "course-1",
+      "material-1"
     );
+    expect(screen.getByText("lecture.txt")).toBeInTheDocument();
+    expect(deleteButton).toBeDisabled();
+    expect(screen.getByRole("combobox", { name: "과목" })).toBeDisabled();
+
+    await act(async () => {
+      deletion.resolve();
+      await deletion.promise;
+    });
+
     await waitFor(() =>
       expect(screen.queryByText("lecture.txt")).not.toBeInTheDocument()
     );
@@ -125,12 +161,19 @@ describe("ProfessorMaterialsClient", () => {
     arrangeLoadedMaterials();
     render(<ProfessorMaterialsClient />);
     await screen.findByText("lecture.txt");
+    const fileInput = screen.getByLabelText("강의자료 파일") as HTMLInputElement;
+    Object.defineProperty(fileInput, "value", {
+      configurable: true,
+      value: `C:\\fakepath\\${file.name}`,
+      writable: true
+    });
 
-    fireEvent.change(screen.getByLabelText("강의자료 파일"), {
+    fireEvent.change(fileInput, {
       target: { files: [file] }
     });
 
     expect(await screen.findByRole("alert")).toHaveTextContent(expectedMessage);
+    expect(fileInput).toHaveValue("");
     expect(apiMocks.uploadCourseMaterial).not.toHaveBeenCalled();
   });
 
@@ -151,5 +194,132 @@ describe("ProfessorMaterialsClient", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "파일 내용을 읽을 수 없습니다."
     );
+  });
+
+  it("resets the selected file and DOM input when the course changes", async () => {
+    apiMocks.listCourses.mockResolvedValue([course, secondCourse]);
+    apiMocks.listCourseMaterials
+      .mockResolvedValueOnce([material])
+      .mockResolvedValueOnce([]);
+    render(<ProfessorMaterialsClient />);
+    await screen.findByText("lecture.txt");
+    const fileInput = screen.getByLabelText("강의자료 파일") as HTMLInputElement;
+    const file = new File(["notes"], "notes.txt", { type: "text/plain" });
+    Object.defineProperty(fileInput, "value", {
+      configurable: true,
+      value: "C:\\fakepath\\notes.txt",
+      writable: true
+    });
+    fireEvent.change(fileInput, { target: { files: [file] } });
+    expect(screen.getByRole("button", { name: "업로드" })).toBeEnabled();
+
+    fireEvent.change(screen.getByRole("combobox", { name: "과목" }), {
+      target: { value: "course-2" }
+    });
+
+    expect(fileInput).toHaveValue("");
+    expect(screen.getByRole("button", { name: "업로드" })).toBeDisabled();
+  });
+
+  it("disables upload controls and shows loading while materials load", async () => {
+    const materialList = deferred<typeof material[]>();
+    apiMocks.listCourses.mockResolvedValue([course]);
+    apiMocks.listCourseMaterials.mockReturnValue(materialList.promise);
+
+    render(<ProfessorMaterialsClient />);
+
+    expect(
+      await screen.findByRole("option", { name: "AI101 인공지능개론" })
+    ).toBeInTheDocument();
+    expect(screen.getByLabelText("강의자료 파일")).toBeDisabled();
+    expect(screen.getByRole("button", { name: "업로드" })).toBeDisabled();
+    expect(screen.getByText("강의자료를 불러오고 있습니다.")).toBeInTheDocument();
+    expect(screen.queryByText("등록된 강의자료가 없습니다.")).not.toBeInTheDocument();
+
+    await act(async () => {
+      materialList.resolve([]);
+      await materialList.promise;
+    });
+  });
+
+  it("does not add a delayed upload result to another course", async () => {
+    const upload = deferred<typeof material>();
+    apiMocks.listCourses.mockResolvedValue([course, secondCourse]);
+    apiMocks.listCourseMaterials.mockResolvedValue([material]);
+    apiMocks.uploadCourseMaterial.mockReturnValue(upload.promise);
+    render(<ProfessorMaterialsClient />);
+    await screen.findByText("lecture.txt");
+    const file = new File(["week two"], "week-2.txt", { type: "text/plain" });
+    fireEvent.change(screen.getByLabelText("강의자료 파일"), {
+      target: { files: [file] }
+    });
+    fireEvent.click(screen.getByRole("button", { name: "업로드" }));
+    const courseSelect = screen.getByRole("combobox", { name: "과목" });
+    expect(courseSelect).toBeDisabled();
+
+    fireEvent.change(courseSelect, { target: { value: "course-2" } });
+    expect(courseSelect).toHaveValue("course-2");
+
+    await act(async () => {
+      upload.resolve({
+        ...material,
+        id: "material-2",
+        originalFileName: "week-2.txt",
+        processingStatus: "pending"
+      });
+      await upload.promise;
+    });
+
+    expect(screen.queryByText("week-2.txt")).not.toBeInTheDocument();
+  });
+
+  it("does not remove a row from another course after delayed deletion", async () => {
+    const deletion = deferred<void>();
+    apiMocks.listCourses.mockResolvedValue([course, secondCourse]);
+    apiMocks.listCourseMaterials.mockResolvedValue([material]);
+    apiMocks.deleteCourseMaterial.mockReturnValue(deletion.promise);
+    render(<ProfessorMaterialsClient />);
+    await screen.findByText("lecture.txt");
+    fireEvent.click(screen.getByRole("button", { name: "lecture.txt 삭제" }));
+    const courseSelect = screen.getByRole("combobox", { name: "과목" });
+    expect(courseSelect).toBeDisabled();
+
+    fireEvent.change(courseSelect, { target: { value: "course-2" } });
+    expect(courseSelect).toHaveValue("course-2");
+    await screen.findByText("lecture.txt");
+
+    await act(async () => {
+      deletion.resolve();
+      await deletion.promise;
+    });
+
+    expect(screen.getByText("lecture.txt")).toBeInTheDocument();
+  });
+
+  it("renders processing and failed status labels", async () => {
+    apiMocks.listCourses.mockResolvedValue([course]);
+    apiMocks.listCourseMaterials.mockResolvedValue([
+      { ...material, id: "material-2", processingStatus: "processing" },
+      { ...material, id: "material-3", processingStatus: "failed" }
+    ]);
+
+    render(<ProfessorMaterialsClient />);
+
+    expect(await screen.findByText("처리 중")).toBeInTheDocument();
+    expect(screen.getByText("처리 실패")).toBeInTheDocument();
+  });
+
+  it("suppresses the empty state when material loading fails", async () => {
+    apiMocks.listCourses.mockResolvedValue([course]);
+    apiMocks.listCourseMaterials.mockRejectedValue(
+      new ApiError(500, "강의자료를 조회할 수 없습니다.")
+    );
+
+    render(<ProfessorMaterialsClient />);
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "강의자료를 조회할 수 없습니다."
+    );
+    expect(screen.queryByText("등록된 강의자료가 없습니다.")).not.toBeInTheDocument();
   });
 });

@@ -72,49 +72,51 @@ export function CourseListClient({ audience }: CourseListClientProps) {
         </p>
       ) : null}
 
-      <div className="course-table-wrap">
-        <table className="course-table">
-          <thead>
-            <tr>
-              <th scope="col">과목명</th>
-              <th scope="col">과목 코드</th>
-              <th scope="col">학기</th>
-              <th scope="col">에이전트 상태</th>
-            </tr>
-          </thead>
-          <tbody>
-            {isLoading ? (
+      {!errorMessage ? (
+        <div className="course-table-wrap">
+          <table className="course-table">
+            <thead>
               <tr>
-                <td colSpan={4}>과목 목록을 불러오고 있습니다.</td>
+                <th scope="col">과목명</th>
+                <th scope="col">과목 코드</th>
+                <th scope="col">학기</th>
+                <th scope="col">에이전트 상태</th>
               </tr>
-            ) : courses.length === 0 ? (
-              <tr>
-                <td className="empty-state" colSpan={4}>
-                  {emptyMessage}
-                </td>
-              </tr>
-            ) : (
-              courses.map((course) => (
-                <tr key={course.id}>
-                  <td>
-                    <strong>{course.title}</strong>
-                  </td>
-                  <td>{course.code}</td>
-                  <td>{course.term}</td>
-                  <td>
-                    <span
-                      className="material-status"
-                      data-status={course.agentStatus}
-                    >
-                      {agentStatusLabels[course.agentStatus]}
-                    </span>
+            </thead>
+            <tbody>
+              {isLoading ? (
+                <tr>
+                  <td colSpan={4}>과목 목록을 불러오고 있습니다.</td>
+                </tr>
+              ) : courses.length === 0 ? (
+                <tr>
+                  <td className="empty-state" colSpan={4}>
+                    {emptyMessage}
                   </td>
                 </tr>
-              ))
-            )}
-          </tbody>
-        </table>
-      </div>
+              ) : (
+                courses.map((course) => (
+                  <tr key={course.id}>
+                    <td>
+                      <strong>{course.title}</strong>
+                    </td>
+                    <td>{course.code}</td>
+                    <td>{course.term}</td>
+                    <td>
+                      <span
+                        className="material-status"
+                        data-status={course.agentStatus}
+                      >
+                        {agentStatusLabels[course.agentStatus]}
+                      </span>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      ) : null}
     </section>
   );
 }

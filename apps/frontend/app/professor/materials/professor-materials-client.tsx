@@ -4,6 +4,7 @@ import {
   ChangeEvent,
   FormEvent,
   useEffect,
+  useRef,
   useState
 } from "react";
 import {
@@ -42,7 +43,20 @@ export function ProfessorMaterialsClient() {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [deletingMaterialId, setDeletingMaterialId] = useState<string | null>(
+    null
+  );
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const selectedCourseIdRef = useRef<string>("");
+  const isMutationActive = isSubmitting || deletingMaterialId !== null;
+
+  const resetSelectedFile = () => {
+    setSelectedFile(null);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = "";
+    }
+  };
 
   useEffect(() => {
     let isCancelled = false;
@@ -52,7 +66,9 @@ export function ProfessorMaterialsClient() {
         const courseList = await listCourses();
         if (isCancelled) return;
         setCourses(courseList);
-        setSelectedCourseId(courseList[0]?.id ?? "");
+        const firstCourseId = courseList[0]?.id ?? "";
+        selectedCourseIdRef.current = firstCourseId;
+        setSelectedCourseId(firstCourseId);
         if (courseList.length === 0) {
           setIsLoading(false);
         }
@@ -109,8 +125,13 @@ export function ProfessorMaterialsClient() {
   }, [selectedCourseId]);
 
   const handleCourseChange = (event: ChangeEvent<HTMLSelectElement>) => {
+    const nextCourseId = event.target.value;
+    selectedCourseIdRef.current = nextCourseId;
     setMaterials([]);
-    setSelectedCourseId(event.target.value);
+    resetSelectedFile();
+    setErrorMessage(null);
+    setIsLoading(Boolean(nextCourseId));
+    setSelectedCourseId(nextCourseId);
   };
 
   const handleFileChange = (event: ChangeEvent<HTMLInputElement>) => {
@@ -118,16 +139,16 @@ export function ProfessorMaterialsClient() {
     setErrorMessage(null);
 
     if (!file) {
-      setSelectedFile(null);
+      resetSelectedFile();
       return;
     }
     if (!allowedFileExtensions.has(fileExtension(file.name))) {
-      setSelectedFile(null);
+      resetSelectedFile();
       setErrorMessage("지원하지 않는 파일 형식입니다.");
       return;
     }
     if (file.size > maxFileSize) {
-      setSelectedFile(null);
+      resetSelectedFile();
       setErrorMessage("파일 크기는 20MB 이하여야 합니다.");
       return;
     }
@@ -139,18 +160,20 @@ export function ProfessorMaterialsClient() {
     event.preventDefault();
     if (!selectedCourseId || !selectedFile) return;
 
-    const form = event.currentTarget;
+    const operationCourseId = selectedCourseIdRef.current;
+    const operationFile = selectedFile;
     setErrorMessage(null);
     setIsSubmitting(true);
     try {
       const uploadedMaterial = await uploadCourseMaterial(
-        selectedCourseId,
-        selectedFile
+        operationCourseId,
+        operationFile
       );
+      if (selectedCourseIdRef.current !== operationCourseId) return;
       setMaterials((current) => [...current, uploadedMaterial]);
-      setSelectedFile(null);
-      form.reset();
+      resetSelectedFile();
     } catch (error) {
+      if (selectedCourseIdRef.current !== operationCourseId) return;
       setErrorMessage(apiErrorMessage(error, "강의자료 업로드에 실패했습니다."));
     } finally {
       setIsSubmitting(false);
@@ -158,14 +181,22 @@ export function ProfessorMaterialsClient() {
   };
 
   const handleDelete = async (material: CourseMaterial) => {
+    if (deletingMaterialId !== null || isSubmitting || isLoading) return;
+
+    const operationCourseId = selectedCourseIdRef.current;
     setErrorMessage(null);
+    setDeletingMaterialId(material.id);
     try {
-      await deleteCourseMaterial(selectedCourseId, material.id);
+      await deleteCourseMaterial(operationCourseId, material.id);
+      if (selectedCourseIdRef.current !== operationCourseId) return;
       setMaterials((current) =>
         current.filter((item) => item.id !== material.id)
       );
     } catch (error) {
+      if (selectedCourseIdRef.current !== operationCourseId) return;
       setErrorMessage(apiErrorMessage(error, "강의자료 삭제에 실패했습니다."));
+    } finally {
+      setDeletingMaterialId(null);
     }
   };
 
@@ -179,7 +210,7 @@ export function ProfessorMaterialsClient() {
       <label className="material-course-select">
         과목
         <select
-          disabled={courses.length === 0}
+          disabled={courses.length === 0 || isMutationActive}
           onChange={handleCourseChange}
           value={selectedCourseId}
         >
@@ -200,13 +231,19 @@ export function ProfessorMaterialsClient() {
           강의자료 파일
           <input
             accept=".pdf,.pptx,.docx,.txt"
-            disabled={!selectedCourseId || isSubmitting}
+            disabled={!selectedCourseId || isLoading || isMutationActive}
             onChange={handleFileChange}
+            ref={fileInputRef}
             type="file"
           />
         </label>
         <button
-          disabled={!selectedCourseId || !selectedFile || isSubmitting}
+          disabled={
+            !selectedCourseId ||
+            !selectedFile ||
+            isLoading ||
+            isMutationActive
+          }
           type="submit"
         >
           {isSubmitting ? "업로드 중..." : "업로드"}
@@ -220,60 +257,64 @@ export function ProfessorMaterialsClient() {
         </p>
       ) : null}
 
-      <div className="course-table-wrap">
-        <table className="course-table">
-          <thead>
-            <tr>
-              <th scope="col">파일명</th>
-              <th scope="col">형식</th>
-              <th scope="col">크기</th>
-              <th scope="col">처리 상태</th>
-              <th scope="col">작업</th>
-            </tr>
-          </thead>
-          <tbody>
-            {isLoading ? (
+      {!errorMessage || materials.length > 0 ? (
+        <div className="course-table-wrap">
+          <table className="course-table">
+            <thead>
               <tr>
-                <td colSpan={5}>강의자료를 불러오고 있습니다.</td>
+                <th scope="col">파일명</th>
+                <th scope="col">형식</th>
+                <th scope="col">크기</th>
+                <th scope="col">처리 상태</th>
+                <th scope="col">작업</th>
               </tr>
-            ) : materials.length === 0 ? (
-              <tr>
-                <td className="empty-state" colSpan={5}>
-                  등록된 강의자료가 없습니다.
-                </td>
-              </tr>
-            ) : (
-              materials.map((material) => (
-                <tr key={material.id}>
-                  <td>
-                    <strong>{material.originalFileName}</strong>
-                  </td>
-                  <td>{material.fileType.toUpperCase()}</td>
-                  <td>{(material.fileSize / 1024 / 1024).toFixed(2)}MB</td>
-                  <td>
-                    <span
-                      className="material-status"
-                      data-status={material.processingStatus}
-                    >
-                      {materialStatusLabels[material.processingStatus]}
-                    </span>
-                  </td>
-                  <td>
-                    <button
-                      aria-label={`${material.originalFileName} 삭제`}
-                      disabled={isSubmitting}
-                      onClick={() => void handleDelete(material)}
-                      type="button"
-                    >
-                      삭제
-                    </button>
+            </thead>
+            <tbody>
+              {isLoading ? (
+                <tr>
+                  <td colSpan={5}>강의자료를 불러오고 있습니다.</td>
+                </tr>
+              ) : materials.length === 0 ? (
+                <tr>
+                  <td className="empty-state" colSpan={5}>
+                    등록된 강의자료가 없습니다.
                   </td>
                 </tr>
-              ))
-            )}
-          </tbody>
-        </table>
-      </div>
+              ) : (
+                materials.map((material) => (
+                  <tr key={material.id}>
+                    <td>
+                      <strong>{material.originalFileName}</strong>
+                    </td>
+                    <td>{material.fileType.toUpperCase()}</td>
+                    <td>{(material.fileSize / 1024 / 1024).toFixed(2)}MB</td>
+                    <td>
+                      <span
+                        className="material-status"
+                        data-status={material.processingStatus}
+                      >
+                        {materialStatusLabels[material.processingStatus]}
+                      </span>
+                    </td>
+                    <td>
+                      <button
+                        aria-label={`${material.originalFileName} 삭제`}
+                        disabled={isLoading || isMutationActive}
+                        onClick={() => void handleDelete(material)}
+                        type="button"
+                      >
+                        {deletingMaterialId === material.id
+                          ? "삭제 중..."
+                          : "삭제"}
+                      </button>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      ) : null}
     </section>
   );
 }

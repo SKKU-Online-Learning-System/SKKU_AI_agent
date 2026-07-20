@@ -64,5 +64,6 @@ describe("CourseListClient", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "과목 조회 권한이 없습니다."
     );
+    expect(screen.queryByText("담당 과목이 없습니다.")).not.toBeInTheDocument();
   });
 });
