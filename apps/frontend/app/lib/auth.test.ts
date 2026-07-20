@@ -9,21 +9,21 @@ describe("auth route policy", () => {
   });
 
   it("returns role-specific menu items", () => {
-    expect(getRoleMenuItems("admin").map((item) => item.label)).toEqual([
-      "관리자 대시보드",
-      "과목 관리",
-      "사용자 관리",
-      "자료 관리"
+    expect(getRoleMenuItems("admin")).toEqual([
+      { href: "/admin", label: "대시보드", icon: "dashboard" },
+      { href: "/admin/courses", label: "과목", icon: "course" },
+      { href: "/admin/users", label: "사용자", icon: "group" },
+      { href: "/admin/materials", label: "자료", icon: "material" }
     ]);
-    expect(getRoleMenuItems("professor").map((item) => item.label)).toEqual([
-      "교수자 대시보드",
-      "담당 과목",
-      "자료 업로드"
+    expect(getRoleMenuItems("professor")).toEqual([
+      { href: "/professor", label: "대시보드", icon: "dashboard" },
+      { href: "/professor/courses", label: "해당 과목", icon: "course" },
+      { href: "/professor/materials", label: "강의자료", icon: "material" }
     ]);
-    expect(getRoleMenuItems("student").map((item) => item.label)).toEqual([
-      "학생 대시보드",
-      "내 과목",
-      "챗봇"
+    expect(getRoleMenuItems("student")).toEqual([
+      { href: "/student", label: "대시보드", icon: "dashboard" },
+      { href: "/student/courses", label: "내 과목", icon: "course" },
+      { href: "/student/chat", label: "AI 질문", icon: "agent" }
     ]);
   });
 

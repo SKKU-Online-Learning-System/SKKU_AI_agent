@@ -1,4 +1,5 @@
 import type { UserRole } from "@skku-course-agent/shared";
+import type { IconName } from "../components/ui/ui-icon";
 
 export type AuthUser = {
   id: string;
@@ -12,6 +13,7 @@ export type AuthStatus = "loading" | "authenticated" | "unauthenticated";
 export type RoleMenuItem = {
   href: string;
   label: string;
+  icon: IconName;
 };
 
 export const roleLabels: Record<UserRole, string> = {
@@ -28,20 +30,20 @@ export const roleHomePaths: Record<UserRole, string> = {
 
 const roleMenuItems: Record<UserRole, RoleMenuItem[]> = {
   admin: [
-    { href: "/admin", label: "관리자 대시보드" },
-    { href: "/admin/courses", label: "과목 관리" },
-    { href: "/admin/users", label: "사용자 관리" },
-    { href: "/admin/materials", label: "자료 관리" }
+    { href: "/admin", label: "대시보드", icon: "dashboard" },
+    { href: "/admin/courses", label: "과목", icon: "course" },
+    { href: "/admin/users", label: "사용자", icon: "group" },
+    { href: "/admin/materials", label: "자료", icon: "material" }
   ],
   professor: [
-    { href: "/professor", label: "교수자 대시보드" },
-    { href: "/professor/courses", label: "담당 과목" },
-    { href: "/professor/materials", label: "자료 업로드" }
+    { href: "/professor", label: "대시보드", icon: "dashboard" },
+    { href: "/professor/courses", label: "해당 과목", icon: "course" },
+    { href: "/professor/materials", label: "강의자료", icon: "material" }
   ],
   student: [
-    { href: "/student", label: "학생 대시보드" },
-    { href: "/student/courses", label: "내 과목" },
-    { href: "/student/chat", label: "챗봇" }
+    { href: "/student", label: "대시보드", icon: "dashboard" },
+    { href: "/student/courses", label: "내 과목", icon: "course" },
+    { href: "/student/chat", label: "AI 질문", icon: "agent" }
   ]
 };
 
