@@ -2,6 +2,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  ApiError,
   accessTokenStorageKey,
   apiRequest,
   createAdminCourse,
@@ -113,5 +114,20 @@ describe("api client", () => {
         isActive: true
       })
     );
+  });
+
+  it("wraps network failures in an ApiError with a useful message", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn<typeof fetch>(async () => {
+        throw new TypeError("Failed to fetch");
+      })
+    );
+
+    await expect(loginRequest("admin@skku.edu", "password123")).rejects.toMatchObject({
+      name: "ApiError",
+      status: 0,
+      message: "API 서버에 연결할 수 없습니다. 백엔드 실행 상태와 API 주소를 확인해 주세요."
+    } satisfies Partial<ApiError>);
   });
 });

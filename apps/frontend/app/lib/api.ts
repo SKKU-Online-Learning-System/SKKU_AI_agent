@@ -2,6 +2,8 @@ import type { AuthUser } from "./auth";
 import type { UserRole } from "@skku-course-agent/shared";
 
 export const accessTokenStorageKey = "skku-course-agent-access-token-v1";
+export const apiConnectionErrorMessage =
+  "API 서버에 연결할 수 없습니다. 백엔드 실행 상태와 API 주소를 확인해 주세요.";
 
 type ApiRequestOptions = RequestInit & {
   accessToken?: string | null;
@@ -109,10 +111,15 @@ export async function apiRequest<T>(
     headers.set("Content-Type", "application/json");
   }
 
-  const response = await fetch(`${getApiBaseUrl()}${path}`, {
-    ...fetchOptions,
-    headers
-  });
+  let response: Response;
+  try {
+    response = await fetch(`${getApiBaseUrl()}${path}`, {
+      ...fetchOptions,
+      headers
+    });
+  } catch {
+    throw new ApiError(0, apiConnectionErrorMessage);
+  }
 
   if (!response.ok) {
     throw new ApiError(response.status, await readErrorMessage(response));
