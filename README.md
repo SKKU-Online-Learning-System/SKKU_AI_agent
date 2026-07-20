@@ -40,7 +40,8 @@
 ├── docs                 # PRD, 기술 명세, 아키텍처 문서
 ├── docker-compose.yml   # 로컬 PostgreSQL/pgvector
 ├── Makefile             # Linux/macOS용 개발·검증 단축 명령
-└── .env.example         # 로컬 환경변수 예시
+├── .env.example         # API/DB용 로컬 환경변수 예시
+└── apps/frontend/.env.local.example # Next.js 공개 환경변수 예시
 ```
 
 ## 사전 요구사항
@@ -81,26 +82,29 @@ Linux/macOS:
 
 ```bash
 cp .env.example .env
+cp apps/frontend/.env.local.example apps/frontend/.env.local
 ```
 
 Windows PowerShell:
 
 ```powershell
 Copy-Item .env.example .env
+Copy-Item apps\frontend\.env.local.example apps\frontend\.env.local
 ```
 
-`.env`의 기본값은 로컬 Docker DB와 프런트엔드(`http://localhost:3000`)를 대상으로 합니다. 실제 배포 전에는 특히 `JWT_SECRET`과 `OPENAI_API_KEY`를 교체하고, `.env`는 커밋하지 마세요.
+루트 `.env`는 API/DB 설정 파일입니다. 기본값은 로컬 Docker DB와 프런트엔드 Origin(`http://localhost:3000`)을 대상으로 합니다. 실제 배포 전에는 특히 `JWT_SECRET`과 `OPENAI_API_KEY`를 교체하고, `.env`는 커밋하지 마세요.
 
 | 변수 | 기본값 | 용도 |
 | --- | --- | --- |
 | `DATABASE_URL` | `postgresql+psycopg://course_agent:course_agent@localhost:5432/course_agent` | API DB 연결 |
 | `JWT_SECRET` | `replace-with-a-long-random-secret` | JWT 서명 키 |
 | `BACKEND_CORS_ORIGINS` | `http://localhost:3000` | 허용할 웹 Origin |
-| `NEXT_PUBLIC_API_BASE_URL` | `http://localhost:8000` | 프런트엔드 API 주소 |
 | `UPLOAD_DIR` | `uploads` | 업로드 파일 저장 루트 |
 | `MAX_UPLOAD_SIZE_BYTES` | `20971520` | 파일당 최대 크기(20 MiB, 안내상 20MB) |
 | `VECTOR_DB_PROVIDER` | `pgvector` | 향후 벡터 저장소 제공자 |
 | `VECTOR_DB_COLLECTION` | `course_document_chunks` | 향후 문서 청크 컬렉션/테이블 이름 |
+
+프런트엔드 API 주소는 `apps/frontend/.env.local`에서 설정합니다. 이 파일의 예시는 `NEXT_PUBLIC_API_BASE_URL=http://localhost:8000`이며, `apps/frontend/app/lib/api.ts`도 값이 없을 때 `http://localhost:8000`을 기본값으로 사용합니다. `.env.local`도 커밋하지 마세요.
 
 환경변수를 바꾼 뒤에는 API와 Next.js 개발 서버를 다시 시작합니다.
 
