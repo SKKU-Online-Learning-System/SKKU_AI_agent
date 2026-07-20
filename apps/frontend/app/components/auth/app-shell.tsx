@@ -3,7 +3,14 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { getRoleHomePath, getRoleMenuItems, roleLabels } from "../../lib/auth";
+import { UiIcon } from "../ui/ui-icon";
 import { useAuth } from "./auth-provider";
+
+function isActivePath(pathname: string, href: string, roleHomePath: string): boolean {
+  return href === roleHomePath
+    ? pathname === href
+    : pathname === href || pathname.startsWith(`${href}/`);
+}
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const { logout, user } = useAuth();
@@ -23,36 +30,53 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   };
 
   return (
-    <div className="app-shell">
-      <aside className="app-sidebar" aria-label="역할별 메뉴">
-        <Link className="app-brand" href={getRoleHomePath(user.role)}>
-          SKKU Course Agent
+    <div className="icampus-app-shell">
+      <aside className="icampus-global-nav">
+        <Link className="icampus-crest" href={roleHomePath}>
+          {/* The supplied crest is a fixed-size local asset in the required shell markup. */}
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img alt="성균관대학교" src="/skku-logo-white.PNG" />
         </Link>
-        <nav>
-          {menuItems.map((item) => {
-            const active =
-              item.href === roleHomePath
-                ? pathname === item.href
-                : pathname === item.href || pathname.startsWith(`${item.href}/`);
-            return (
-              <Link key={item.href} aria-current={active ? "page" : undefined} href={item.href}>
-                {item.label}
-              </Link>
-            );
-          })}
+        <nav aria-label="글로벌 내비게이션">
+          {menuItems.map((item) => (
+            <Link
+              aria-current={isActivePath(pathname, item.href, roleHomePath) ? "page" : undefined}
+              href={item.href}
+              key={item.href}
+            >
+              <UiIcon name={item.icon} />
+              <span>{item.label}</span>
+            </Link>
+          ))}
         </nav>
       </aside>
-      <div className="app-main">
-        <header className="app-topbar">
-          <div>
+      <aside className="icampus-context-nav">
+        <strong>{roleLabels[user.role]} 메뉴</strong>
+        <nav aria-label={`${roleLabels[user.role]} 메뉴`}>
+          {menuItems.map((item) => (
+            <Link
+              aria-current={isActivePath(pathname, item.href, roleHomePath) ? "page" : undefined}
+              href={item.href}
+              key={item.href}
+            >
+              <UiIcon name={item.icon} />
+              <span>{item.label}</span>
+            </Link>
+          ))}
+        </nav>
+      </aside>
+      <div className="icampus-app-main">
+        <header className="icampus-app-topbar">
+          <span className="icampus-menu-mark" aria-hidden="true">☰</span>
+          <strong>{roleLabels[user.role]} 대시보드</strong>
+          <div className="icampus-user-menu">
             <span>{user.name}</span>
-            <strong>{roleLabels[user.role]}</strong>
+            <button type="button" onClick={handleLogout}>
+              로그아웃
+            </button>
           </div>
-          <button type="button" onClick={handleLogout}>
-            로그아웃
-          </button>
         </header>
-        <main className="app-content">{children}</main>
+        <main className="icampus-app-content">{children}</main>
       </div>
     </div>
   );

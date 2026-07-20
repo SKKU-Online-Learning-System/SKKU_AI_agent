@@ -1,12 +1,12 @@
 :root {
   color-scheme: light;
-  --icampus-navy: #063b68;
+  --icampus-navy: #003669;
   --icampus-navy-dark: #002f57;
   --icampus-teal: #0b6f7b;
-  --icampus-course-nav: #f2f5fa;
+  --icampus-course-nav: #f3f6fb;
   --icampus-border: #c7cdd3;
   --icampus-border-soft: #dfe3e7;
-  --icampus-text: #2d3338;
+  --icampus-text: #434343;
   --icampus-muted: #5f676d;
   --icampus-surface: #ffffff;
   --icampus-canvas: #f7f8fa;
@@ -188,8 +188,7 @@ p {
   padding: 10px 12px;
 }
 
-.login-panel button,
-.app-topbar button {
+.login-panel button {
   align-items: center;
   background: var(--icampus-teal);
   border: 1px solid #075964;
@@ -207,100 +206,115 @@ p {
   border-color: #aeb8bd;
 }
 
-.app-shell {
+.icampus-app-shell {
   display: grid;
-  grid-template-columns: 248px minmax(0, 1fr);
+  grid-template-columns: 84px 220px minmax(0, 1fr);
   min-height: 100vh;
 }
 
-.app-sidebar {
+.icampus-global-nav {
   background: var(--icampus-navy);
   color: white;
-  display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
-  min-height: 100vh;
 }
 
-.app-brand {
+.icampus-crest {
+  align-items: center;
   border-bottom: 1px solid rgba(255, 255, 255, 0.16);
-  color: white;
-  font-size: 16px;
-  font-weight: 800;
+  display: flex;
+  justify-content: center;
   min-height: 72px;
-  padding: 24px 22px;
-  text-decoration: none;
 }
 
-.app-sidebar nav {
-  display: grid;
-  gap: 4px;
-  align-content: start;
-  padding: 16px 12px;
+.icampus-crest img {
+  height: 52px;
+  object-fit: contain;
+  width: 52px;
 }
 
-.app-sidebar nav a {
-  border: 1px solid transparent;
-  border-radius: 4px;
+.icampus-global-nav nav a {
+  align-items: center;
   color: white;
-  font-size: 14px;
-  font-weight: 700;
-  min-height: 42px;
-  padding: 11px 12px;
+  display: grid;
+  font-size: 13px;
+  gap: 4px;
+  justify-items: center;
+  min-height: 72px;
+  padding: 8px 3px;
   text-decoration: none;
 }
 
-.app-sidebar nav a:hover {
-  background: rgba(255, 255, 255, 0.08);
-}
-
-.app-sidebar nav a[aria-current="page"] {
+.icampus-global-nav nav a[aria-current="page"] {
   background: white;
-  border-color: white;
   color: var(--icampus-navy);
 }
 
-.app-main {
+.icampus-context-nav {
+  background: var(--icampus-course-nav);
+  padding: 28px 12px;
+}
+
+.icampus-context-nav > strong {
+  display: block;
+  margin-bottom: 16px;
+  padding: 0 10px;
+}
+
+.icampus-context-nav nav a {
+  align-items: center;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  color: var(--icampus-text);
+  display: flex;
+  gap: 9px;
+  min-height: 40px;
+  padding: 8px 10px;
+  text-decoration: none;
+}
+
+.icampus-context-nav nav a[aria-current="page"] {
+  background: white;
+  border-color: #12649b;
+  color: var(--icampus-navy);
+  font-weight: 700;
+}
+
+.icampus-app-main {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
   min-width: 0;
 }
 
-.app-topbar {
+.icampus-app-topbar {
   align-items: center;
   background: white;
   border-bottom: 1px solid var(--icampus-border);
-  display: flex;
-  justify-content: space-between;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
   min-height: 72px;
   padding: 0 24px;
 }
 
-.app-topbar > div {
+.icampus-menu-mark {
+  margin-right: 12px;
+}
+
+.icampus-user-menu {
   align-items: center;
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
 }
 
-.app-topbar span {
-  font-weight: 800;
-}
-
-.app-topbar strong {
-  background: #e8f4f6;
-  border: 1px solid #b9d7dc;
-  border-radius: 3px;
-  color: #245763;
-  font-size: 12px;
-  padding: 4px 8px;
-}
-
-.app-topbar button {
+.icampus-user-menu button {
   background: white;
+  border: 1px solid var(--icampus-border);
+  border-radius: 3px;
   color: var(--icampus-teal);
+  min-height: 36px;
+  padding: 0 12px;
 }
 
-.app-content {
+.icampus-app-content {
   min-width: 0;
   padding: 24px;
 }
@@ -1264,38 +1278,31 @@ p {
 }
 
 @media (max-width: 860px) {
-  .app-shell {
+  .icampus-app-shell {
     display: block;
   }
 
-  .app-sidebar {
-    min-height: auto;
-  }
-
-  .app-brand {
-    display: block;
-    min-height: auto;
-    padding: 18px;
-  }
-
-  .app-sidebar nav {
+  .icampus-global-nav nav {
     display: flex;
+    overflow-x: auto;
+  }
+
+  .icampus-context-nav {
     overflow-x: auto;
     padding: 10px;
   }
 
-  .app-sidebar nav a {
-    align-items: center;
-    display: inline-flex;
-    flex: 0 0 auto;
+  .icampus-context-nav nav {
+    display: flex;
+    width: max-content;
   }
 
-  .app-topbar {
+  .icampus-app-topbar {
     min-height: 64px;
     padding: 12px 14px;
   }
 
-  .app-content {
+  .icampus-app-content {
     padding: 18px 14px;
   }
 
