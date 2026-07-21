@@ -1,11 +1,24 @@
-import { RolePage } from "../components/auth/role-page";
+import { RoleDashboard } from "../components/dashboard/role-dashboard";
 
 export default function ProfessorDashboardPage() {
   return (
-    <RolePage
-      description="담당 과목 자료와 학생 질문 흐름을 확인하는 교수자 화면입니다."
-      items={["담당 과목", "최근 업로드", "질문 로그"]}
-      title="교수자 대시보드"
+    <RoleDashboard
+      actions={[
+        {
+          href: "/professor/courses",
+          label: "담당 과목",
+          description: "담당 과목과 에이전트 상태를 확인합니다.",
+          icon: "course"
+        },
+        {
+          href: "/professor/materials",
+          label: "강의자료",
+          description: "자료를 업로드하고 처리 상태를 확인합니다.",
+          icon: "material"
+        }
+      ]}
+      description="교수자 운영 화면입니다."
+      title="대시보드"
     />
   );
 }

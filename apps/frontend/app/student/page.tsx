@@ -1,11 +1,24 @@
-import { RolePage } from "../components/auth/role-page";
+import { RoleDashboard } from "../components/dashboard/role-dashboard";
 
 export default function StudentDashboardPage() {
   return (
-    <RolePage
-      description="접근 가능한 활성 과목과 학습 질문 흐름을 확인하는 학생 화면입니다."
-      items={["내 과목", "최근 질문", "출처 기반 답변"]}
-      title="학생 대시보드"
+    <RoleDashboard
+      actions={[
+        {
+          href: "/student/courses",
+          label: "내 과목",
+          description: "수강 가능한 활성 과목을 확인합니다.",
+          icon: "course"
+        },
+        {
+          href: "/student/chat",
+          label: "AI 질문",
+          description: "강의자료를 근거로 질문하고 출처를 확인합니다.",
+          icon: "agent"
+        }
+      ]}
+      description="학생 학습 화면입니다."
+      title="대시보드"
     />
   );
 }
