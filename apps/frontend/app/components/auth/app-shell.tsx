@@ -18,6 +18,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
   const [isContextNavOpen, setIsContextNavOpen] = useState(false);
+  const isCourseWorkspace =
+    /^\/(student|professor)\/courses\/[^/]+/.test(pathname) ||
+    /^\/admin\/course\/[^/]+/.test(pathname);
 
   if (!user) {
     return <main className="auth-status-page">사용자 정보를 불러오고 있습니다.</main>;
@@ -34,7 +37,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   };
 
   return (
-    <div className="icampus-app-shell">
+    <div className="icampus-app-shell" data-course-workspace={isCourseWorkspace}>
       <aside className="icampus-global-nav">
         <Link className="icampus-crest" href={roleHomePath}>
           {/* The supplied crest is a fixed-size local asset in the required shell markup. */}
@@ -54,47 +57,55 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           ))}
         </nav>
       </aside>
-      <aside
-        aria-label={`${roleLabels[user.role]} 보조 메뉴`}
-        className="icampus-context-nav"
-        data-open={isContextNavOpen}
-        id="icampus-context-navigation"
-      >
-        <strong>{roleLabels[user.role]} 메뉴</strong>
-        <nav aria-label={`${roleLabels[user.role]} 메뉴`}>
-          {menuItems.map((item) => (
-            <Link
-              aria-current={isActivePath(pathname, item.href, roleHomePath) ? "page" : undefined}
-              href={item.href}
-              key={item.href}
-            >
-              <UiIcon name={item.icon} />
-              <span>{item.label}</span>
-            </Link>
-          ))}
-        </nav>
-      </aside>
+      {!isCourseWorkspace ? (
+        <aside
+          aria-label={`${roleLabels[user.role]} 보조 메뉴`}
+          className="icampus-context-nav"
+          data-open={isContextNavOpen}
+          id="icampus-context-navigation"
+        >
+          <strong>{roleLabels[user.role]} 메뉴</strong>
+          <nav aria-label={`${roleLabels[user.role]} 메뉴`}>
+            {menuItems.map((item) => (
+              <Link
+                aria-current={isActivePath(pathname, item.href, roleHomePath) ? "page" : undefined}
+                href={item.href}
+                key={item.href}
+              >
+                <UiIcon name={item.icon} />
+                <span>{item.label}</span>
+              </Link>
+            ))}
+          </nav>
+        </aside>
+      ) : null}
       <div className="icampus-app-main">
-        <header className="icampus-app-topbar">
-          <button
-            aria-controls="icampus-context-navigation"
-            aria-expanded={isContextNavOpen}
-            aria-label={`보조 메뉴 ${isContextNavOpen ? "접기" : "열기"}`}
-            className="icampus-menu-toggle"
-            onClick={() => setIsContextNavOpen((isOpen) => !isOpen)}
-            type="button"
-          >
-            <span aria-hidden="true">☰</span>
-          </button>
-          <strong>{currentTitle}</strong>
-          <div className="icampus-user-menu">
-            <span>{user.name}</span>
-            <button type="button" onClick={handleLogout}>
-              로그아웃
+        {!isCourseWorkspace ? (
+          <header className="icampus-app-topbar">
+            <button
+              aria-controls="icampus-context-navigation"
+              aria-expanded={isContextNavOpen}
+              aria-label={`보조 메뉴 ${isContextNavOpen ? "접기" : "열기"}`}
+              className="icampus-menu-toggle"
+              onClick={() => setIsContextNavOpen((isOpen) => !isOpen)}
+              type="button"
+            >
+              <span aria-hidden="true">☰</span>
             </button>
-          </div>
-        </header>
-        <main className="icampus-app-content">{children}</main>
+            <strong>{currentTitle}</strong>
+            <div className="icampus-user-menu">
+              <span>{user.name}</span>
+              <button type="button" onClick={handleLogout}>
+                로그아웃
+              </button>
+            </div>
+          </header>
+        ) : null}
+        {isCourseWorkspace ? (
+          <div className="icampus-app-content icampus-app-content--course">{children}</div>
+        ) : (
+          <main className="icampus-app-content">{children}</main>
+        )}
       </div>
     </div>
   );

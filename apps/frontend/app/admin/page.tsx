@@ -1,5 +1,5 @@
-import { AdminCoursesClient } from "./courses/admin-courses-client";
+import { CourseDashboardClient } from "../components/courses/course-dashboard-client";
 
 export default function AdminDashboardPage() {
-  return <AdminCoursesClient />;
+  return <CourseDashboardClient audience="admin" />;
 }

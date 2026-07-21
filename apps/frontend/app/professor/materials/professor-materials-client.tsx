@@ -36,7 +36,7 @@ function fileExtension(fileName: string): string {
   return fileName.split(".").pop()?.toLowerCase() ?? "";
 }
 
-export function ProfessorMaterialsClient() {
+export function ProfessorMaterialsClient({ courseId }: { courseId?: string } = {}) {
   const [courses, setCourses] = useState<CourseSummary[]>([]);
   const [selectedCourseId, setSelectedCourseId] = useState("");
   const [materials, setMaterials] = useState<CourseMaterial[]>([]);
@@ -62,6 +62,11 @@ export function ProfessorMaterialsClient() {
     let isCancelled = false;
 
     async function loadAvailableCourses() {
+      if (courseId) {
+        selectedCourseIdRef.current = courseId;
+        setSelectedCourseId(courseId);
+        return;
+      }
       try {
         const courseList = await listCourses();
         if (isCancelled) return;
@@ -87,7 +92,7 @@ export function ProfessorMaterialsClient() {
     return () => {
       isCancelled = true;
     };
-  }, []);
+  }, [courseId]);
 
   useEffect(() => {
     if (!selectedCourseId) {
@@ -207,24 +212,26 @@ export function ProfessorMaterialsClient() {
         <p>담당 과목의 강의자료를 업로드하고 처리 상태를 확인합니다.</p>
       </header>
 
-      <label className="material-course-select">
-        과목
-        <select
-          disabled={courses.length === 0 || isMutationActive}
-          onChange={handleCourseChange}
-          value={selectedCourseId}
-        >
-          {courses.length === 0 ? (
-            <option value="">담당 과목이 없습니다.</option>
-          ) : (
-            courses.map((course) => (
-              <option key={course.id} value={course.id}>
-                {course.code} {course.title}
-              </option>
-            ))
-          )}
-        </select>
-      </label>
+      {!courseId ? (
+        <label className="material-course-select">
+          과목
+          <select
+            disabled={courses.length === 0 || isMutationActive}
+            onChange={handleCourseChange}
+            value={selectedCourseId}
+          >
+            {courses.length === 0 ? (
+              <option value="">담당 과목이 없습니다.</option>
+            ) : (
+              courses.map((course) => (
+                <option key={course.id} value={course.id}>
+                  {course.code} {course.title}
+                </option>
+              ))
+            )}
+          </select>
+        </label>
+      ) : null}
 
       <form className="material-upload-form" onSubmit={handleUpload}>
         <label>

@@ -85,6 +85,17 @@ function deferred<T>() {
 }
 
 describe("ProfessorMaterialsClient", () => {
+  it("locks the material workspace to the course from the detail route", async () => {
+    apiMocks.listCourseMaterials.mockResolvedValue([material]);
+
+    render(<ProfessorMaterialsClient courseId="course-1" />);
+
+    expect(await screen.findByText("lecture.txt")).toBeInTheDocument();
+    expect(apiMocks.listCourseMaterials).toHaveBeenCalledWith("course-1");
+    expect(apiMocks.listCourses).not.toHaveBeenCalled();
+    expect(screen.queryByRole("combobox", { name: "과목" })).not.toBeInTheDocument();
+  });
+
   it("loads the first course and its materials", async () => {
     arrangeLoadedMaterials();
 

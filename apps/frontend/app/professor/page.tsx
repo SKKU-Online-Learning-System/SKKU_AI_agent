@@ -1,5 +1,5 @@
-import { CourseListClient } from "../components/courses/course-list-client";
+import { CourseDashboardClient } from "../components/courses/course-dashboard-client";
 
 export default function ProfessorDashboardPage() {
-  return <CourseListClient audience="professor" />;
+  return <CourseDashboardClient audience="professor" />;
 }
