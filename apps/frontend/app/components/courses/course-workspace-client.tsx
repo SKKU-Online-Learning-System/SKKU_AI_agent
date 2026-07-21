@@ -30,20 +30,20 @@ function navigationItems(role: CourseWorkspaceRole, courseId: string): CourseNav
   if (role === "student") {
     return [
       { href: coursePath, icon: "home", label: "홈" },
-      { href: `${coursePath}/materials`, icon: "material", label: "강의자료" },
+      { href: `${coursePath}/materials`, icon: "material", label: "강의콘텐츠" },
       { href: `${coursePath}/chat`, icon: "agent", label: "AI 질문" }
     ];
   }
   if (role === "professor") {
     return [
       { href: coursePath, icon: "home", label: "홈" },
-      { href: `${coursePath}/materials`, icon: "upload", label: "강의자료" }
+      { href: `${coursePath}/materials`, icon: "upload", label: "강의콘텐츠" }
     ];
   }
   return [
     { href: coursePath, icon: "home", label: "홈" },
     { href: `${coursePath}/settings`, icon: "course", label: "과목 설정" },
-    { href: `${coursePath}/materials`, icon: "material", label: "자료 현황" }
+    { href: `${coursePath}/materials`, icon: "material", label: "강의콘텐츠" }
   ];
 }
 

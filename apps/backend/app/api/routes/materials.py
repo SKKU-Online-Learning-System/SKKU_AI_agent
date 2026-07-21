@@ -1,7 +1,9 @@
 import logging
+from pathlib import Path
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
+from fastapi.responses import FileResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 from starlette.concurrency import run_in_threadpool
@@ -38,7 +40,7 @@ async def list_materials(
 @router.post(
     "/courses/{course_id}/materials",
     response_model=CourseMaterialRead,
-    status_code=status.HTTP_202_ACCEPTED,
+    status_code=status.HTTP_201_CREATED,
 )
 async def upload_material(
     course: Annotated[Course, Depends(require_course_manage_permission)],
@@ -46,6 +48,7 @@ async def upload_material(
     session: Annotated[Session, Depends(get_db)],
     settings: Annotated[Settings, Depends(get_settings)],
     file: UploadFile = File(...),
+    week: Annotated[int, Form(ge=1, le=16)] = 1,
 ) -> CourseMaterialRead:
     try:
         stored = await save_upload(
@@ -64,8 +67,9 @@ async def upload_material(
         original_file_name=stored.original_file_name,
         file_type=stored.file_type,
         file_size=stored.file_size,
+        week=week,
         storage_path=str(stored.storage_path),
-        processing_status=CourseMaterialStatus.pending,
+        processing_status=CourseMaterialStatus.completed,
     )
     session.add(material)
     try:
@@ -78,6 +82,29 @@ async def upload_material(
         await run_in_threadpool(remove_stored_file, stored.storage_path)
         raise
     return response
+
+
+@router.get("/courses/{course_id}/materials/{material_id}/download")
+async def download_material(
+    course: Annotated[Course, Depends(require_course_access)],
+    material_id: str,
+    session: Annotated[Session, Depends(get_db)],
+) -> FileResponse:
+    material = session.scalar(
+        select(CourseMaterial).where(
+            CourseMaterial.id == material_id,
+            CourseMaterial.course_id == course.id,
+        )
+    )
+    if material is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Material not found")
+    if not Path(material.storage_path).is_file():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Material file not found")
+    return FileResponse(
+        material.storage_path,
+        filename=material.original_file_name,
+        media_type="application/octet-stream",
+    )
 
 
 @router.delete(

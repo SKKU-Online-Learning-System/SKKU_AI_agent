@@ -83,6 +83,7 @@ def test_material_metadata_matches_stage_two_contract() -> None:
         "original_file_name",
         "file_type",
         "file_size",
+        "week",
         "storage_path",
         "processing_status",
         "processing_error",
@@ -96,3 +97,5 @@ def test_material_metadata_matches_stage_two_contract() -> None:
         if isinstance(constraint, CheckConstraint)
     }
     assert "ck_course_materials_file_size_non_negative" in check_names
+    assert "ck_course_materials_week_range" in check_names
+    assert table.columns["processing_status"].default.arg == CourseMaterialStatus.completed

@@ -33,13 +33,15 @@ def test_alembic_upgrade_and_downgrade_stage_two_schema(tmp_path: Path) -> None:
         "original_file_name",
         "file_type",
         "file_size",
+        "week",
         "storage_path",
         "processing_status",
         "processing_error",
         "created_at",
         "updated_at",
     }
-    assert material_columns["processing_status"]["default"] == "'pending'"
+    assert material_columns["processing_status"]["default"] == "'completed'"
+    assert material_columns["week"]["default"] == "'1'"
 
     command.downgrade(config, "base")
 

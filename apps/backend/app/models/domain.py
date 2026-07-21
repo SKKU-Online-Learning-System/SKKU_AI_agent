@@ -12,6 +12,7 @@ from sqlalchemy import (
     DateTime,
     ForeignKey,
     String,
+    SmallInteger,
     Text,
     UniqueConstraint,
     func,
@@ -180,6 +181,10 @@ class CourseMaterial(Base):
             "file_size >= 0",
             name="ck_course_materials_file_size_non_negative",
         ),
+        CheckConstraint(
+            "week >= 1 AND week <= 16",
+            name="ck_course_materials_week_range",
+        ),
     )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
@@ -197,6 +202,12 @@ class CourseMaterial(Base):
     original_file_name: Mapped[str] = mapped_column(String(255), nullable=False)
     file_type: Mapped[str] = mapped_column(String(40), nullable=False)
     file_size: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    week: Mapped[int] = mapped_column(
+        SmallInteger,
+        default=1,
+        server_default="1",
+        nullable=False,
+    )
     storage_path: Mapped[str] = mapped_column(Text, nullable=False)
     processing_status: Mapped[CourseMaterialStatus] = mapped_column(
         SQLEnum(
@@ -206,8 +217,8 @@ class CourseMaterial(Base):
             create_constraint=True,
             validate_strings=True,
         ),
-        default=CourseMaterialStatus.pending,
-        server_default=CourseMaterialStatus.pending.value,
+        default=CourseMaterialStatus.completed,
+        server_default=CourseMaterialStatus.completed.value,
         nullable=False,
     )
     processing_error: Mapped[Optional[str]] = mapped_column(Text, nullable=True)

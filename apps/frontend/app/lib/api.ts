@@ -73,6 +73,7 @@ export type CourseMaterial = {
   originalFileName: string;
   fileType: string;
   fileSize: number;
+  week: number;
   processingStatus: "pending" | "processing" | "completed" | "failed";
   processingError?: string | null;
   createdAt: string;
@@ -176,13 +177,39 @@ export function listCourseMaterials(courseId: string): Promise<CourseMaterial[]>
   return apiRequest<CourseMaterial[]>(`/api/courses/${courseId}/materials`);
 }
 
-export function uploadCourseMaterial(courseId: string, file: File): Promise<CourseMaterial> {
+export function uploadCourseMaterial(
+  courseId: string,
+  file: File,
+  week: number
+): Promise<CourseMaterial> {
   const body = new FormData();
   body.set("file", file);
+  body.set("week", String(week));
   return apiRequest<CourseMaterial>(`/api/courses/${courseId}/materials`, {
     body,
     method: "POST"
   });
+}
+
+export async function downloadCourseMaterial(
+  courseId: string,
+  materialId: string
+): Promise<Blob> {
+  const token = readAccessToken();
+  const headers = new Headers();
+  if (token) headers.set("Authorization", `Bearer ${token}`);
+
+  let response: Response;
+  try {
+    response = await fetch(
+      `${getApiBaseUrl()}/api/courses/${courseId}/materials/${materialId}/download`,
+      { headers }
+    );
+  } catch {
+    throw new ApiError(0, apiConnectionErrorMessage);
+  }
+  if (!response.ok) throw new ApiError(response.status, await readErrorMessage(response));
+  return response.blob();
 }
 
 export function deleteCourseMaterial(courseId: string, materialId: string): Promise<void> {

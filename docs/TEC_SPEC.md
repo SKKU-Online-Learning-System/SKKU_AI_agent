@@ -361,6 +361,7 @@ UNIQUE(course_id, user_id)
 | ------------------ | ------------- | ----------------------------------------- |
 | id                 | UUID / BIGINT | 자료 ID                                   |
 | course_id          | FK(Course.id) | 과목 ID                                   |
+| week               | SMALLINT      | 게시 주차(1~16), 기본값 1                 |
 | uploaded_by        | FK(User.id)   | 업로드 사용자                             |
 | file_name          | VARCHAR       | 내부 저장 파일명                          |
 | original_file_name | VARCHAR       | 원본 파일명                               |
@@ -604,7 +605,7 @@ professor, admin
 ```text id="a44l93"
 professor: 본인 담당 과목
 admin: 전체 과목
-student: 기본적으로 제한
+student: 본인이 수강 중인 활성 과목
 ```
 
 ---
@@ -625,6 +626,7 @@ Request:
 ```text id="65ralt"
 multipart/form-data
 file: 강의자료 파일
+week: 게시 주차(1~16, 기본값 1)
 ```
 
 Response:
@@ -633,13 +635,20 @@ Response:
 {
   "id": "material-id",
   "course_id": "course-id",
+  "week": 1,
   "original_file_name": "lecture1.pdf",
   "file_type": "pdf",
   "file_size": 1048576,
-  "processing_status": "pending",
+  "processing_status": "completed",
   "created_at": "2026-07-01T10:00:00"
 }
 ```
+
+---
+
+### GET /courses/{course_id}/materials/{material_id}/download
+
+강의자료 원본 다운로드. 자료 목록 조회와 동일한 과목 접근 권한을 적용한다.
 
 ---
 
@@ -877,18 +886,13 @@ professor
 ## 9.1 문서 업로드 흐름
 
 ```text id="pgmt0a"
-1. 교수자가 강의자료 업로드
+1. 교수자가 게시 주차를 선택하고 강의자료 업로드
 2. Backend가 파일 검증
 3. 파일을 storage에 저장
 4. CourseMaterial 생성
-5. processing_status = pending
-6. 문서 처리 작업 시작
-7. processing_status = processing
-8. 텍스트 추출
-9. 청크 분할
-10. 임베딩 생성
-11. DocumentChunk 저장
-12. processing_status = completed
+5. processing_status = completed
+6. 학생·관리자 강의콘텐츠 목록에 즉시 게시
+7. 후속 RAG 인덱싱 파이프라인이 텍스트 추출, 청크 분할, 임베딩을 수행
 ```
 
 실패 시:

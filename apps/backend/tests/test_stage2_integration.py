@@ -63,6 +63,7 @@ class Stage2Api:
         return self.client.post(
             f"/api/courses/{course_id}/materials",
             headers=self.headers(token),
+            data={"week": "1"},
             files={"file": (file_name, content, "text/plain")},
         )
 
@@ -234,13 +235,14 @@ def test_stage2_admin_professor_student_flow(stage2_api: Stage2Api) -> None:
         "week1.txt",
         b"note",
     )
-    assert uploaded.status_code == 202
+    assert uploaded.status_code == 201
     material = uploaded.json()
-    assert material["processingStatus"] == "pending"
+    assert material["processingStatus"] == "completed"
+    assert material["week"] == 1
     with stage2_api.session_factory() as session:
         stored_material = session.get(CourseMaterial, material["id"])
         assert stored_material is not None
-        assert stored_material.processing_status == CourseMaterialStatus.pending
+        assert stored_material.processing_status == CourseMaterialStatus.completed
         storage_path = Path(stored_material.storage_path)
         assert storage_path.is_file()
         assert stored_material.file_name != stored_material.original_file_name
@@ -254,7 +256,7 @@ def test_stage2_admin_professor_student_flow(stage2_api: Stage2Api) -> None:
         "week2.txt",
         b"next",
     )
-    assert second_uploaded.status_code == 202
+    assert second_uploaded.status_code == 201
     second_material = second_uploaded.json()
     with stage2_api.session_factory() as session:
         second_stored_material = session.get(CourseMaterial, second_material["id"])

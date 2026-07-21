@@ -54,7 +54,7 @@ describe("CourseWorkspaceClient", () => {
       "href",
       "/student/courses/course-1"
     );
-    expect(within(navigation).getByRole("link", { name: "강의자료" })).toHaveAttribute(
+    expect(within(navigation).getByRole("link", { name: "강의콘텐츠" })).toHaveAttribute(
       "aria-current",
       "page"
     );

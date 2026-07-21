@@ -102,6 +102,7 @@ class CourseMaterialRead(CamelModel):
     original_file_name: str
     file_type: str
     file_size: int
+    week: int
     processing_status: CourseMaterialStatus
     processing_error: Optional[str] = None
     created_at: datetime

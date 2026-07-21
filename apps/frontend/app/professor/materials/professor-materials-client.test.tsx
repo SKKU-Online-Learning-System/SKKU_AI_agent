@@ -58,6 +58,7 @@ const material: CourseMaterial = {
   originalFileName: "lecture.txt",
   fileType: "txt",
   fileSize: 1024,
+  week: 1,
   processingStatus: "completed",
   processingError: null,
   createdAt: "2026-07-20T00:00:00Z",
@@ -104,19 +105,23 @@ describe("ProfessorMaterialsClient", () => {
     expect(await screen.findByRole("option", { name: "AI101 인공지능개론" })).toBeInTheDocument();
     expect(apiMocks.listCourseMaterials).toHaveBeenCalledWith("course-1");
     expect(await screen.findByText("lecture.txt")).toBeInTheDocument();
-    expect(screen.getByText("처리 완료")).toBeInTheDocument();
+    expect(screen.getByText("게시 완료")).toBeInTheDocument();
   });
 
-  it("uploads a selected TXT file and adds the pending material", async () => {
+  it("publishes an uploaded file immediately in the selected week", async () => {
     arrangeLoadedMaterials();
     apiMocks.uploadCourseMaterial.mockResolvedValue({
       ...material,
       id: "material-2",
       originalFileName: "week-2.txt",
-      processingStatus: "pending"
+      processingStatus: "completed",
+      week: 2
     });
     render(<ProfessorMaterialsClient />);
     await screen.findByText("lecture.txt");
+    fireEvent.change(screen.getByRole("combobox", { name: "주차" }), {
+      target: { value: "2" }
+    });
     const file = new File(["week two"], "week-2.txt", { type: "text/plain" });
 
     fireEvent.change(screen.getByLabelText("강의자료 파일"), {
@@ -125,12 +130,10 @@ describe("ProfessorMaterialsClient", () => {
     fireEvent.click(screen.getByRole("button", { name: "업로드" }));
 
     await waitFor(() =>
-      expect(apiMocks.uploadCourseMaterial).toHaveBeenCalledWith("course-1", file)
+      expect(apiMocks.uploadCourseMaterial).toHaveBeenCalledWith("course-1", file, 2)
     );
     expect(await screen.findByText("week-2.txt")).toBeInTheDocument();
-    expect(screen.getByText("처리 대기")).toBeInTheDocument();
-    expect(screen.getAllByRole("row")[1]).toHaveTextContent("week-2.txt");
-    expect(screen.getAllByRole("row")[2]).toHaveTextContent("lecture.txt");
+    expect(screen.getByText("게시 완료")).toBeInTheDocument();
   });
 
   it("keeps a row until delete succeeds and blocks duplicate deletion", async () => {
@@ -310,7 +313,7 @@ describe("ProfessorMaterialsClient", () => {
     expect(screen.getByText("lecture.txt")).toBeInTheDocument();
   });
 
-  it("renders processing and failed status labels", async () => {
+  it("renders published and failed status labels", async () => {
     apiMocks.listCourses.mockResolvedValue([course]);
     apiMocks.listCourseMaterials.mockResolvedValue([
       { ...material, id: "material-2", processingStatus: "processing" },
@@ -319,8 +322,8 @@ describe("ProfessorMaterialsClient", () => {
 
     render(<ProfessorMaterialsClient />);
 
-    expect(await screen.findByText("처리 중")).toBeInTheDocument();
-    expect(screen.getByText("처리 실패")).toBeInTheDocument();
+    expect(await screen.findByText("게시 완료")).toBeInTheDocument();
+    expect(screen.getByText("업로드 실패")).toBeInTheDocument();
   });
 
   it("suppresses the empty state when material loading fails", async () => {

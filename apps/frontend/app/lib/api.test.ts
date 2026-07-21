@@ -8,6 +8,7 @@ import {
   createAdminCourse,
   clearAccessToken,
   deleteCourseMaterial,
+  downloadCourseMaterial,
   listAdminCourses,
   listCourseMaterials,
   listCourses,
@@ -160,11 +161,12 @@ describe("api client", () => {
     vi.stubGlobal("fetch", fetchMock);
     const file = new File(["notes"], "week1.txt", { type: "text/plain" });
 
-    await uploadCourseMaterial("course-1", file);
+    await uploadCourseMaterial("course-1", file, 4);
 
     const [, options] = fetchMock.mock.calls[0];
     expect(options?.method).toBe("POST");
     expect(options?.body).toBeInstanceOf(FormData);
+    expect((options?.body as FormData).get("week")).toBe("4");
     expect(new Headers(options?.headers).has("Content-Type")).toBe(false);
   });
 
@@ -176,5 +178,22 @@ describe("api client", () => {
 
     expect(fetchMock.mock.calls[0][0]).toContain("/api/courses/course-1/materials/material-1");
     expect(fetchMock.mock.calls[0][1]?.method).toBe("DELETE");
+  });
+
+  it("downloads a course material with the stored bearer token", async () => {
+    saveAccessToken("student-token");
+    const fetchMock = vi.fn<typeof fetch>(async () =>
+      new Response(new Blob(["lecture"]))
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await downloadCourseMaterial("course-1", "material-1");
+
+    expect(fetchMock.mock.calls[0][0]).toContain(
+      "/api/courses/course-1/materials/material-1/download"
+    );
+    expect(new Headers(fetchMock.mock.calls[0][1]?.headers).get("Authorization")).toBe(
+      "Bearer student-token"
+    );
   });
 });

@@ -1118,7 +1118,8 @@ p {
 }
 
 .material-course-select select,
-.material-upload-form input {
+.material-upload-form input,
+.material-upload-form select {
   background: white;
   border: 1px solid #9ba6ad;
   border-radius: 3px;
@@ -1133,7 +1134,7 @@ p {
   border-radius: 4px;
   display: grid;
   gap: 12px;
-  grid-template-columns: minmax(260px, 1fr) auto;
+  grid-template-columns: 140px minmax(260px, 1fr) auto;
   padding: 14px;
 }
 
@@ -1174,6 +1175,165 @@ p {
   background: #fff1f0;
   border-color: #f0b8b3;
   color: var(--danger);
+}
+
+.admin-materials-page {
+  display: grid;
+  gap: 18px;
+}
+
+.admin-materials-page > header h1 {
+  color: #27343b;
+  font-size: 25px;
+  margin: 0 0 6px;
+}
+
+.admin-materials-page > header p,
+.weekly-content-loading {
+  color: var(--icampus-muted);
+  margin: 0;
+}
+
+.weekly-content {
+  display: grid;
+  gap: 18px;
+}
+
+.weekly-content-tabs {
+  display: grid;
+  gap: 6px;
+  grid-template-columns: repeat(16, minmax(38px, 1fr));
+  overflow-x: auto;
+  padding-bottom: 4px;
+}
+
+.weekly-content-tabs button {
+  background: white;
+  border: 1px solid #cbd3d8;
+  border-radius: 3px;
+  color: #34444c;
+  font-size: 12px;
+  font-weight: 800;
+  min-height: 38px;
+}
+
+.weekly-content-tabs button:hover,
+.weekly-content-tabs button:focus-visible {
+  background: var(--icampus-teal);
+  border-color: var(--icampus-teal);
+  color: white;
+}
+
+.weekly-content-list {
+  border-left: 1px solid #cbd3d8;
+  border-right: 1px solid #cbd3d8;
+}
+
+.weekly-content-section {
+  scroll-margin-top: 18px;
+}
+
+.weekly-content-heading {
+  align-items: center;
+  background: #f5f5f5;
+  border: 0;
+  border-bottom: 1px solid #cbd3d8;
+  border-top: 1px solid #cbd3d8;
+  color: #24343c;
+  display: grid;
+  gap: 9px;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  min-height: 52px;
+  padding: 0 14px;
+  text-align: left;
+  width: 100%;
+}
+
+.weekly-content-section + .weekly-content-section .weekly-content-heading {
+  border-top: 0;
+}
+
+.weekly-content-heading strong {
+  font-size: 16px;
+}
+
+.weekly-content-heading > span:last-child {
+  color: #1573bd;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.weekly-content-panel {
+  background: white;
+  border-bottom: 1px solid #cbd3d8;
+  padding: 10px 14px;
+}
+
+.weekly-content-panel > p {
+  color: var(--icampus-muted);
+  margin: 7px 0;
+}
+
+.weekly-content-panel ul {
+  display: grid;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.weekly-content-panel li {
+  align-items: center;
+  border-bottom: 1px solid var(--icampus-border-soft);
+  display: grid;
+  gap: 12px;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  min-height: 62px;
+  padding: 8px 4px;
+}
+
+.weekly-content-panel li:last-child {
+  border-bottom: 0;
+}
+
+.weekly-content-panel li > .ui-icon {
+  color: var(--icampus-teal);
+  height: 22px;
+  width: 22px;
+}
+
+.weekly-material-download {
+  background: transparent;
+  border: 0;
+  color: #263942;
+  display: grid;
+  gap: 3px;
+  justify-items: start;
+  min-width: 0;
+  padding: 4px 0;
+  text-align: left;
+}
+
+.weekly-material-download strong {
+  max-width: 100%;
+  overflow: hidden;
+  text-decoration: underline;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.weekly-material-download span {
+  color: var(--icampus-muted);
+  font-size: 12px;
+}
+
+.weekly-content-panel li > button:last-child:not(.weekly-material-download) {
+  background: var(--icampus-teal);
+  border: 1px solid #075964;
+  border-radius: 3px;
+  color: white;
+  font-weight: 700;
+  min-height: 34px;
+  padding: 0 10px;
 }
 
 .empty-state {
@@ -1808,6 +1968,20 @@ p {
   .material-upload-form {
     align-items: stretch;
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .weekly-content-tabs {
+    grid-template-columns: repeat(16, 44px);
+  }
+
+  .weekly-content-panel li {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .weekly-content-panel li > .material-status,
+  .weekly-content-panel li > button:last-child:not(.weekly-material-download) {
+    justify-self: start;
+    margin-left: 34px;
   }
 
   .material-upload-form > p {

@@ -35,10 +35,18 @@ class MaterialApiContext:
     def headers(self, user_name: str) -> dict[str, str]:
         return {"Authorization": f"Bearer {self.tokens[user_name]}"}
 
-    def upload(self, user_name: str, course_name: str, file_name: str, content: bytes):
+    def upload(
+        self,
+        user_name: str,
+        course_name: str,
+        file_name: str,
+        content: bytes,
+        week: int = 1,
+    ):
         return self.client.post(
             f"/api/courses/{self.courses[course_name]}/materials",
             headers=self.headers(user_name),
+            data={"week": str(week)},
             files={"file": (file_name, content, "application/octet-stream")},
         )
 
@@ -129,15 +137,16 @@ def material_api(tmp_path: Path) -> Generator[MaterialApiContext, None, None]:
 
 
 def test_professor_uploads_lists_and_deletes_material(material_api: MaterialApiContext) -> None:
-    uploaded = material_api.upload("professor", "owned", "week1.txt", b"note")
+    uploaded = material_api.upload("professor", "owned", "week3.txt", b"note", week=3)
 
-    assert uploaded.status_code == 202
+    assert uploaded.status_code == 201
     body = uploaded.json()
     assert body["courseId"] == material_api.courses["owned"]
-    assert body["originalFileName"] == "week1.txt"
+    assert body["originalFileName"] == "week3.txt"
     assert body["fileType"] == "txt"
     assert body["fileSize"] == 4
-    assert body["processingStatus"] == "pending"
+    assert body["week"] == 3
+    assert body["processingStatus"] == "completed"
 
     listed = material_api.client.get(
         f"/api/courses/{material_api.courses['owned']}/materials",
@@ -154,6 +163,34 @@ def test_professor_uploads_lists_and_deletes_material(material_api: MaterialApiC
     assert [path for path in material_api.upload_dir.rglob("*") if path.is_file()] == []
     with material_api.session_factory() as session:
         assert session.get(CourseMaterial, body["id"]) is None
+
+
+def test_student_can_download_professor_material(material_api: MaterialApiContext) -> None:
+    material = material_api.upload(
+        "professor", "owned", "week4.txt", b"link", week=4
+    ).json()
+
+    downloaded = material_api.client.get(
+        f"/api/courses/{material_api.courses['owned']}/materials/{material['id']}/download",
+        headers=material_api.headers("student"),
+    )
+
+    assert downloaded.status_code == 200
+    assert downloaded.content == b"link"
+    assert "week4.txt" in downloaded.headers["content-disposition"]
+
+
+@pytest.mark.parametrize("week", [0, 17])
+def test_upload_rejects_week_outside_semester_range(
+    material_api: MaterialApiContext,
+    week: int,
+) -> None:
+    response = material_api.upload(
+        "professor", "owned", "invalid-week.txt", b"note", week=week
+    )
+
+    assert response.status_code == 422
+    assert [path for path in material_api.upload_dir.rglob("*") if path.is_file()] == []
 
 
 @pytest.mark.parametrize(
@@ -247,7 +284,7 @@ def test_uploaded_file_uses_uuid_internal_name_and_preserves_original_name(
 ) -> None:
     response = material_api.upload("professor", "owned", "lecture-notes.txt", b"note")
 
-    assert response.status_code == 202
+    assert response.status_code == 201
     with material_api.session_factory() as session:
         material = session.get(CourseMaterial, response.json()["id"])
         assert material is not None

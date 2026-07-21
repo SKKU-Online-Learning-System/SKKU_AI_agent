@@ -15,19 +15,10 @@ import {
   uploadCourseMaterial
 } from "../../lib/api";
 import type { CourseMaterial, CourseSummary } from "../../lib/api";
+import { WeeklyMaterialList } from "../../components/courses/weekly-material-list";
 
 const allowedFileExtensions = new Set(["pdf", "pptx", "docx", "txt"]);
 const maxFileSize = 20 * 1024 * 1024;
-const materialStatusLabels: Record<
-  CourseMaterial["processingStatus"],
-  string
-> = {
-  pending: "처리 대기",
-  processing: "처리 중",
-  completed: "처리 완료",
-  failed: "처리 실패"
-};
-
 function apiErrorMessage(error: unknown, fallback: string): string {
   return error instanceof ApiError ? error.message : fallback;
 }
@@ -41,6 +32,7 @@ export function ProfessorMaterialsClient({ courseId }: { courseId?: string } = {
   const [selectedCourseId, setSelectedCourseId] = useState("");
   const [materials, setMaterials] = useState<CourseMaterial[]>([]);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [selectedWeek, setSelectedWeek] = useState(1);
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [deletingMaterialId, setDeletingMaterialId] = useState<string | null>(
@@ -172,7 +164,8 @@ export function ProfessorMaterialsClient({ courseId }: { courseId?: string } = {
     try {
       const uploadedMaterial = await uploadCourseMaterial(
         operationCourseId,
-        operationFile
+        operationFile,
+        selectedWeek
       );
       if (selectedCourseIdRef.current !== operationCourseId) return;
       setMaterials((current) => [uploadedMaterial, ...current]);
@@ -209,7 +202,7 @@ export function ProfessorMaterialsClient({ courseId }: { courseId?: string } = {
     <section className="material-manager">
       <header>
         <h1>강의자료 관리</h1>
-        <p>담당 과목의 강의자료를 업로드하고 처리 상태를 확인합니다.</p>
+        <p>주차를 선택해 업로드하면 학생 강의콘텐츠에 즉시 공개됩니다.</p>
       </header>
 
       {!courseId ? (
@@ -234,6 +227,18 @@ export function ProfessorMaterialsClient({ courseId }: { courseId?: string } = {
       ) : null}
 
       <form className="material-upload-form" onSubmit={handleUpload}>
+        <label>
+          주차
+          <select
+            disabled={!selectedCourseId || isLoading || isMutationActive}
+            onChange={(event) => setSelectedWeek(Number(event.target.value))}
+            value={selectedWeek}
+          >
+            {Array.from({ length: 16 }, (_, index) => index + 1).map((week) => (
+              <option key={week} value={week}>{week}주차</option>
+            ))}
+          </select>
+        </label>
         <label>
           강의자료 파일
           <input
@@ -265,62 +270,19 @@ export function ProfessorMaterialsClient({ courseId }: { courseId?: string } = {
       ) : null}
 
       {!errorMessage || materials.length > 0 ? (
-        <div className="course-table-wrap">
-          <table className="course-table">
-            <thead>
-              <tr>
-                <th scope="col">파일명</th>
-                <th scope="col">형식</th>
-                <th scope="col">크기</th>
-                <th scope="col">처리 상태</th>
-                <th scope="col">작업</th>
-              </tr>
-            </thead>
-            <tbody>
-              {isLoading ? (
-                <tr>
-                  <td colSpan={5}>강의자료를 불러오고 있습니다.</td>
-                </tr>
-              ) : materials.length === 0 ? (
-                <tr>
-                  <td className="empty-state" colSpan={5}>
-                    등록된 강의자료가 없습니다.
-                  </td>
-                </tr>
-              ) : (
-                materials.map((material) => (
-                  <tr key={material.id}>
-                    <td>
-                      <strong>{material.originalFileName}</strong>
-                    </td>
-                    <td>{material.fileType.toUpperCase()}</td>
-                    <td>{(material.fileSize / 1024 / 1024).toFixed(2)}MB</td>
-                    <td>
-                      <span
-                        className="material-status"
-                        data-status={material.processingStatus}
-                      >
-                        {materialStatusLabels[material.processingStatus]}
-                      </span>
-                    </td>
-                    <td>
-                      <button
-                        aria-label={`${material.originalFileName} 삭제`}
-                        disabled={isLoading || isMutationActive}
-                        onClick={() => void handleDelete(material)}
-                        type="button"
-                      >
-                        {deletingMaterialId === material.id
-                          ? "삭제 중..."
-                          : "삭제"}
-                      </button>
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
+        isLoading ? (
+          <p className="weekly-content-loading">강의자료를 불러오고 있습니다.</p>
+        ) : (
+          <WeeklyMaterialList
+            activeWeek={selectedWeek}
+            courseId={selectedCourseId}
+            deletingMaterialId={deletingMaterialId}
+            isBusy={isLoading || isMutationActive}
+            key={selectedWeek}
+            materials={materials}
+            onDelete={(material) => void handleDelete(material)}
+          />
+        )
       ) : null}
     </section>
   );
