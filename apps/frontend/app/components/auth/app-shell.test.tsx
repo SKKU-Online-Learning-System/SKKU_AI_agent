@@ -30,6 +30,7 @@ vi.mock("./auth-provider", () => ({
 
 afterEach(() => {
   cleanup();
+  mocks.pathname.value = "/student/courses";
   mocks.logout.mockClear();
   mocks.replace.mockClear();
 });
@@ -54,5 +55,30 @@ describe("AppShell", () => {
     fireEvent.click(screen.getByRole("button", { name: "로그아웃" }));
     expect(mocks.logout).toHaveBeenCalledTimes(1);
     expect(mocks.replace).toHaveBeenCalledWith("/login");
+  });
+
+  it("shows the current route title in the top bar", () => {
+    render(<AppShell><p>Course content</p></AppShell>);
+
+    expect(within(screen.getByRole("banner")).getByText("내 과목")).toBeInTheDocument();
+  });
+
+  it("exposes a keyboard-operable context menu toggle", () => {
+    render(<AppShell><p>Course content</p></AppShell>);
+
+    const toggle = screen.getByRole("button", { name: "보조 메뉴 열기" });
+    const contextNavigation = screen.getByRole("complementary", { name: "학생 보조 메뉴" });
+
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    expect(toggle).toHaveAttribute("aria-controls", "icampus-context-navigation");
+    expect(contextNavigation).toHaveAttribute("data-open", "false");
+
+    fireEvent.click(toggle);
+
+    expect(screen.getByRole("button", { name: "보조 메뉴 접기" })).toHaveAttribute(
+      "aria-expanded",
+      "true"
+    );
+    expect(contextNavigation).toHaveAttribute("data-open", "true");
   });
 });

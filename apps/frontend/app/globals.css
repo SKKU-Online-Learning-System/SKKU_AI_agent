@@ -275,8 +275,18 @@ p {
   padding: 0 24px;
 }
 
-.icampus-menu-mark {
-  margin-right: 12px;
+.icampus-menu-toggle {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  color: var(--icampus-navy);
+  display: none;
+  font-size: 22px;
+  height: 40px;
+  justify-content: center;
+  margin-right: 8px;
+  padding: 0;
+  width: 40px;
 }
 
 .icampus-user-menu {
@@ -1321,6 +1331,10 @@ p {
     padding: 10px;
   }
 
+  .icampus-context-nav[data-open="false"] {
+    display: none;
+  }
+
   .icampus-context-nav nav {
     display: flex;
     width: max-content;
@@ -1329,6 +1343,10 @@ p {
   .icampus-app-topbar {
     min-height: 64px;
     padding: 12px 14px;
+  }
+
+  .icampus-menu-toggle {
+    display: inline-flex;
   }
 
   .icampus-app-content {

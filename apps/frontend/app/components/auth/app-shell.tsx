@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
+import { useState } from "react";
 import { getRoleHomePath, getRoleMenuItems, roleLabels } from "../../lib/auth";
 import { UiIcon } from "../ui/ui-icon";
 import { useAuth } from "./auth-provider";
@@ -16,6 +17,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const { logout, user } = useAuth();
   const pathname = usePathname();
   const router = useRouter();
+  const [isContextNavOpen, setIsContextNavOpen] = useState(false);
 
   if (!user) {
     return <main className="auth-status-page">사용자 정보를 불러오고 있습니다.</main>;
@@ -23,6 +25,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   const menuItems = getRoleMenuItems(user.role);
   const roleHomePath = getRoleHomePath(user.role);
+  const activeMenuItem = menuItems.find((item) => isActivePath(pathname, item.href, roleHomePath));
+  const currentTitle = activeMenuItem?.label ?? roleLabels[user.role];
 
   const handleLogout = () => {
     logout();
@@ -50,7 +54,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           ))}
         </nav>
       </aside>
-      <aside className="icampus-context-nav">
+      <aside
+        aria-label={`${roleLabels[user.role]} 보조 메뉴`}
+        className="icampus-context-nav"
+        data-open={isContextNavOpen}
+        id="icampus-context-navigation"
+      >
         <strong>{roleLabels[user.role]} 메뉴</strong>
         <nav aria-label={`${roleLabels[user.role]} 메뉴`}>
           {menuItems.map((item) => (
@@ -67,8 +76,17 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       </aside>
       <div className="icampus-app-main">
         <header className="icampus-app-topbar">
-          <span className="icampus-menu-mark" aria-hidden="true">☰</span>
-          <strong>{roleLabels[user.role]} 대시보드</strong>
+          <button
+            aria-controls="icampus-context-navigation"
+            aria-expanded={isContextNavOpen}
+            aria-label={`보조 메뉴 ${isContextNavOpen ? "접기" : "열기"}`}
+            className="icampus-menu-toggle"
+            onClick={() => setIsContextNavOpen((isOpen) => !isOpen)}
+            type="button"
+          >
+            <span aria-hidden="true">☰</span>
+          </button>
+          <strong>{currentTitle}</strong>
           <div className="icampus-user-menu">
             <span>{user.name}</span>
             <button type="button" onClick={handleLogout}>
