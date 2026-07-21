@@ -357,54 +357,6 @@ p {
   font-size: 13px;
 }
 
-.role-dashboard {
-  display: grid;
-  gap: 24px;
-}
-
-.role-dashboard > header {
-  border-bottom: 1px solid var(--icampus-border);
-  display: grid;
-  gap: 8px;
-  padding-bottom: 16px;
-}
-
-.role-dashboard-grid {
-  display: grid;
-  gap: 20px;
-  grid-template-columns: repeat(auto-fit, minmax(240px, 280px));
-}
-
-.role-dashboard-grid > a {
-  background: white;
-  border-radius: 4px;
-  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.3);
-  color: var(--icampus-text);
-  overflow: hidden;
-  text-decoration: none;
-}
-
-.role-dashboard-card-color {
-  background: #16836f;
-  display: block;
-  height: 116px;
-}
-
-.role-dashboard-card-color[data-color="1"] {
-  background: #a87919;
-}
-
-.role-dashboard-card-color[data-color="2"] {
-  background: #6f8886;
-}
-
-.role-dashboard-card-body {
-  display: grid;
-  gap: 7px;
-  min-height: 132px;
-  padding: 16px;
-}
-
 .admin-course-page {
   display: grid;
   gap: 18px;
