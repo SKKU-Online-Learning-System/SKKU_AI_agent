@@ -104,6 +104,11 @@ Copy-Item apps\frontend\.env.local.example apps\frontend\.env.local
 | `MAX_UPLOAD_REQUEST_SIZE_BYTES` | `22020096` | multipart 오버헤드를 포함한 업로드 요청 본문 한도(21 MiB) |
 | `VECTOR_DB_PROVIDER` | `pgvector` | 향후 벡터 저장소 제공자 |
 | `VECTOR_DB_COLLECTION` | `course_document_chunks` | 향후 문서 청크 컬렉션/테이블 이름 |
+| `EMBEDDING_MODEL` | `text-embedding-3-small` | OpenAI 임베딩 모델 |
+| `USE_MOCK_EMBEDDING` | `true` | 외부 API 없는 결정적 개발용 임베딩 사용 |
+| `VECTOR_SEARCH_MODE` | `local` | 현재 JSON 임베딩의 애플리케이션 레벨 cosine 검색 |
+| `RAG_TOP_K` | `5` | 기본 검색 결과 수(최대 20) |
+| `RAG_SCORE_THRESHOLD` | `0.3` | 검색 결과 최소 cosine 유사도 |
 
 프런트엔드 API 주소는 `apps/frontend/.env.local`에서 설정합니다. 이 파일의 예시는 `NEXT_PUBLIC_API_BASE_URL=http://localhost:8000`이며, `apps/frontend/app/lib/api.ts`도 값이 없을 때 `http://localhost:8000`을 기본값으로 사용합니다. `.env.local`도 커밋하지 마세요.
 
@@ -359,7 +364,7 @@ npm.cmd run build:frontend
 ### 교수자
 
 - [ ] 교수자 `/professor/courses`에는 본인 담당 과목만 표시되고, Seed의 두 과목이 보인다.
-- [ ] 교수자 `/professor/materials`에서 담당 과목을 선택해 20MB 이하의 `.txt`, `.pdf`, `.pptx`, `.docx` 중 하나를 업로드한다. 네트워크 응답은 202이고 화면 상태는 처리 대기(`processingStatus: "pending"`)이다.
+- [ ] 교수자 `/professor/materials`에서 담당 과목을 선택해 20MB 이하의 `.txt`, `.pdf`, `.pptx`, `.docx` 중 하나를 업로드한다. 네트워크 응답은 201이고 화면 상태는 처리 대기(`processingStatus: "pending"`)이다.
 - [ ] 새 자료가 목록에 원본 파일명·형식·크기와 함께 표시되고, 새로고침 뒤에도 `GET /api/courses/{course_id}/materials`에서 보인다.
 - [ ] 교수자가 업로드한 자료를 삭제하면 응답이 204이고 목록에서 사라진다.
 - [ ] 교수자가 자기 담당이 아닌 과목 ID로 과목 조회·자료 목록·업로드·삭제를 시도하면 403이다.
@@ -381,16 +386,14 @@ npm.cmd run build:frontend
 
 다음은 2단계의 의도적인 범위 밖이며, 현재 API·화면의 문구나 빈 응답을 실제 기능으로 해석하면 안 됩니다.
 
-- PDF/PPTX/DOCX/TXT 문서 파싱과 텍스트 추출
-- 문서 청크 분할과 토큰/메타데이터 생성
-- 임베딩 생성 및 pgvector 저장
-- 과목(`course_id`) 범위 RAG 검색
+- native pgvector 컬럼·인덱스를 사용하는 DB 내부 벡터 검색
+- 과목별 RAG 검색 HTTP API와 검색 테스트 UI
 - 챗봇의 실제 답변 생성과 과제·시험 SAFE 가드레일
 - 출처(citation) 기반 답변
 - 채팅 세션·로그의 영속 저장과 관리자 로그/통계 대시보드
 
 ## 3단계 연결 지점
 
-3단계 문서 처리기는 새 자료의 `pending` 상태를 읽어 `processing`으로 바꾸고, 파싱, 청크 분할, 임베딩 저장을 수행합니다. 성공하면 `completed`, 실패하면 `failed`와 `processing_error`를 기록해야 합니다.
+3단계 문서 처리기는 새 자료의 `pending` 상태를 읽어 `processing`으로 바꾸고, 파싱, 청크 분할, 임베딩 저장을 수행합니다. 성공하면 `completed`, 실패하면 `failed`와 `processing_error`를 기록합니다. 현재 벡터 검색은 `course_id`로 DB 후보를 먼저 제한한 뒤 애플리케이션에서 cosine 유사도를 계산하는 MVP local 방식입니다.
 
 현재 업로드 API의 책임은 파일 저장과 `CourseMaterial` 메타데이터 생성까지입니다. 문서 내용을 해석하거나 벡터 검색을 수행하지 않으므로, 이후 동기 처리, 백그라운드 워커 또는 메시지 큐를 선택해도 현재의 업로드 계약, `course_id` 권한 규칙, `processingStatus` 응답 계약을 유지할 수 있습니다.

@@ -19,8 +19,21 @@ from app.core.config import Settings, get_settings
 from app.core.security import JWTService
 from app.db.session import get_db
 from app.main import app
-from app.models import Base, Course, CourseAccess, CourseMaterial, CourseMaterialStatus, User, UserRole
+from app.models import (
+    Base,
+    Course,
+    CourseAccess,
+    CourseMaterial,
+    CourseMaterialStatus,
+    DocumentChunk,
+    User,
+    UserRole,
+)
 from app.services.material_service import save_upload
+from app.services.material_processing_service import (
+    MaterialProcessingService,
+)
+from app.services.document_parser_service import ParsedDocument, ParsedPage
 
 
 @dataclass(frozen=True)
@@ -146,7 +159,7 @@ def test_professor_uploads_lists_and_deletes_material(material_api: MaterialApiC
     assert body["fileType"] == "txt"
     assert body["fileSize"] == 4
     assert body["week"] == 3
-    assert body["processingStatus"] == "completed"
+    assert body["processingStatus"] == "pending"
 
     listed = material_api.client.get(
         f"/api/courses/{material_api.courses['owned']}/materials",
@@ -422,3 +435,353 @@ def test_save_upload_writes_destination_off_the_event_loop(
 
     assert write_threads
     assert all(thread_id != event_loop_thread for thread_id in write_threads)
+
+
+def test_professor_processes_and_reprocesses_pending_material(
+    material_api: MaterialApiContext,
+) -> None:
+    uploaded = material_api.upload(
+        "professor",
+        "owned",
+        "lecture.txt",
+        b"note",
+    ).json()
+    base_url = (
+        f"/api/courses/{material_api.courses['owned']}/materials/{uploaded['id']}"
+    )
+
+    pending = material_api.client.get(
+        f"{base_url}/processing-status",
+        headers=material_api.headers("professor"),
+    )
+    processed = material_api.client.post(
+        f"{base_url}/process",
+        headers=material_api.headers("professor"),
+    )
+
+    assert pending.status_code == 200
+    assert pending.json()["processingStatus"] == "pending"
+    assert pending.json()["chunkCount"] == 0
+    assert processed.status_code == 200
+    assert processed.json()["processingStatus"] == "completed"
+    assert processed.json()["processingError"] is None
+    assert processed.json()["chunkCount"] == 1
+
+    with material_api.session_factory() as session:
+        first_chunk = session.scalar(
+            select(DocumentChunk).where(DocumentChunk.material_id == uploaded["id"])
+        )
+        assert first_chunk is not None
+        first_chunk_id = first_chunk.id
+        assert first_chunk.chunk_text == "note"
+        first_embedding = first_chunk.embedding
+        assert first_embedding is not None
+        assert len(first_embedding) == 128
+        assert first_chunk.embedding_model == "mock-hash-128"
+
+    duplicate = material_api.client.post(
+        f"{base_url}/process",
+        headers=material_api.headers("professor"),
+    )
+    reprocessed = material_api.client.post(
+        f"{base_url}/reprocess",
+        headers=material_api.headers("professor"),
+    )
+
+    assert duplicate.status_code == 409
+    assert reprocessed.status_code == 200
+    assert reprocessed.json()["processingStatus"] == "completed"
+    assert reprocessed.json()["chunkCount"] == 1
+    with material_api.session_factory() as session:
+        chunks = session.scalars(
+            select(DocumentChunk).where(DocumentChunk.material_id == uploaded["id"])
+        ).all()
+        assert len(chunks) == 1
+        assert chunks[0].id != first_chunk_id
+        assert chunks[0].embedding == first_embedding
+
+
+def test_processing_failure_is_persisted_and_can_be_retried(
+    material_api: MaterialApiContext,
+) -> None:
+    uploaded = material_api.upload(
+        "professor",
+        "owned",
+        "missing.txt",
+        b"note",
+    ).json()
+    with material_api.session_factory() as session:
+        material = session.get(CourseMaterial, uploaded["id"])
+        assert material is not None
+        Path(material.storage_path).unlink()
+
+    base_url = (
+        f"/api/courses/{material_api.courses['owned']}/materials/{uploaded['id']}"
+    )
+    failed = material_api.client.post(
+        f"{base_url}/process",
+        headers=material_api.headers("professor"),
+    )
+    status_response = material_api.client.get(
+        f"{base_url}/processing-status",
+        headers=material_api.headers("professor"),
+    )
+    retried = material_api.client.post(
+        f"{base_url}/reprocess",
+        headers=material_api.headers("professor"),
+    )
+
+    assert failed.status_code == 422
+    assert failed.json() == {
+        "detail": "MATERIAL_FILE_NOT_FOUND: Material file not found"
+    }
+    assert status_response.status_code == 200
+    assert status_response.json()["processingStatus"] == "failed"
+    assert status_response.json()["processingError"] == (
+        "MATERIAL_FILE_NOT_FOUND: Material file not found"
+    )
+    assert status_response.json()["chunkCount"] == 0
+    assert retried.status_code == 422
+    assert retried.json() == {
+        "detail": "MATERIAL_FILE_NOT_FOUND: Material file not found"
+    }
+
+
+def test_processing_endpoints_enforce_manage_permission_and_course_scope(
+    material_api: MaterialApiContext,
+) -> None:
+    owned = material_api.upload(
+        "professor",
+        "owned",
+        "owned.txt",
+        b"note",
+    ).json()
+    owned_base_url = (
+        f"/api/courses/{material_api.courses['owned']}/materials/{owned['id']}"
+    )
+
+    for suffix, method in [
+        ("process", material_api.client.post),
+        ("reprocess", material_api.client.post),
+        ("processing-status", material_api.client.get),
+    ]:
+        assert method(
+            f"{owned_base_url}/{suffix}",
+            headers=material_api.headers("student"),
+        ).status_code == 403
+        assert method(
+            f"{owned_base_url}/{suffix}",
+            headers=material_api.headers("other_professor"),
+        ).status_code == 403
+
+    admin_processed = material_api.client.post(
+        f"{owned_base_url}/process",
+        headers=material_api.headers("admin"),
+    )
+    assert admin_processed.status_code == 200
+
+    other = material_api.upload(
+        "other_professor",
+        "other",
+        "other.txt",
+        b"note",
+    ).json()
+    wrong_course = material_api.client.post(
+        f"/api/courses/{material_api.courses['owned']}/materials/{other['id']}/process",
+        headers=material_api.headers("admin"),
+    )
+    assert wrong_course.status_code == 404
+
+
+def test_processing_claim_is_visible_and_rejects_concurrent_request(
+    material_api: MaterialApiContext,
+) -> None:
+    uploaded = material_api.upload(
+        "professor",
+        "owned",
+        "claim.txt",
+        b"note",
+    ).json()
+    observed_statuses: list[CourseMaterialStatus] = []
+
+    class ObservingParser:
+        def parse(self, material: CourseMaterial) -> ParsedDocument:
+            with material_api.session_factory() as observation_session:
+                observed = observation_session.get(CourseMaterial, material.id)
+                assert observed is not None
+                observed_statuses.append(observed.processing_status)
+            return ParsedDocument(
+                material_id=material.id,
+                course_id=material.course_id,
+                title=material.original_file_name,
+                pages=(ParsedPage(page_number=None, text="placeholder"),),
+                full_text="placeholder",
+            )
+
+    with material_api.session_factory() as session:
+        result = MaterialProcessingService(
+            session,
+            parser=ObservingParser(),
+        ).process_material(material_api.courses["owned"], uploaded["id"])
+
+    assert observed_statuses == [CourseMaterialStatus.processing]
+    assert result.processing_status == CourseMaterialStatus.completed
+
+    with material_api.session_factory() as session:
+        material = session.get(CourseMaterial, uploaded["id"])
+        assert material is not None
+        material.processing_status = CourseMaterialStatus.processing
+        session.commit()
+
+    conflict = material_api.client.post(
+        (
+            f"/api/courses/{material_api.courses['owned']}/materials/"
+            f"{uploaded['id']}/reprocess"
+        ),
+        headers=material_api.headers("professor"),
+    )
+    assert conflict.status_code == 409
+
+
+@pytest.mark.parametrize(
+    ("file_type", "content", "expected_error"),
+    [
+        ("txt", b"", "DOCUMENT_TEXT_EMPTY"),
+        ("hwp", b"hwp", "DOCUMENT_UNSUPPORTED_TYPE"),
+    ],
+)
+def test_parser_failure_marks_material_failed(
+    material_api: MaterialApiContext,
+    file_type: str,
+    content: bytes,
+    expected_error: str,
+) -> None:
+    path = material_api.upload_dir / f"manual.{file_type}"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(content)
+    with material_api.session_factory() as session:
+        material = CourseMaterial(
+            course_id=material_api.courses["owned"],
+            uploaded_by=material_api.users["professor"],
+            file_name=path.name,
+            original_file_name=path.name,
+            file_type=file_type,
+            file_size=len(content),
+            storage_path=str(path),
+            processing_status=CourseMaterialStatus.pending,
+        )
+        session.add(material)
+        session.commit()
+        material_id = material.id
+
+    response = material_api.client.post(
+        (
+            f"/api/courses/{material_api.courses['owned']}/materials/"
+            f"{material_id}/process"
+        ),
+        headers=material_api.headers("professor"),
+    )
+
+    assert response.status_code == 422
+    assert expected_error in response.json()["detail"]
+    with material_api.session_factory() as session:
+        failed = session.get(CourseMaterial, material_id)
+        assert failed is not None
+        assert failed.processing_status == CourseMaterialStatus.failed
+        assert failed.processing_error is not None
+        assert expected_error in failed.processing_error
+
+
+def test_process_splits_long_text_and_reprocess_replaces_chunks(
+    material_api: MaterialApiContext,
+) -> None:
+    path = material_api.upload_dir / "long-lecture.txt"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("가" * 2200, encoding="utf-8")
+    with material_api.session_factory() as session:
+        material = CourseMaterial(
+            course_id=material_api.courses["owned"],
+            uploaded_by=material_api.users["professor"],
+            file_name=path.name,
+            original_file_name=path.name,
+            file_type="txt",
+            file_size=path.stat().st_size,
+            storage_path=str(path),
+            processing_status=CourseMaterialStatus.pending,
+        )
+        session.add(material)
+        session.commit()
+        material_id = material.id
+
+    base_url = (
+        f"/api/courses/{material_api.courses['owned']}/materials/{material_id}"
+    )
+    processed = material_api.client.post(
+        f"{base_url}/process",
+        headers=material_api.headers("professor"),
+    )
+
+    assert processed.status_code == 200
+    assert processed.json()["chunkCount"] == 3
+    with material_api.session_factory() as session:
+        first_chunks = session.scalars(
+            select(DocumentChunk)
+            .where(DocumentChunk.material_id == material_id)
+            .order_by(DocumentChunk.chunk_index)
+        ).all()
+        first_ids = {chunk.id for chunk in first_chunks}
+        assert [chunk.chunk_index for chunk in first_chunks] == [0, 1, 2]
+        assert [chunk.page_number for chunk in first_chunks] == [None, None, None]
+        assert [chunk.char_count for chunk in first_chunks] == [1000, 1000, 500]
+        assert all(chunk.course_id == material_api.courses["owned"] for chunk in first_chunks)
+
+    reprocessed = material_api.client.post(
+        f"{base_url}/reprocess",
+        headers=material_api.headers("professor"),
+    )
+
+    assert reprocessed.status_code == 200
+    assert reprocessed.json()["chunkCount"] == 3
+    with material_api.session_factory() as session:
+        replacement_chunks = session.scalars(
+            select(DocumentChunk).where(DocumentChunk.material_id == material_id)
+        ).all()
+        assert len(replacement_chunks) == 3
+        assert first_ids.isdisjoint(chunk.id for chunk in replacement_chunks)
+
+
+def test_embedding_configuration_failure_marks_material_failed(
+    material_api: MaterialApiContext,
+) -> None:
+    uploaded = material_api.upload(
+        "professor",
+        "owned",
+        "embedding.txt",
+        b"note",
+    ).json()
+    app.dependency_overrides[get_settings] = lambda: Settings(
+        upload_dir=str(material_api.upload_dir),
+        max_upload_size_bytes=4,
+        use_mock_embedding=False,
+        openai_api_key=None,
+    )
+
+    response = material_api.client.post(
+        (
+            f"/api/courses/{material_api.courses['owned']}/materials/"
+            f"{uploaded['id']}/process"
+        ),
+        headers=material_api.headers("professor"),
+    )
+
+    assert response.status_code == 422
+    assert "EMBEDDING_API_KEY_MISSING" in response.json()["detail"]
+    with material_api.session_factory() as session:
+        material = session.get(CourseMaterial, uploaded["id"])
+        assert material is not None
+        assert material.processing_status == CourseMaterialStatus.failed
+        assert material.processing_error is not None
+        assert "EMBEDDING_API_KEY_MISSING" in material.processing_error
+        assert session.scalars(
+            select(DocumentChunk).where(DocumentChunk.material_id == uploaded["id"])
+        ).all() == []

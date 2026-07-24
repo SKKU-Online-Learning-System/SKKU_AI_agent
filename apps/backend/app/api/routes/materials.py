@@ -16,8 +16,15 @@ from app.api.deps import (
 from app.core.config import Settings, get_settings
 from app.db.session import get_db
 from app.models import Course, CourseMaterial, CourseMaterialStatus, User
-from app.schemas import CourseMaterialRead
+from app.schemas import CourseMaterialRead, MaterialProcessingStatusRead
 from app.services.material_service import MaterialValidationError, remove_stored_file, save_upload
+from app.services.material_processing_service import (
+    MaterialNotFoundError,
+    MaterialProcessingConflictError,
+    MaterialProcessingFailedError,
+    MaterialProcessingService,
+)
+from app.services.embedding_service import create_embedding_service
 
 router = APIRouter(tags=["materials"])
 logger = logging.getLogger(__name__)
@@ -69,7 +76,7 @@ async def upload_material(
         file_size=stored.file_size,
         week=week,
         storage_path=str(stored.storage_path),
-        processing_status=CourseMaterialStatus.completed,
+        processing_status=CourseMaterialStatus.pending,
     )
     session.add(material)
     try:
@@ -82,6 +89,99 @@ async def upload_material(
         await run_in_threadpool(remove_stored_file, stored.storage_path)
         raise
     return response
+
+
+def run_material_processing(
+    session: Session,
+    settings: Settings,
+    course_id: str,
+    material_id: str,
+    *,
+    reprocess: bool,
+) -> MaterialProcessingStatusRead:
+    service = MaterialProcessingService(
+        session,
+        embedder=create_embedding_service(settings),
+    )
+    try:
+        result = service.process_material(
+            course_id,
+            material_id,
+            reprocess=reprocess,
+        )
+    except MaterialNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Material not found",
+        ) from exc
+    except MaterialProcessingConflictError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(exc),
+        ) from exc
+    except MaterialProcessingFailedError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=str(exc),
+        ) from exc
+    return MaterialProcessingStatusRead.model_validate(result)
+
+
+@router.post(
+    "/courses/{course_id}/materials/{material_id}/process",
+    response_model=MaterialProcessingStatusRead,
+)
+async def process_material(
+    course: Annotated[Course, Depends(require_course_manage_permission)],
+    material_id: str,
+    session: Annotated[Session, Depends(get_db)],
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> MaterialProcessingStatusRead:
+    return run_material_processing(
+        session,
+        settings,
+        course.id,
+        material_id,
+        reprocess=False,
+    )
+
+
+@router.post(
+    "/courses/{course_id}/materials/{material_id}/reprocess",
+    response_model=MaterialProcessingStatusRead,
+)
+async def reprocess_material(
+    course: Annotated[Course, Depends(require_course_manage_permission)],
+    material_id: str,
+    session: Annotated[Session, Depends(get_db)],
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> MaterialProcessingStatusRead:
+    return run_material_processing(
+        session,
+        settings,
+        course.id,
+        material_id,
+        reprocess=True,
+    )
+
+
+@router.get(
+    "/courses/{course_id}/materials/{material_id}/processing-status",
+    response_model=MaterialProcessingStatusRead,
+)
+async def get_material_processing_status(
+    course: Annotated[Course, Depends(require_course_manage_permission)],
+    material_id: str,
+    session: Annotated[Session, Depends(get_db)],
+) -> MaterialProcessingStatusRead:
+    try:
+        result = MaterialProcessingService(session).get_status(course.id, material_id)
+    except MaterialNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Material not found",
+        ) from exc
+    return MaterialProcessingStatusRead.model_validate(result)
 
 
 @router.get("/courses/{course_id}/materials/{material_id}/download")

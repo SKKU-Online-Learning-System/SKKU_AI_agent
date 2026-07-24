@@ -3,12 +3,13 @@ from sqlalchemy import CheckConstraint, UniqueConstraint
 from app.models.domain import Base, CourseMaterialStatus, UserRole
 
 
-def test_stage_two_metadata_contains_only_expected_tables() -> None:
+def test_metadata_contains_expected_stage_three_tables() -> None:
     assert set(Base.metadata.tables) == {
         "users",
         "courses",
         "course_access",
         "course_materials",
+        "document_chunks",
     }
 
 
@@ -98,4 +99,29 @@ def test_material_metadata_matches_stage_two_contract() -> None:
     }
     assert "ck_course_materials_file_size_non_negative" in check_names
     assert "ck_course_materials_week_range" in check_names
-    assert table.columns["processing_status"].default.arg == CourseMaterialStatus.completed
+    assert table.columns["processing_status"].default.arg == CourseMaterialStatus.pending
+
+
+def test_document_chunk_matches_processing_contract() -> None:
+    table = Base.metadata.tables["document_chunks"]
+
+    assert {
+        "id",
+        "course_id",
+        "material_id",
+        "chunk_index",
+        "chunk_text",
+        "page_number",
+        "section_title",
+        "char_count",
+        "embedding",
+        "embedding_model",
+        "created_at",
+        "updated_at",
+    } == set(table.columns.keys())
+    unique_columns = {
+        tuple(column.name for column in constraint.columns)
+        for constraint in table.constraints
+        if isinstance(constraint, UniqueConstraint)
+    }
+    assert ("material_id", "chunk_index") in unique_columns

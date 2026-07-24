@@ -4,6 +4,7 @@ from app.models.domain import (
     CourseAccess,
     CourseMaterial,
     CourseMaterialStatus,
+    DocumentChunk,
     User,
     UserRole,
 )
@@ -14,6 +15,7 @@ __all__ = [
     "CourseAccess",
     "CourseMaterial",
     "CourseMaterialStatus",
+    "DocumentChunk",
     "User",
     "UserRole",
 ]

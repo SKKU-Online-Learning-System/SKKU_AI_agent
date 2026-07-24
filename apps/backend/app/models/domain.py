@@ -11,6 +11,7 @@ from sqlalchemy import (
     CheckConstraint,
     DateTime,
     ForeignKey,
+    JSON,
     String,
     SmallInteger,
     Text,
@@ -139,6 +140,10 @@ class Course(Base):
         back_populates="course",
         passive_deletes=True,
     )
+    document_chunks: Mapped[list[DocumentChunk]] = relationship(
+        back_populates="course",
+        passive_deletes=True,
+    )
 
 
 class CourseAccess(Base):
@@ -217,8 +222,8 @@ class CourseMaterial(Base):
             create_constraint=True,
             validate_strings=True,
         ),
-        default=CourseMaterialStatus.completed,
-        server_default=CourseMaterialStatus.completed.value,
+        default=CourseMaterialStatus.pending,
+        server_default=CourseMaterialStatus.pending.value,
         nullable=False,
     )
     processing_error: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
@@ -239,3 +244,58 @@ class CourseMaterial(Base):
         back_populates="uploaded_materials",
         foreign_keys=[uploaded_by],
     )
+    document_chunks: Mapped[list[DocumentChunk]] = relationship(
+        back_populates="material",
+        passive_deletes=True,
+    )
+
+
+class DocumentChunk(Base):
+    __tablename__ = "document_chunks"
+    __table_args__ = (
+        UniqueConstraint(
+            "material_id",
+            "chunk_index",
+            name="uq_document_chunks_material_index",
+        ),
+        CheckConstraint(
+            "char_count >= 0",
+            name="ck_document_chunks_char_count_non_negative",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    course_id: Mapped[str] = mapped_column(
+        ForeignKey("courses.id", ondelete="CASCADE"),
+        index=True,
+        nullable=False,
+    )
+    material_id: Mapped[str] = mapped_column(
+        ForeignKey("course_materials.id", ondelete="CASCADE"),
+        index=True,
+        nullable=False,
+    )
+    chunk_index: Mapped[int] = mapped_column(nullable=False)
+    chunk_text: Mapped[str] = mapped_column(Text, nullable=False)
+    page_number: Mapped[Optional[int]] = mapped_column(nullable=True)
+    section_title: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    char_count: Mapped[int] = mapped_column(nullable=False)
+    embedding: Mapped[Optional[list[float]]] = mapped_column(
+        JSON(none_as_null=True),
+        nullable=True,
+    )
+    embedding_model: Mapped[Optional[str]] = mapped_column(String(120), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+    course: Mapped[Course] = relationship(back_populates="document_chunks")
+    material: Mapped[CourseMaterial] = relationship(back_populates="document_chunks")
