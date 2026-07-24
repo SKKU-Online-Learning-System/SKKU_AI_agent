@@ -13,6 +13,7 @@ from app.schemas.domain import (
     CourseMaterialRead,
     CourseRead,
     DocumentChunkRead,
+    MaterialProcessingStatusRead,
     UserRead,
 )
 
@@ -31,6 +32,7 @@ __all__ = [
     "CourseMaterialRead",
     "CourseRead",
     "DocumentChunkRead",
+    "MaterialProcessingStatusRead",
     "LoginRequest",
     "LoginResponse",
     "UserRead",

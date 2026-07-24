@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Literal, Optional
+from typing import Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
@@ -114,11 +114,22 @@ class DocumentChunkRead(CamelModel):
     material_id: str
     course_id: str
     chunk_index: int
-    content: str
+    chunk_text: str
+    page_number: Optional[int] = None
+    section_title: Optional[str] = None
+    char_count: int
+    embedding: Optional[list[float]] = None
     embedding_model: Optional[str] = None
-    token_count: Optional[int] = None
-    metadata: dict[str, Any] = Field(default_factory=dict)
     created_at: datetime
+    updated_at: datetime
+
+
+class MaterialProcessingStatusRead(CamelModel):
+    material_id: str
+    processing_status: CourseMaterialStatus
+    processing_error: Optional[str] = None
+    chunk_count: int
+    updated_at: datetime
 
 
 class Citation(CamelModel):

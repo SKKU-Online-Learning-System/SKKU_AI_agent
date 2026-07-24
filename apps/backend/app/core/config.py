@@ -24,6 +24,8 @@ class Settings(BaseSettings):
     app_env: str = "local"
     database_url: str = "postgresql+psycopg://course_agent:course_agent@localhost:5432/course_agent"
     openai_api_key: Optional[str] = None
+    embedding_model: str = "text-embedding-3-small"
+    use_mock_embedding: bool = True
     jwt_secret: str = "local-dev-change-me"
     jwt_algorithm: str = "HS256"
     jwt_expires_in: int = Field(default=3600, gt=0)
@@ -32,6 +34,9 @@ class Settings(BaseSettings):
     vector_db_url: Optional[str] = None
     vector_db_collection: str = "course_document_chunks"
     vector_db_embedding_dim: int = 1536
+    vector_search_mode: Literal["local", "pgvector"] = "local"
+    rag_top_k: int = Field(default=5, ge=1, le=20)
+    rag_score_threshold: float = Field(default=0.3, ge=-1, le=1)
 
     backend_cors_origins: str = Field(default="http://localhost:3000")
     upload_dir: str = "uploads"

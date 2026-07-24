@@ -237,12 +237,12 @@ def test_stage2_admin_professor_student_flow(stage2_api: Stage2Api) -> None:
     )
     assert uploaded.status_code == 201
     material = uploaded.json()
-    assert material["processingStatus"] == "completed"
+    assert material["processingStatus"] == "pending"
     assert material["week"] == 1
     with stage2_api.session_factory() as session:
         stored_material = session.get(CourseMaterial, material["id"])
         assert stored_material is not None
-        assert stored_material.processing_status == CourseMaterialStatus.completed
+        assert stored_material.processing_status == CourseMaterialStatus.pending
         storage_path = Path(stored_material.storage_path)
         assert storage_path.is_file()
         assert stored_material.file_name != stored_material.original_file_name
