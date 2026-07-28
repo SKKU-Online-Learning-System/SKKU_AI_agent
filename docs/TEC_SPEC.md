@@ -12,6 +12,19 @@
 | 개발 기간   | 2026년 7월 ~ 2026년 12월                                                            |
 | 개발 인력   | Frontend 1명, Backend 1명, AI/RAG 1명                                               |
 
+### 1.1 현재 구현 기준
+
+2026-07-28 기준으로 검색 가능한 지식베이스까지 구현되어 있다.
+
+- TXT, PDF, DOCX, PPTX 텍스트 추출
+- 1,000자 청크와 150자 중첩
+- deterministic mock 또는 OpenAI embedding
+- PostgreSQL JSON embedding 저장과 애플리케이션 cosine 검색
+- 과목 권한 및 `course_id` 범위가 강제되는 검색 API
+- 교수자 자료 처리 UI와 RAG 검색 디버그 UI
+
+LLM 답변 생성, citation 조립, SAFE 정책과 ChatLog 영속화는 4단계 범위다. pgvector 확장은 활성화되어 있지만 현재 vector 컬럼과 DB 거리 연산은 사용하지 않는다.
+
 ---
 
 ## 2. 시스템 목표
@@ -388,16 +401,21 @@ UNIQUE(course_id, user_id)
 | chunk_text    | TEXT                  | 청크 내용                 |
 | page_number   | INT NULL              | 페이지 또는 슬라이드 번호 |
 | section_title | VARCHAR NULL          | 섹션명                    |
-| embedding     | VECTOR                | 임베딩 벡터               |
+| char_count    | INT                   | 청크 문자 수              |
+| embedding     | JSON                  | 임베딩 벡터               |
+| embedding_model | VARCHAR NULL        | 임베딩 모델명             |
 | created_at    | TIMESTAMP             | 생성 시각                 |
+| updated_at    | TIMESTAMP             | 수정 시각                 |
 
 인덱스:
 
 ```text id="vjfys3"
 INDEX(course_id)
 INDEX(material_id)
-VECTOR INDEX(embedding)
+UNIQUE(material_id, chunk_index)
 ```
+
+현재 `VectorStoreService`가 과목별 후보 embedding을 읽어 Python에서 cosine similarity를 계산한다.
 
 ---
 
@@ -703,14 +721,16 @@ student
 
 ## 8.5 RAG 검색 API
 
-### POST /rag/search
+### POST /api/rag/search
 
 질문에 대한 관련 문서 청크 검색.
 
 권한:
 
 ```text id="2cy22h"
-해당 과목 접근 권한 필요
+student: 수강 중인 활성 과목
+professor: 본인 담당 과목
+admin: 모든 과목
 ```
 
 Request:
@@ -727,24 +747,35 @@ Response:
 
 ```json id="t2m54s"
 {
+  "course_id": "course-id",
+  "question": "경사하강법이 뭐야?",
+  "top_k": 5,
   "results": [
     {
       "chunk_id": "chunk-id",
       "material_id": "material-id",
       "document_name": "lecture1.pdf",
       "page_number": 12,
+      "chunk_index": 3,
       "chunk_text": "경사하강법은...",
       "score": 0.87
     }
-  ]
+  ],
+  "debug": null
 }
 ```
+
+`debug=true`는 professor/admin만 사용할 수 있다. 검색 API는 답변을 생성하지 않는다.
+
+### GET /api/courses/{course_id}/rag/status
+
+자료 처리 수, 전체/임베딩 청크 수와 검색 준비 상태를 반환한다. 완료된 자료에 임베딩 청크가 하나 이상 있을 때 `is_search_ready=true`다.
 
 ---
 
 ## 8.6 챗봇 API
 
-### POST /chat
+### POST /chat (4단계 Roadmap)
 
 과목별 RAG 기반 답변 생성.
 
@@ -945,7 +976,7 @@ MVP 기본값:
 
 ## 9.4 임베딩 정책
 
-MVP에서는 OpenAI Embedding API를 기본으로 사용한다.
+로컬 기본값은 deterministic mock embedding이다. `USE_MOCK_EMBEDDING=false`일 때 OpenAI Embedding API를 사용한다.
 
 예시 모델:
 
@@ -985,8 +1016,8 @@ DocumentChunk.course_id = selected_course_id
 | 항목            | 값                |
 | --------------- | ----------------- |
 | top_k           | 5                 |
-| score_threshold | 0.3 ~ 0.5         |
-| 검색 방식       | cosine similarity |
+| score_threshold | 0.3               |
+| 검색 방식       | local cosine      |
 | 필터            | course_id 필수    |
 
 검색 결과가 부족한 경우:
@@ -998,7 +1029,7 @@ DocumentChunk.course_id = selected_course_id
 
 ---
 
-## 9.6 답변 생성 프롬프트 정책
+## 9.6 답변 생성 프롬프트 정책 (4단계 Roadmap)
 
 LLM에는 다음 정보를 전달한다.
 
@@ -1490,11 +1521,12 @@ volumes:
 ## 18.3 3단계: 문서 처리 / RAG 검색
 
 ```text id="u33s69"
-- 텍스트 추출
-- 청크 분할
-- 임베딩 생성
-- 벡터 저장
-- 검색 API
+- 완료: TXT/PDF/DOCX/PPTX 텍스트 추출
+- 완료: 청크 분할과 DocumentChunk 저장
+- 완료: mock/OpenAI 임베딩 생성
+- 완료: JSON embedding과 local cosine 검색
+- 완료: 과목 권한/범위 검색 API와 상태 API
+- 완료: 교수자 처리 상태 및 검색 디버그 UI
 ```
 
 ---

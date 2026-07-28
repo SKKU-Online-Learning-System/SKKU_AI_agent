@@ -76,8 +76,50 @@ export type CourseMaterial = {
   week: number;
   processingStatus: "pending" | "processing" | "completed" | "failed";
   processingError?: string | null;
+  chunkCount?: number;
   createdAt: string;
   updatedAt: string;
+};
+
+export type CourseRagStatus = {
+  courseId: string;
+  materialCount: number;
+  completedMaterialCount: number;
+  failedMaterialCount: number;
+  chunkCount: number;
+  embeddedChunkCount: number;
+  isSearchReady: boolean;
+};
+
+export type MaterialProcessingStatus = {
+  materialId: string;
+  processingStatus: CourseMaterial["processingStatus"];
+  processingError?: string | null;
+  chunkCount: number;
+  updatedAt: string;
+};
+
+export type RagSearchResult = {
+  chunkId: string;
+  materialId: string;
+  documentName: string;
+  pageNumber?: number | null;
+  chunkIndex: number;
+  chunkText: string;
+  score: number;
+};
+
+export type RagSearchResponse = {
+  courseId: string;
+  question: string;
+  topK: number;
+  results: RagSearchResult[];
+  debug?: {
+    embeddingModel?: string | null;
+    searchMode: string;
+    scoreThreshold?: number | null;
+    totalCandidateChunks: number;
+  };
 };
 
 export class ApiError extends Error {
@@ -216,6 +258,91 @@ export function deleteCourseMaterial(courseId: string, materialId: string): Prom
   return apiRequest<void>(`/api/courses/${courseId}/materials/${materialId}`, {
     method: "DELETE"
   });
+}
+
+export function processCourseMaterial(
+  courseId: string,
+  materialId: string,
+  reprocess = false
+): Promise<MaterialProcessingStatus> {
+  return apiRequest<MaterialProcessingStatus>(
+    `/api/courses/${courseId}/materials/${materialId}/${reprocess ? "reprocess" : "process"}`,
+    { method: "POST" }
+  );
+}
+
+export async function getCourseRagStatus(courseId: string): Promise<CourseRagStatus> {
+  const status = await apiRequest<{
+    course_id: string;
+    material_count: number;
+    completed_material_count: number;
+    failed_material_count: number;
+    chunk_count: number;
+    embedded_chunk_count: number;
+    is_search_ready: boolean;
+  }>(`/api/courses/${courseId}/rag/status`);
+  return {
+    courseId: status.course_id,
+    materialCount: status.material_count,
+    completedMaterialCount: status.completed_material_count,
+    failedMaterialCount: status.failed_material_count,
+    chunkCount: status.chunk_count,
+    embeddedChunkCount: status.embedded_chunk_count,
+    isSearchReady: status.is_search_ready
+  };
+}
+
+export async function searchRagDebug(
+  courseId: string,
+  question: string,
+  topK: number
+): Promise<RagSearchResponse> {
+  const response = await apiRequest<{
+    course_id: string;
+    question: string;
+    top_k: number;
+    results: Array<{
+      chunk_id: string;
+      material_id: string;
+      document_name: string;
+      page_number?: number | null;
+      chunk_index: number;
+      chunk_text: string;
+      score: number;
+    }>;
+    debug?: {
+      embedding_model?: string | null;
+      search_mode: string;
+      score_threshold?: number | null;
+      total_candidate_chunks: number;
+    } | null;
+  }>("/api/rag/search", {
+    method: "POST",
+    body: JSON.stringify({ course_id: courseId, question, top_k: topK, debug: true })
+  });
+
+  return {
+    courseId: response.course_id,
+    question: response.question,
+    topK: response.top_k,
+    results: response.results.map((result) => ({
+      chunkId: result.chunk_id,
+      materialId: result.material_id,
+      documentName: result.document_name,
+      pageNumber: result.page_number,
+      chunkIndex: result.chunk_index,
+      chunkText: result.chunk_text,
+      score: result.score
+    })),
+    debug: response.debug
+      ? {
+          embeddingModel: response.debug.embedding_model,
+          searchMode: response.debug.search_mode,
+          scoreThreshold: response.debug.score_threshold,
+          totalCandidateChunks: response.debug.total_candidate_chunks
+        }
+      : undefined
+  };
 }
 
 function adminCourseQuery(filters: AdminCourseFilters = {}): string {

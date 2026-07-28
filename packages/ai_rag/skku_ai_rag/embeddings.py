@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import re
 from collections.abc import Sequence
 from typing import Protocol
 
@@ -41,7 +42,14 @@ class LocalHashEmbeddingProvider:
 
     def _embed_one(self, text: str) -> list[float]:
         vector = [0.0] * self.dim
-        tokens = text.lower().split()
+        words = re.findall(r"[0-9a-zA-Z가-힣]+", text.lower())
+        tokens = [f"word:{word}" for word in words]
+        tokens.extend(
+            f"char:{word[index:index + size]}"
+            for word in words
+            for size in (2, 3)
+            for index in range(len(word) - size + 1)
+        )
 
         for token in tokens:
             digest = hashlib.sha256(token.encode("utf-8")).digest()

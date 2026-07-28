@@ -1,6 +1,6 @@
 # SKKU Course Agent
 
-성균관대학교 강의자료 기반 코스 에이전트 MVP입니다. 현재 인증·과목 관리·자료 업로드와 문서 처리까지 구현되어 있습니다. 검색 API와 LLM 답변 생성은 후속 단계입니다.
+성균관대학교 강의자료 기반 코스 에이전트 MVP입니다. 현재 인증·과목 관리·자료 처리·과목별 검색과 교수자 디버그 UI까지 구현되어 있습니다. LLM 답변 생성은 후속 단계입니다.
 
 ## 구성
 
@@ -66,6 +66,8 @@ upload(pending) → process(processing) → text extraction
 
 기본값은 외부 API가 필요 없는 deterministic mock embedding입니다. 실제 OpenAI embedding은 `.env`에서 `USE_MOCK_EMBEDDING=false`와 `OPENAI_API_KEY`를 설정합니다.
 
+검색은 완료된 자료만 대상으로 하며 `course_id` 권한과 범위를 강제합니다. 현재 JSON embedding을 애플리케이션에서 cosine 비교합니다.
+
 주요 자료 처리 API:
 
 | 메서드 | 경로 |
@@ -74,6 +76,16 @@ upload(pending) → process(processing) → text extraction
 | POST | `/api/courses/{course_id}/materials/{material_id}/process` |
 | POST | `/api/courses/{course_id}/materials/{material_id}/reprocess` |
 | GET | `/api/courses/{course_id}/materials/{material_id}/processing-status` |
+| GET | `/api/courses/{course_id}/rag/status` |
+| POST | `/api/rag/search` |
+
+교수자는 `/professor/rag-debug` 또는 과목별 `/professor/courses/{courseId}/rag-debug`에서 점수와 출처 청크를 확인할 수 있습니다.
+
+샘플 자료 업로드부터 검색까지 확인하려면 API 실행 후 다음 명령을 사용합니다.
+
+```powershell
+uv run --locked --all-packages --all-extras python scripts/rag_smoke_test.py
+```
 
 ## 테스트
 

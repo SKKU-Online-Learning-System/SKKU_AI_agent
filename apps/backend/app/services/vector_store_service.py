@@ -3,11 +3,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Optional, Protocol, Sequence
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, distinct, func, select
 from sqlalchemy.orm import Session
 
 from app.core.config import Settings
-from app.models import CourseMaterial, DocumentChunk
+from app.models import CourseMaterial, CourseMaterialStatus, DocumentChunk
 
 MAX_TOP_K = 20
 
@@ -28,6 +28,14 @@ class SearchResult:
     document_name: str
 
 
+@dataclass(frozen=True)
+class SearchDebugInfo:
+    embedding_model: Optional[str]
+    search_mode: str
+    score_threshold: Optional[float]
+    total_candidate_chunks: int
+
+
 class VectorStoreService(Protocol):
     def upsert_chunks(self, chunks: Sequence[DocumentChunk]) -> None:
         raise NotImplementedError
@@ -41,6 +49,9 @@ class VectorStoreService(Protocol):
         query_embedding: Sequence[float],
         top_k: Optional[int] = None,
     ) -> list[SearchResult]:
+        raise NotImplementedError
+
+    def get_search_debug_info(self, course_id: str) -> SearchDebugInfo:
         raise NotImplementedError
 
 
@@ -99,6 +110,7 @@ class SQLAlchemyLocalVectorStoreService:
             .where(
                 DocumentChunk.course_id == course_id,
                 CourseMaterial.course_id == course_id,
+                CourseMaterial.processing_status == CourseMaterialStatus.completed,
                 DocumentChunk.embedding.is_not(None),
             )
         ).all()
@@ -123,6 +135,28 @@ class SQLAlchemyLocalVectorStoreService:
                 )
             )
         return sorted(results, key=lambda item: (-item.score, item.chunk_id))[:limit]
+
+    def get_search_debug_info(self, course_id: str) -> SearchDebugInfo:
+        candidate_count, model_count, model = self.session.execute(
+            select(
+                func.count(DocumentChunk.id),
+                func.count(distinct(DocumentChunk.embedding_model)),
+                func.min(DocumentChunk.embedding_model),
+            )
+            .join(CourseMaterial, CourseMaterial.id == DocumentChunk.material_id)
+            .where(
+                DocumentChunk.course_id == course_id,
+                CourseMaterial.course_id == course_id,
+                CourseMaterial.processing_status == CourseMaterialStatus.completed,
+                DocumentChunk.embedding.is_not(None),
+            )
+        ).one()
+        return SearchDebugInfo(
+            embedding_model="mixed" if model_count > 1 else model,
+            search_mode="local",
+            score_threshold=self.score_threshold,
+            total_candidate_chunks=candidate_count,
+        )
 
 
 def cosine_similarity(left: Sequence[float], right: Sequence[float]) -> float:

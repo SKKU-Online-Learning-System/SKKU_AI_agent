@@ -10,11 +10,13 @@ import {
 import {
   ApiError,
   deleteCourseMaterial,
+  getCourseRagStatus,
   listCourseMaterials,
   listCourses,
+  processCourseMaterial,
   uploadCourseMaterial
 } from "../../lib/api";
-import type { CourseMaterial, CourseSummary } from "../../lib/api";
+import type { CourseMaterial, CourseRagStatus, CourseSummary } from "../../lib/api";
 import { WeeklyMaterialList } from "../../components/courses/weekly-material-list";
 
 const allowedFileExtensions = new Set(["pdf", "pptx", "docx", "txt"]);
@@ -38,10 +40,14 @@ export function ProfessorMaterialsClient({ courseId }: { courseId?: string } = {
   const [deletingMaterialId, setDeletingMaterialId] = useState<string | null>(
     null
   );
+  const [processingMaterialId, setProcessingMaterialId] = useState<string | null>(null);
+  const [ragStatus, setRagStatus] = useState<CourseRagStatus | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const selectedCourseIdRef = useRef<string>("");
-  const isMutationActive = isSubmitting || deletingMaterialId !== null;
+  const processingMaterialIdRef = useRef<string | null>(null);
+  const isMutationActive =
+    isSubmitting || deletingMaterialId !== null || processingMaterialId !== null;
 
   const resetSelectedFile = () => {
     setSelectedFile(null);
@@ -97,9 +103,13 @@ export function ProfessorMaterialsClient({ courseId }: { courseId?: string } = {
       setIsLoading(true);
       setErrorMessage(null);
       try {
-        const materialList = await listCourseMaterials(selectedCourseId);
+        const [materialList, nextRagStatus] = await Promise.all([
+          listCourseMaterials(selectedCourseId),
+          getCourseRagStatus(selectedCourseId)
+        ]);
         if (!isCancelled) {
           setMaterials(materialList);
+          setRagStatus(nextRagStatus);
         }
       } catch (error) {
         if (!isCancelled) {
@@ -125,6 +135,7 @@ export function ProfessorMaterialsClient({ courseId }: { courseId?: string } = {
     const nextCourseId = event.target.value;
     selectedCourseIdRef.current = nextCourseId;
     setMaterials([]);
+    setRagStatus(null);
     resetSelectedFile();
     setErrorMessage(null);
     setIsLoading(Boolean(nextCourseId));
@@ -190,6 +201,11 @@ export function ProfessorMaterialsClient({ courseId }: { courseId?: string } = {
       setMaterials((current) =>
         current.filter((item) => item.id !== material.id)
       );
+      try {
+        setRagStatus(await getCourseRagStatus(operationCourseId));
+      } catch {
+        setErrorMessage("자료는 삭제됐지만 검색 준비 상태를 갱신하지 못했습니다.");
+      }
     } catch (error) {
       if (selectedCourseIdRef.current !== operationCourseId) return;
       setErrorMessage(apiErrorMessage(error, "강의자료 삭제에 실패했습니다."));
@@ -198,11 +214,72 @@ export function ProfessorMaterialsClient({ courseId }: { courseId?: string } = {
     }
   };
 
+  const handleProcess = async (material: CourseMaterial) => {
+    if (processingMaterialIdRef.current || isSubmitting || deletingMaterialId || isLoading) {
+      return;
+    }
+
+    const operationCourseId = selectedCourseIdRef.current;
+    processingMaterialIdRef.current = material.id;
+    setProcessingMaterialId(material.id);
+    setErrorMessage(null);
+    try {
+      await processCourseMaterial(
+        operationCourseId,
+        material.id,
+        material.processingStatus === "completed" || material.processingStatus === "failed"
+      );
+      const [materialList, nextRagStatus] = await Promise.all([
+        listCourseMaterials(operationCourseId),
+        getCourseRagStatus(operationCourseId)
+      ]);
+      if (selectedCourseIdRef.current !== operationCourseId) return;
+      setMaterials(materialList);
+      setRagStatus(nextRagStatus);
+    } catch (error) {
+      if (selectedCourseIdRef.current !== operationCourseId) return;
+      try {
+        const [materialList, nextRagStatus] = await Promise.all([
+          listCourseMaterials(operationCourseId),
+          getCourseRagStatus(operationCourseId)
+        ]);
+        setMaterials(materialList);
+        setRagStatus(nextRagStatus);
+      } catch {
+        // Keep current rows; primary processing error remains more useful.
+      }
+      setErrorMessage(apiErrorMessage(error, "자료 처리에 실패했습니다."));
+    } finally {
+      processingMaterialIdRef.current = null;
+      setProcessingMaterialId(null);
+    }
+  };
+
+  const handleRefresh = async () => {
+    if (!selectedCourseId || isLoading || isMutationActive) return;
+    const operationCourseId = selectedCourseIdRef.current;
+    setIsLoading(true);
+    setErrorMessage(null);
+    try {
+      const [materialList, nextRagStatus] = await Promise.all([
+        listCourseMaterials(operationCourseId),
+        getCourseRagStatus(operationCourseId)
+      ]);
+      if (selectedCourseIdRef.current !== operationCourseId) return;
+      setMaterials(materialList);
+      setRagStatus(nextRagStatus);
+    } catch (error) {
+      setErrorMessage(apiErrorMessage(error, "처리 상태를 다시 불러오지 못했습니다."));
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   return (
     <section className="material-manager">
       <header>
         <h1>강의자료 관리</h1>
-        <p>주차를 선택해 업로드하면 학생 강의콘텐츠에 즉시 공개됩니다.</p>
+        <p>주차를 선택해 업로드한 뒤 RAG 처리를 시작하세요.</p>
       </header>
 
       {!courseId ? (
@@ -269,6 +346,26 @@ export function ProfessorMaterialsClient({ courseId }: { courseId?: string } = {
         </p>
       ) : null}
 
+      {selectedCourseId && ragStatus ? (
+        <div className="rag-readiness" data-ready={ragStatus.isSearchReady}>
+          <strong>
+            {ragStatus.isSearchReady
+              ? "이 과목은 검색 준비 완료"
+              : "처리된 자료가 없습니다"}
+          </strong>
+          <span>
+            완료 자료 {ragStatus.completedMaterialCount}개 · 임베딩 청크 {ragStatus.embeddedChunkCount}개
+          </span>
+          <button
+            disabled={isLoading || isMutationActive}
+            onClick={() => void handleRefresh()}
+            type="button"
+          >
+            상태 새로고침
+          </button>
+        </div>
+      ) : null}
+
       {!errorMessage || materials.length > 0 ? (
         isLoading ? (
           <p className="weekly-content-loading">강의자료를 불러오고 있습니다.</p>
@@ -281,6 +378,8 @@ export function ProfessorMaterialsClient({ courseId }: { courseId?: string } = {
             key={selectedWeek}
             materials={materials}
             onDelete={(material) => void handleDelete(material)}
+            onProcess={(material) => void handleProcess(material)}
+            processingMaterialId={processingMaterialId}
           />
         )
       ) : null}

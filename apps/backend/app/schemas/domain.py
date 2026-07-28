@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Literal, Optional
+from typing import Annotated, Literal, Optional
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, StringConstraints
 
 
 def to_camel(value: str) -> str:
@@ -105,6 +105,7 @@ class CourseMaterialRead(CamelModel):
     week: int
     processing_status: CourseMaterialStatus
     processing_error: Optional[str] = None
+    chunk_count: int = 0
     created_at: datetime
     updated_at: datetime
 
@@ -130,6 +131,51 @@ class MaterialProcessingStatusRead(CamelModel):
     processing_error: Optional[str] = None
     chunk_count: int
     updated_at: datetime
+
+
+NonBlankQuestion = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
+
+
+class RAGSearchRequest(BaseModel):
+    course_id: str = Field(min_length=1)
+    question: NonBlankQuestion
+    top_k: Optional[int] = Field(default=None, ge=1, le=20)
+    debug: bool = False
+
+
+class RAGSearchResult(BaseModel):
+    chunk_id: str
+    material_id: str
+    document_name: str
+    page_number: Optional[int] = None
+    chunk_index: int
+    chunk_text: str
+    score: float
+
+
+class RAGSearchDebug(BaseModel):
+    embedding_model: Optional[str] = None
+    search_mode: str
+    score_threshold: Optional[float] = None
+    total_candidate_chunks: int
+
+
+class RAGSearchResponse(BaseModel):
+    course_id: str
+    question: str
+    top_k: int
+    results: list[RAGSearchResult]
+    debug: Optional[RAGSearchDebug] = None
+
+
+class RAGStatusResponse(BaseModel):
+    course_id: str
+    material_count: int
+    completed_material_count: int
+    failed_material_count: int
+    chunk_count: int
+    embedded_chunk_count: int
+    is_search_ready: bool
 
 
 class Citation(CamelModel):
