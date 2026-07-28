@@ -63,4 +63,33 @@ describe("CourseWorkspaceClient", () => {
       "/student/courses/course-1/chat"
     );
   });
+
+  it("links professors to course-scoped RAG debug", async () => {
+    mocks.pathname.value = "/professor/courses/course-1/rag-debug";
+    mocks.listCourses.mockResolvedValue([
+      {
+        id: "course-1",
+        code: "AI101",
+        title: "인공지능개론",
+        term: "2026-2",
+        instructorId: "professor-1",
+        instructorName: "교수자",
+        agentStatus: "active",
+        createdAt: "2026-07-20T00:00:00Z",
+        updatedAt: "2026-07-20T00:00:00Z"
+      }
+    ]);
+
+    render(
+      <CourseWorkspaceClient courseId="course-1" role="professor">
+        <h1>RAG 검색 디버그</h1>
+      </CourseWorkspaceClient>
+    );
+
+    const navigation = await screen.findByRole("navigation", { name: "과목 탐색 메뉴" });
+    expect(within(navigation).getByRole("link", { name: "RAG 디버그" })).toHaveAttribute(
+      "aria-current",
+      "page"
+    );
+  });
 });

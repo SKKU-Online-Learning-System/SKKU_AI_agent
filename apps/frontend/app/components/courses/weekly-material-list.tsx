@@ -6,6 +6,12 @@ import type { CourseMaterial } from "../../lib/api";
 import { UiIcon } from "../ui/ui-icon";
 
 const weeks = Array.from({ length: 16 }, (_, index) => index + 1);
+const processingStatusLabels: Record<CourseMaterial["processingStatus"], string> = {
+  pending: "처리 대기",
+  processing: "처리 중",
+  completed: "처리 완료",
+  failed: "처리 실패"
+};
 
 export function WeeklyMaterialList({
   activeWeek,
@@ -13,7 +19,9 @@ export function WeeklyMaterialList({
   deletingMaterialId,
   isBusy = false,
   materials,
-  onDelete
+  onDelete,
+  onProcess,
+  processingMaterialId
 }: {
   activeWeek?: number;
   courseId: string;
@@ -21,6 +29,8 @@ export function WeeklyMaterialList({
   isBusy?: boolean;
   materials: CourseMaterial[];
   onDelete?: (material: CourseMaterial) => void;
+  onProcess?: (material: CourseMaterial) => void;
+  processingMaterialId?: string | null;
 }) {
   const initiallyOpenWeek = activeWeek ?? materials[0]?.week ?? 1;
   const [openWeeks, setOpenWeeks] = useState<Set<number>>(
@@ -123,19 +133,56 @@ export function WeeklyMaterialList({
                             <span>
                               {material.fileType.toUpperCase()} · {(material.fileSize / 1024 / 1024).toFixed(2)}MB
                             </span>
+                            <span>
+                              업로드 {new Date(material.createdAt).toLocaleString("ko-KR")}
+                            </span>
                           </button>
-                          <span className="material-status" data-status={material.processingStatus}>
-                            {material.processingStatus === "failed" ? "업로드 실패" : "게시 완료"}
-                          </span>
-                          {onDelete ? (
-                            <button
-                              aria-label={`${material.originalFileName} 삭제`}
-                              disabled={isBusy}
-                              onClick={() => onDelete(material)}
-                              type="button"
-                            >
-                              {deletingMaterialId === material.id ? "삭제 중..." : "삭제"}
-                            </button>
+                          <div className="material-processing-summary">
+                            <span className="material-status" data-status={material.processingStatus}>
+                              {processingStatusLabels[material.processingStatus]}
+                            </span>
+                            <small>청크 {material.chunkCount ?? 0}개</small>
+                            {onProcess && material.processingStatus === "failed" ? (
+                              <small className="material-processing-error" role="status">
+                                실패 원인: {material.processingError || "알 수 없는 처리 오류"}
+                              </small>
+                            ) : null}
+                          </div>
+                          {onDelete || onProcess ? (
+                            <div className="material-row-actions">
+                              {onProcess ? (
+                                <button
+                                  aria-label={`${material.originalFileName} ${
+                                    material.processingStatus === "pending"
+                                      ? "처리 시작"
+                                      : material.processingStatus === "processing"
+                                        ? "처리 중"
+                                        : "재처리"
+                                  }`}
+                                  disabled={isBusy || material.processingStatus === "processing"}
+                                  onClick={() => onProcess(material)}
+                                  type="button"
+                                >
+                                  {processingMaterialId === material.id
+                                    ? "처리 중..."
+                                    : material.processingStatus === "processing"
+                                      ? "처리 중"
+                                      : material.processingStatus === "pending"
+                                        ? "처리 시작"
+                                        : "재처리"}
+                                </button>
+                              ) : null}
+                              {onDelete ? (
+                                <button
+                                  aria-label={`${material.originalFileName} 삭제`}
+                                  disabled={isBusy}
+                                  onClick={() => onDelete(material)}
+                                  type="button"
+                                >
+                                  {deletingMaterialId === material.id ? "삭제 중..." : "삭제"}
+                                </button>
+                              ) : null}
+                            </div>
                           ) : null}
                         </li>
                       ))}

@@ -4,7 +4,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from fastapi.responses import FileResponse
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 from starlette.concurrency import run_in_threadpool
 
@@ -15,7 +15,7 @@ from app.api.deps import (
 )
 from app.core.config import Settings, get_settings
 from app.db.session import get_db
-from app.models import Course, CourseMaterial, CourseMaterialStatus, User
+from app.models import Course, CourseMaterial, CourseMaterialStatus, DocumentChunk, User
 from app.schemas import CourseMaterialRead, MaterialProcessingStatusRead
 from app.services.material_service import MaterialValidationError, remove_stored_file, save_upload
 from app.services.material_processing_service import (
@@ -35,13 +35,19 @@ async def list_materials(
     course: Annotated[Course, Depends(require_course_access)],
     session: Annotated[Session, Depends(get_db)],
 ) -> list[CourseMaterialRead]:
-    return list(
-        session.scalars(
-            select(CourseMaterial)
-            .where(CourseMaterial.course_id == course.id)
-            .order_by(CourseMaterial.created_at.desc())
-        )
+    rows = session.execute(
+        select(CourseMaterial, func.count(DocumentChunk.id))
+        .outerjoin(DocumentChunk, DocumentChunk.material_id == CourseMaterial.id)
+        .where(CourseMaterial.course_id == course.id)
+        .group_by(CourseMaterial.id)
+        .order_by(CourseMaterial.created_at.desc())
     )
+    return [
+        CourseMaterialRead.model_validate(material).model_copy(
+            update={"chunk_count": chunk_count}
+        )
+        for material, chunk_count in rows
+    ]
 
 
 @router.post(

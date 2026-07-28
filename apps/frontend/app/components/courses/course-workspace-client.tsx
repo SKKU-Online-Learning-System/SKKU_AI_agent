@@ -37,7 +37,8 @@ function navigationItems(role: CourseWorkspaceRole, courseId: string): CourseNav
   if (role === "professor") {
     return [
       { href: coursePath, icon: "home", label: "홈" },
-      { href: `${coursePath}/materials`, icon: "upload", label: "강의콘텐츠" }
+      { href: `${coursePath}/materials`, icon: "upload", label: "강의콘텐츠" },
+      { href: `${coursePath}/rag-debug`, icon: "source", label: "RAG 디버그" }
     ];
   }
   return [

@@ -14,6 +14,11 @@ from app.schemas.domain import (
     CourseRead,
     DocumentChunkRead,
     MaterialProcessingStatusRead,
+    RAGSearchDebug,
+    RAGSearchRequest,
+    RAGSearchResponse,
+    RAGSearchResult,
+    RAGStatusResponse,
     UserRead,
 )
 
@@ -33,6 +38,11 @@ __all__ = [
     "CourseRead",
     "DocumentChunkRead",
     "MaterialProcessingStatusRead",
+    "RAGSearchDebug",
+    "RAGSearchRequest",
+    "RAGSearchResponse",
+    "RAGSearchResult",
+    "RAGStatusResponse",
     "LoginRequest",
     "LoginResponse",
     "UserRead",
