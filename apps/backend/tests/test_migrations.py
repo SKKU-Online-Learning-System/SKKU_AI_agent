@@ -22,6 +22,8 @@ def test_alembic_upgrade_and_downgrade_schema(tmp_path: Path) -> None:
         "course_access",
         "course_materials",
         "document_chunks",
+        "chat_sessions",
+        "chat_logs",
     }
     material_columns = {
         column["name"]: column for column in inspector.get_columns("course_materials")
@@ -60,6 +62,29 @@ def test_alembic_upgrade_and_downgrade_schema(tmp_path: Path) -> None:
         "created_at",
         "updated_at",
     } == chunk_columns
+    assert {
+        "id",
+        "user_id",
+        "course_id",
+        "title",
+        "created_at",
+        "updated_at",
+    } == {column["name"] for column in inspector.get_columns("chat_sessions")}
+    assert {
+        "id",
+        "session_id",
+        "user_id",
+        "course_id",
+        "question",
+        "answer",
+        "referenced_documents",
+        "model_name",
+        "response_time_ms",
+        "is_grounded",
+        "safety_result",
+        "retrieval_result",
+        "created_at",
+    } == {column["name"] for column in inspector.get_columns("chat_logs")}
 
     command.downgrade(config, "base")
 

@@ -18,8 +18,8 @@ from app.services.document_parser_service import (
     FileDocumentParserService,
 )
 from app.services.embedding_service import (
-    DeterministicMockEmbeddingService,
     EmbeddingService,
+    LocalHashEmbeddingService,
 )
 from app.services.vector_store_service import (
     SQLAlchemyLocalVectorStoreService,
@@ -123,7 +123,7 @@ class MaterialProcessingService:
         self.session = session
         self.parser = parser or FileDocumentParserService()
         self.chunker = chunker or ParagraphChunkingService()
-        self.embedder = embedder or DeterministicMockEmbeddingService()
+        self.embedder = embedder or LocalHashEmbeddingService()
         self.repository = repository or SQLAlchemyDocumentChunkRepository(session)
 
     def process_material(

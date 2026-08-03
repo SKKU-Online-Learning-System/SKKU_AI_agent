@@ -237,7 +237,7 @@ Backend API:
 이제 LLM 답변 생성 서비스 구조를 구현해줘.
 
 목표:
-- OpenAI Chat Completion API 또는 현재 프로젝트의 LLM Provider를 호출할 수 있는 공통 서비스를 만든다.
+- Anthropic Claude Messages API를 호출하는 공통 서비스를 만든다.
 - 4-3의 RAG 답변 생성 API에서 재사용할 수 있도록 인터페이스를 분리한다.
 - 개발 환경에서는 API Key가 없어도 테스트할 수 있도록 mock LLM 옵션을 제공한다.
 
@@ -246,14 +246,14 @@ Backend API:
 - PromptBuilderService
 
 환경변수:
-- OPENAI_API_KEY
-- CHAT_MODEL
+- ANTHROPIC_API_KEY
+- CLAUDE_MODEL
 - USE_MOCK_LLM
 - LLM_TEMPERATURE
 - LLM_MAX_TOKENS
 
 기본 모델 예시:
-- gpt-4o-mini 또는 현재 프로젝트에서 설정한 기본 모델
+- claude-sonnet-5
 
 LLMService 권장 인터페이스:
 generateAnswer(messages, options): LLMResponse
@@ -261,7 +261,7 @@ generateAnswer(messages, options): LLMResponse
 LLMResponse 예시:
 {
   "answer": "...",
-  "model_name": "gpt-4o-mini",
+  "model_name": "claude-sonnet-5",
   "usage": {
     "prompt_tokens": 1000,
     "completion_tokens": 300,
@@ -295,6 +295,8 @@ Mock LLM 요구사항:
 
 주의:
 - API Key가 없고 USE_MOCK_LLM=false이면 명확한 에러를 반환해줘.
+- Anthropic Messages API의 시스템 프롬프트는 message의 system role이 아니라 최상위 system 파라미터로 전달해줘.
+- 응답 content 배열에서 text 블록만 순서대로 조합해 answer로 반환해줘.
 - LLM 호출 실패 시 /chat API에서 적절히 failed 응답을 반환해야 한다.
 - 프롬프트에 너무 많은 청크를 넣지 않도록 topK와 최대 컨텍스트 길이를 제한해줘.
 - 긴 문서 본문 전체를 로그에 남기지 마.
@@ -375,7 +377,7 @@ Response:
     }
   ],
   "is_grounded": true,
-  "model_name": "gpt-4o-mini",
+  "model_name": "claude-sonnet-5",
   "response_time_ms": 1234
 }
 
@@ -411,7 +413,7 @@ Response:
 - ChatSession이 자동 생성되거나 기존 세션이 재사용되어야 한다.
 - ChatLog가 저장되어야 한다.
 - 권한 없는 course_id에 질문하면 차단되어야 한다.
-- USE_MOCK_LLM=true와 USE_MOCK_EMBEDDING=true 환경에서도 전체 흐름이 동작해야 한다.
+- USE_MOCK_LLM=true와 local hash embedding 환경에서도 전체 흐름이 동작해야 한다.
 
 작업 후 출력:
 - 구현한 API
@@ -1094,7 +1096,7 @@ Frontend 화면:
 통합 테스트 시나리오:
 
 1. 환경 준비
-   - USE_MOCK_EMBEDDING=true
+   - local hash embedding
    - USE_MOCK_LLM=true
    - seed 데이터 생성
    - 예시 과목 생성
@@ -1175,7 +1177,7 @@ README 업데이트 내용:
    - 교수자/관리자 로그 조회
 
 2. 환경변수 추가
-   - CHAT_MODEL
+   - CLAUDE_MODEL
    - USE_MOCK_LLM
    - LLM_TEMPERATURE
    - LLM_MAX_TOKENS
@@ -1199,7 +1201,7 @@ README 업데이트 내용:
 
 5. 테스트 방법 추가
    - mock LLM 테스트
-   - 실제 OpenAI API 테스트
+   - 실제 Anthropic Claude API 테스트
    - 챗봇 UI 테스트
    - 로그 조회 테스트
    - SAFE 가드레일 테스트
@@ -1217,7 +1219,7 @@ docs/TECH_SPEC.md 업데이트:
 - README에 실제 구현되지 않은 기능을 완료처럼 적지 마.
 - TECH_SPEC와 실제 코드가 다르면 실제 코드 기준으로 업데이트하되, 큰 차이는 요약해서 알려줘.
 - 테스트가 실패하면 숨기지 말고 실패한 항목과 원인을 정리해줘.
-- OpenAI API Key가 없는 환경에서도 mock 모드로 테스트 가능해야 한다.
+- Anthropic API Key가 없는 환경에서도 mock 모드로 테스트 가능해야 한다.
 - 실제 LLM 호출 테스트는 선택 사항으로 분리해줘.
 
 수용 기준:
@@ -1269,7 +1271,7 @@ docs/TECH_SPEC.md 업데이트:
 19. 관리자는 전체 질문 로그를 볼 수 있다.
 20. 권한 없는 로그 조회는 403으로 차단된다.
 21. USE_MOCK_LLM=true에서 외부 API 없이 테스트 가능하다.
-22. 실제 OpenAI API 사용 구조가 준비되어 있다.
+22. 실제 Anthropic Claude API 사용 구조가 준비되어 있다.
 23. README에 4단계 실행 및 테스트 방법이 반영되어 있다.
 24. docs/TECH_SPEC.md가 실제 구현 상태와 맞게 업데이트되어 있다.
 25. 5단계 통계/대시보드 구현에 필요한 로그 데이터가 충분히 저장된다.

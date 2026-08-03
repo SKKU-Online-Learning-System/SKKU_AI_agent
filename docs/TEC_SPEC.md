@@ -18,7 +18,7 @@
 
 - TXT, PDF, DOCX, PPTX 텍스트 추출
 - 1,000자 청크와 150자 중첩
-- deterministic mock 또는 OpenAI embedding
+- deterministic local hash embedding
 - PostgreSQL JSON embedding 저장과 애플리케이션 cosine 검색
 - 과목 권한 및 `course_id` 범위가 강제되는 검색 API
 - 교수자 자료 처리 UI와 RAG 검색 디버그 UI
@@ -97,7 +97,7 @@ Backend: FastAPI 또는 Node.js API Server
 Database: PostgreSQL
 Vector DB: pgvector 우선 검토
 File Storage: Local Storage
-AI Provider: OpenAI API
+AI Provider: Anthropic Claude API
 Auth: JWT 기반 인증
 Deployment: Docker / Docker Compose
 ```
@@ -123,7 +123,7 @@ Backend: 단일 API 서버 → API 서버 + RAG Worker 분리
 | DB           | PostgreSQL                    | 사용자, 과목, 로그, 메타데이터 저장 |
 | ORM          | Prisma / SQLAlchemy           | 선택한 백엔드에 맞춰 사용           |
 | Vector DB    | pgvector                      | PostgreSQL 기반 벡터 검색           |
-| AI API       | OpenAI API                    | LLM 답변 생성 및 임베딩             |
+| AI API       | Anthropic Claude API          | LLM 답변 생성                       |
 | Auth         | JWT                           | MVP 인증                            |
 | File Storage | Local Storage                 | 업로드 파일 저장                    |
 | Deployment   | Docker Compose                | 로컬 및 서버 배포                   |
@@ -976,12 +976,12 @@ MVP 기본값:
 
 ## 9.4 임베딩 정책
 
-로컬 기본값은 deterministic mock embedding이다. `USE_MOCK_EMBEDDING=false`일 때 OpenAI Embedding API를 사용한다.
+임베딩은 외부 API 키가 필요 없는 deterministic local hash provider를 사용한다. Anthropic은 임베딩 모델을 제공하지 않으므로 Claude API는 답변 생성에만 사용한다.
 
 예시 모델:
 
 ```text id="ggqms5"
-text-embedding-3-small
+local-hash-128
 ```
 
 저장 방식:
@@ -990,14 +990,7 @@ text-embedding-3-small
 DocumentChunk.embedding
 ```
 
-개발 환경에서는 OpenAI API Key가 없을 수 있으므로 mock embedding 옵션을 제공한다.
-
-환경변수 예시:
-
-```text id="argtji"
-USE_MOCK_EMBEDDING=true
-OPENAI_API_KEY=...
-```
+로컬 임베딩은 항상 사용 가능하며 별도 API Key가 필요하지 않다.
 
 ---
 
@@ -1030,6 +1023,10 @@ DocumentChunk.course_id = selected_course_id
 ---
 
 ## 9.6 답변 생성 프롬프트 정책 (4단계 Roadmap)
+
+답변 생성 provider는 Anthropic Claude Messages API를 사용하며 기본 모델은 `claude-sonnet-5`다. API 인증은 `ANTHROPIC_API_KEY`, 모델 설정은 `CLAUDE_MODEL`을 사용한다.
+
+Anthropic Messages API에서 시스템 프롬프트는 message의 `system` role이 아니라 최상위 `system` 파라미터로 전달한다. 응답은 `content` 배열의 `text` 블록만 순서대로 조합한다.
 
 LLM에는 다음 정보를 전달한다.
 
@@ -1199,12 +1196,12 @@ bcrypt 또는 argon2 기반 password_hash 저장
 
 ```text id="2b5pg4"
 DATABASE_URL=
-OPENAI_API_KEY=
+ANTHROPIC_API_KEY=
+CLAUDE_MODEL=claude-sonnet-5
 JWT_SECRET=
 JWT_EXPIRES_IN=
 UPLOAD_DIR=
 MAX_UPLOAD_SIZE=
-USE_MOCK_EMBEDDING=
 ```
 
 ---
@@ -1523,7 +1520,7 @@ volumes:
 ```text id="u33s69"
 - 완료: TXT/PDF/DOCX/PPTX 텍스트 추출
 - 완료: 청크 분할과 DocumentChunk 저장
-- 완료: mock/OpenAI 임베딩 생성
+- 완료: deterministic local hash 임베딩 생성
 - 완료: JSON embedding과 local cosine 검색
 - 완료: 과목 권한/범위 검색 API와 상태 API
 - 완료: 교수자 처리 상태 및 검색 디버그 UI

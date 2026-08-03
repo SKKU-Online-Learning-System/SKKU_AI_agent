@@ -1,5 +1,7 @@
 from app.models.domain import (
     Base,
+    ChatLog,
+    ChatSession,
     Course,
     CourseAccess,
     CourseMaterial,
@@ -11,6 +13,8 @@ from app.models.domain import (
 
 __all__ = [
     "Base",
+    "ChatLog",
+    "ChatSession",
     "Course",
     "CourseAccess",
     "CourseMaterial",

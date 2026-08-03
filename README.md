@@ -64,7 +64,7 @@ upload(pending) → process(processing) → text extraction
 → chunk → embedding → DocumentChunk 저장 → completed/failed
 ```
 
-기본값은 외부 API가 필요 없는 deterministic mock embedding입니다. 실제 OpenAI embedding은 `.env`에서 `USE_MOCK_EMBEDDING=false`와 `OPENAI_API_KEY`를 설정합니다.
+임베딩은 외부 API 키가 필요 없는 deterministic local hash provider를 사용합니다. Anthropic은 임베딩 모델을 제공하지 않으며, 후속 LLM 답변 연결은 `ANTHROPIC_API_KEY`와 `CLAUDE_MODEL`을 사용합니다.
 
 검색은 완료된 자료만 대상으로 하며 `course_id` 권한과 범위를 강제합니다. 현재 JSON embedding을 애플리케이션에서 cosine 비교합니다.
 

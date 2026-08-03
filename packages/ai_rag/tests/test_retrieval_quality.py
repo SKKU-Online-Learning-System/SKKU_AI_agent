@@ -4,7 +4,7 @@ from skku_ai_rag.embeddings import LocalHashEmbeddingProvider
 from skku_ai_rag.vector_store import InMemoryVectorStore, VectorRecord
 
 
-def test_mock_embedding_prefers_relevant_korean_chunk_and_filters_course() -> None:
+def test_local_embedding_prefers_relevant_korean_chunk_and_filters_course() -> None:
     provider = LocalHashEmbeddingProvider(dim=512)
     texts = [
         "경사하강법은 손실 함수의 기울기를 따라 모델 파라미터를 반복해서 갱신한다.",

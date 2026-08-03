@@ -99,6 +99,14 @@ class User(Base):
         back_populates="uploader",
         foreign_keys="CourseMaterial.uploaded_by",
     )
+    chat_sessions: Mapped[list[ChatSession]] = relationship(
+        back_populates="user",
+        passive_deletes=True,
+    )
+    chat_logs: Mapped[list[ChatLog]] = relationship(
+        back_populates="user",
+        passive_deletes=True,
+    )
 
 
 class Course(Base):
@@ -141,6 +149,14 @@ class Course(Base):
         passive_deletes=True,
     )
     document_chunks: Mapped[list[DocumentChunk]] = relationship(
+        back_populates="course",
+        passive_deletes=True,
+    )
+    chat_sessions: Mapped[list[ChatSession]] = relationship(
+        back_populates="course",
+        passive_deletes=True,
+    )
+    chat_logs: Mapped[list[ChatLog]] = relationship(
         back_populates="course",
         passive_deletes=True,
     )
@@ -299,3 +315,95 @@ class DocumentChunk(Base):
 
     course: Mapped[Course] = relationship(back_populates="document_chunks")
     material: Mapped[CourseMaterial] = relationship(back_populates="document_chunks")
+
+
+class ChatSession(Base):
+    __tablename__ = "chat_sessions"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    user_id: Mapped[str] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"),
+        index=True,
+        nullable=False,
+    )
+    course_id: Mapped[str] = mapped_column(
+        ForeignKey("courses.id", ondelete="CASCADE"),
+        index=True,
+        nullable=False,
+    )
+    title: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+    user: Mapped[User] = relationship(back_populates="chat_sessions")
+    course: Mapped[Course] = relationship(back_populates="chat_sessions")
+    logs: Mapped[list[ChatLog]] = relationship(
+        back_populates="session",
+        cascade="all, delete-orphan",
+        order_by="ChatLog.created_at",
+    )
+
+
+class ChatLog(Base):
+    __tablename__ = "chat_logs"
+    __table_args__ = (
+        CheckConstraint(
+            "response_time_ms >= 0",
+            name="ck_chat_logs_response_time_non_negative",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    session_id: Mapped[str] = mapped_column(
+        ForeignKey("chat_sessions.id", ondelete="CASCADE"),
+        index=True,
+        nullable=False,
+    )
+    user_id: Mapped[str] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"),
+        index=True,
+        nullable=False,
+    )
+    course_id: Mapped[str] = mapped_column(
+        ForeignKey("courses.id", ondelete="CASCADE"),
+        index=True,
+        nullable=False,
+    )
+    question: Mapped[str] = mapped_column(Text, nullable=False)
+    answer: Mapped[str] = mapped_column(Text, nullable=False)
+    referenced_documents: Mapped[list[dict[str, object]]] = mapped_column(
+        JSON,
+        default=list,
+        nullable=False,
+    )
+    model_name: Mapped[str] = mapped_column(String(120), nullable=False)
+    response_time_ms: Mapped[int] = mapped_column(nullable=False)
+    is_grounded: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    safety_result: Mapped[dict[str, object]] = mapped_column(
+        JSON,
+        default=dict,
+        nullable=False,
+    )
+    retrieval_result: Mapped[dict[str, object]] = mapped_column(
+        JSON,
+        default=dict,
+        nullable=False,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+    )
+
+    session: Mapped[ChatSession] = relationship(back_populates="logs")
+    user: Mapped[User] = relationship(back_populates="chat_logs")
+    course: Mapped[Course] = relationship(back_populates="chat_logs")

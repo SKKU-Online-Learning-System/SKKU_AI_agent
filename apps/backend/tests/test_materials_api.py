@@ -477,7 +477,7 @@ def test_professor_processes_and_reprocesses_pending_material(
         first_embedding = first_chunk.embedding
         assert first_embedding is not None
         assert len(first_embedding) == 128
-        assert first_chunk.embedding_model == "mock-hash-128"
+        assert first_chunk.embedding_model == "local-hash-128"
 
     duplicate = material_api.client.post(
         f"{base_url}/process",
@@ -748,40 +748,3 @@ def test_process_splits_long_text_and_reprocess_replaces_chunks(
         ).all()
         assert len(replacement_chunks) == 3
         assert first_ids.isdisjoint(chunk.id for chunk in replacement_chunks)
-
-
-def test_embedding_configuration_failure_marks_material_failed(
-    material_api: MaterialApiContext,
-) -> None:
-    uploaded = material_api.upload(
-        "professor",
-        "owned",
-        "embedding.txt",
-        b"note",
-    ).json()
-    app.dependency_overrides[get_settings] = lambda: Settings(
-        upload_dir=str(material_api.upload_dir),
-        max_upload_size_bytes=4,
-        use_mock_embedding=False,
-        openai_api_key=None,
-    )
-
-    response = material_api.client.post(
-        (
-            f"/api/courses/{material_api.courses['owned']}/materials/"
-            f"{uploaded['id']}/process"
-        ),
-        headers=material_api.headers("professor"),
-    )
-
-    assert response.status_code == 422
-    assert "EMBEDDING_API_KEY_MISSING" in response.json()["detail"]
-    with material_api.session_factory() as session:
-        material = session.get(CourseMaterial, uploaded["id"])
-        assert material is not None
-        assert material.processing_status == CourseMaterialStatus.failed
-        assert material.processing_error is not None
-        assert "EMBEDDING_API_KEY_MISSING" in material.processing_error
-        assert session.scalars(
-            select(DocumentChunk).where(DocumentChunk.material_id == uploaded["id"])
-        ).all() == []

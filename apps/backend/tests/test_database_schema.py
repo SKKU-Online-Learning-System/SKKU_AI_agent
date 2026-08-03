@@ -10,6 +10,8 @@ def test_metadata_contains_expected_stage_three_tables() -> None:
         "course_access",
         "course_materials",
         "document_chunks",
+        "chat_sessions",
+        "chat_logs",
     }
 
 
@@ -125,3 +127,37 @@ def test_document_chunk_matches_processing_contract() -> None:
         if isinstance(constraint, UniqueConstraint)
     }
     assert ("material_id", "chunk_index") in unique_columns
+
+
+def test_chat_storage_matches_stage_four_contract() -> None:
+    session_table = Base.metadata.tables["chat_sessions"]
+    log_table = Base.metadata.tables["chat_logs"]
+
+    assert set(session_table.columns.keys()) == {
+        "id",
+        "user_id",
+        "course_id",
+        "title",
+        "created_at",
+        "updated_at",
+    }
+    assert set(log_table.columns.keys()) == {
+        "id",
+        "session_id",
+        "user_id",
+        "course_id",
+        "question",
+        "answer",
+        "referenced_documents",
+        "model_name",
+        "response_time_ms",
+        "is_grounded",
+        "safety_result",
+        "retrieval_result",
+        "created_at",
+    }
+    assert all(session_table.columns[name].foreign_keys for name in ("user_id", "course_id"))
+    assert all(
+        log_table.columns[name].foreign_keys
+        for name in ("session_id", "user_id", "course_id")
+    )

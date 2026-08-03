@@ -21,7 +21,7 @@ from app.models import (
     User,
     UserRole,
 )
-from app.services.embedding_service import DeterministicMockEmbeddingService
+from app.services.embedding_service import LocalHashEmbeddingService
 from app.services.vector_store_service import SQLAlchemyLocalVectorStoreService
 
 
@@ -56,7 +56,7 @@ def rag_api() -> Generator[RAGApiContext, None, None]:
     )
     testing_session = sessionmaker(bind=engine, autocommit=False, autoflush=False)
     Base.metadata.create_all(engine)
-    settings = Settings(vector_db_embedding_dim=16, use_mock_embedding=True, _env_file=None)
+    settings = Settings(vector_db_embedding_dim=16, _env_file=None)
 
     with testing_session() as session:
         users = {
@@ -146,7 +146,7 @@ def rag_api() -> Generator[RAGApiContext, None, None]:
         session.add_all(materials.values())
         session.flush()
         texts = ["gradient descent basics", "neural networks", "failed gradient", "other secret"]
-        embedder = DeterministicMockEmbeddingService()
+        embedder = LocalHashEmbeddingService()
         embeddings = embedder.embed_texts(texts)
         session.add_all(
             [
@@ -312,7 +312,7 @@ def test_debug_search_is_professor_only_and_reports_filtered_candidates(
 
     assert response.status_code == 200
     assert response.json()["debug"] == {
-        "embedding_model": "mock-hash-128",
+        "embedding_model": "local-hash-128",
         "search_mode": "local",
         "score_threshold": 0.3,
         "total_candidate_chunks": 2,
@@ -383,7 +383,7 @@ def test_embedding_failures_return_stable_error_code(
     def fail_embedding(*args: object, **kwargs: object) -> list[float]:
         raise RuntimeError("embedding unavailable")
 
-    monkeypatch.setattr(DeterministicMockEmbeddingService, "embed_text", fail_embedding)
+    monkeypatch.setattr(LocalHashEmbeddingService, "embed_text", fail_embedding)
     response = rag_api.client.post(
         "/api/rag/search",
         headers=rag_api.headers("student"),

@@ -4,9 +4,7 @@ import hashlib
 import logging
 import re
 from collections.abc import Sequence
-from typing import Optional, Protocol
-
-from openai import OpenAI
+from typing import Protocol
 
 from app.core.config import Settings
 
@@ -40,7 +38,7 @@ class BaseEmbeddingService:
     def embed_texts(self, texts: Sequence[str]) -> list[list[float]]:
         raise NotImplementedError
 
-    def _validate_and_log(self, texts: Sequence[str], *, mock: bool) -> None:
+    def _validate_and_log(self, texts: Sequence[str]) -> None:
         for text in texts:
             if not text.strip():
                 raise EmbeddingError("EMBEDDING_EMPTY_TEXT: Text must not be empty")
@@ -49,25 +47,24 @@ class BaseEmbeddingService:
                     "EMBEDDING_INPUT_TOO_LONG: Text exceeds embedding input limit"
                 )
         logger.info(
-            "Embedding batch model=%s mock=%s chunk_count=%d total_chars=%d",
+            "Embedding batch model=%s chunk_count=%d total_chars=%d",
             self.model_name,
-            mock,
             len(texts),
             sum(len(text) for text in texts),
         )
 
 
-class DeterministicMockEmbeddingService(BaseEmbeddingService):
+class LocalHashEmbeddingService(BaseEmbeddingService):
     def __init__(self, dimensions: int = 128, max_input_chars: int = 12000) -> None:
         if dimensions <= 0:
             raise ValueError("dimensions must be positive")
-        super().__init__(f"mock-hash-{dimensions}", max_input_chars)
+        super().__init__(f"local-hash-{dimensions}", max_input_chars)
         self.dimensions = dimensions
 
     def embed_texts(self, texts: Sequence[str]) -> list[list[float]]:
         if not texts:
             return []
-        self._validate_and_log(texts, mock=True)
+        self._validate_and_log(texts)
         return [self._embed_one(text) for text in texts]
 
     def _embed_one(self, text: str) -> list[float]:
@@ -83,52 +80,5 @@ class DeterministicMockEmbeddingService(BaseEmbeddingService):
         return [value / magnitude for value in vector]
 
 
-class OpenAIEmbeddingService(BaseEmbeddingService):
-    def __init__(
-        self,
-        api_key: Optional[str],
-        model_name: str = "text-embedding-3-small",
-        max_input_chars: int = 12000,
-    ) -> None:
-        super().__init__(model_name, max_input_chars)
-        self.api_key = api_key
-        self._client: Optional[OpenAI] = None
-
-    def embed_texts(self, texts: Sequence[str]) -> list[list[float]]:
-        if not texts:
-            return []
-        self._validate_and_log(texts, mock=False)
-        if not self.api_key:
-            raise EmbeddingError(
-                "EMBEDDING_API_KEY_MISSING: OPENAI_API_KEY is required "
-                "when USE_MOCK_EMBEDDING=false"
-            )
-        if self._client is None:
-            self._client = OpenAI(api_key=self.api_key)
-        try:
-            response = self._client.embeddings.create(
-                model=self.model_name,
-                input=list(texts),
-            )
-        except Exception as exc:
-            raise EmbeddingError(
-                "EMBEDDING_API_ERROR: OpenAI embedding request failed"
-            ) from exc
-        embeddings = [
-            list(item.embedding)
-            for item in sorted(response.data, key=lambda item: item.index)
-        ]
-        if len(embeddings) != len(texts):
-            raise EmbeddingError(
-                "EMBEDDING_RESPONSE_INVALID: Embedding count does not match input count"
-            )
-        return embeddings
-
-
-def create_embedding_service(settings: Settings) -> EmbeddingService:
-    if settings.use_mock_embedding:
-        return DeterministicMockEmbeddingService()
-    return OpenAIEmbeddingService(
-        api_key=settings.openai_api_key,
-        model_name=settings.embedding_model,
-    )
+def create_embedding_service(_settings: Settings) -> EmbeddingService:
+    return LocalHashEmbeddingService()

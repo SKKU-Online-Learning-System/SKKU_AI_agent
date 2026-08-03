@@ -23,9 +23,11 @@ class Settings(BaseSettings):
 
     app_env: str = "local"
     database_url: str = "postgresql+psycopg://course_agent:course_agent@localhost:5432/course_agent"
-    openai_api_key: Optional[str] = None
-    embedding_model: str = "text-embedding-3-small"
-    use_mock_embedding: bool = True
+    anthropic_api_key: Optional[str] = None
+    claude_model: str = "claude-sonnet-5"
+    use_mock_llm: bool = True
+    llm_temperature: float = Field(default=0.2, ge=0, le=1)
+    llm_max_tokens: int = Field(default=1024, gt=0)
     jwt_secret: str = "local-dev-change-me"
     jwt_algorithm: str = "HS256"
     jwt_expires_in: int = Field(default=3600, gt=0)

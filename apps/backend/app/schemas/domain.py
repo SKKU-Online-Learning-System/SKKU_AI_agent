@@ -22,8 +22,6 @@ class CamelModel(BaseModel):
 UserRole = Literal["student", "professor", "admin"]
 CourseAgentStatus = Literal["draft", "active", "disabled"]
 CourseMaterialStatus = Literal["pending", "processing", "completed", "failed"]
-ChatSessionStatus = Literal["open", "archived"]
-ChatMessageRole = Literal["user", "assistant", "system"]
 
 
 class UserRead(CamelModel):
@@ -188,9 +186,7 @@ class Citation(CamelModel):
 
 
 class ChatSessionCreate(CamelModel):
-    user_id: str
     course_id: str
-    title: Optional[str] = None
 
 
 class ChatSessionRead(CamelModel):
@@ -198,7 +194,6 @@ class ChatSessionRead(CamelModel):
     user_id: str
     course_id: str
     title: Optional[str] = None
-    status: ChatSessionStatus
     created_at: datetime
     updated_at: datetime
 
@@ -206,13 +201,21 @@ class ChatSessionRead(CamelModel):
 class ChatLogRead(CamelModel):
     id: str
     session_id: str
-    course_id: str
     user_id: str
-    role: ChatMessageRole
-    message: str
-    citations: list[Citation] = Field(default_factory=list)
-    latency_ms: Optional[int] = None
+    course_id: str
+    question: str
+    answer: str
+    referenced_documents: list[dict[str, object]] = Field(default_factory=list)
+    model_name: str
+    response_time_ms: int
+    is_grounded: bool
+    safety_result: dict[str, object] = Field(default_factory=dict)
+    retrieval_result: dict[str, object] = Field(default_factory=dict)
     created_at: datetime
+
+
+class ChatSessionDetailRead(ChatSessionRead):
+    logs: list[ChatLogRead] = Field(default_factory=list)
 
 
 class ChatRequest(CamelModel):
