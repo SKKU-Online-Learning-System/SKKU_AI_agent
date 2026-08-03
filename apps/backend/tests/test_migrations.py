@@ -5,7 +5,11 @@ from alembic.config import Config
 from sqlalchemy import create_engine, inspect
 
 
+<<<<<<< HEAD
 def test_alembic_upgrade_and_downgrade_full_schema(tmp_path: Path) -> None:
+=======
+def test_alembic_upgrade_and_downgrade_schema(tmp_path: Path) -> None:
+>>>>>>> refs/remotes/origin/main
     backend_root = Path(__file__).resolve().parents[1]
     database_path = tmp_path / "migration.sqlite"
     database_url = f"sqlite:///{database_path.as_posix()}"
@@ -46,6 +50,7 @@ def test_alembic_upgrade_and_downgrade_full_schema(tmp_path: Path) -> None:
         "original_file_name",
         "file_type",
         "file_size",
+        "week",
         "storage_path",
         "processing_status",
         "processing_error",
@@ -53,6 +58,47 @@ def test_alembic_upgrade_and_downgrade_full_schema(tmp_path: Path) -> None:
         "updated_at",
     }
     assert material_columns["processing_status"]["default"] == "'pending'"
+    assert material_columns["week"]["default"] == "'1'"
+    chunk_columns = {
+        column["name"] for column in inspector.get_columns("document_chunks")
+    }
+    assert {
+        "id",
+        "course_id",
+        "material_id",
+        "chunk_index",
+        "chunk_text",
+        "page_number",
+        "section_title",
+        "char_count",
+        "embedding",
+        "embedding_model",
+        "created_at",
+        "updated_at",
+    } == chunk_columns
+    assert {
+        "id",
+        "user_id",
+        "course_id",
+        "title",
+        "created_at",
+        "updated_at",
+    } == {column["name"] for column in inspector.get_columns("chat_sessions")}
+    assert {
+        "id",
+        "session_id",
+        "user_id",
+        "course_id",
+        "question",
+        "answer",
+        "referenced_documents",
+        "model_name",
+        "response_time_ms",
+        "is_grounded",
+        "safety_result",
+        "retrieval_result",
+        "created_at",
+    } == {column["name"] for column in inspector.get_columns("chat_logs")}
 
     command.downgrade(config, "base")
 

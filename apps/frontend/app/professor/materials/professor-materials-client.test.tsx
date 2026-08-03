@@ -20,7 +20,10 @@ const apiMocks = vi.hoisted(() => ({
   listCourseMaterials: vi.fn(),
   listCourses: vi.fn(),
   processCourseMaterial: vi.fn(),
+<<<<<<< HEAD
   reprocessCourseMaterial: vi.fn(),
+=======
+>>>>>>> refs/remotes/origin/main
   uploadCourseMaterial: vi.fn()
 }));
 
@@ -33,7 +36,10 @@ vi.mock("../../lib/api", async () => {
     listCourseMaterials: apiMocks.listCourseMaterials,
     listCourses: apiMocks.listCourses,
     processCourseMaterial: apiMocks.processCourseMaterial,
+<<<<<<< HEAD
     reprocessCourseMaterial: apiMocks.reprocessCourseMaterial,
+=======
+>>>>>>> refs/remotes/origin/main
     uploadCourseMaterial: apiMocks.uploadCourseMaterial
   };
 });
@@ -75,12 +81,27 @@ const material: CourseMaterial = {
   originalFileName: "lecture.txt",
   fileType: "txt",
   fileSize: 1024,
+  week: 1,
   processingStatus: "completed",
   processingError: null,
+  chunkCount: 3,
   createdAt: "2026-07-20T00:00:00Z",
   updatedAt: "2026-07-20T00:00:00Z"
 };
 
+<<<<<<< HEAD
+=======
+const ragStatus = {
+  courseId: "course-1",
+  materialCount: 1,
+  completedMaterialCount: 1,
+  failedMaterialCount: 0,
+  chunkCount: 3,
+  embeddedChunkCount: 3,
+  isSearchReady: true
+};
+
+>>>>>>> refs/remotes/origin/main
 beforeEach(() => {
   apiMocks.getCourseRagStatus.mockResolvedValue(ragStatus);
 });
@@ -106,6 +127,17 @@ function deferred<T>() {
 }
 
 describe("ProfessorMaterialsClient", () => {
+  it("locks the material workspace to the course from the detail route", async () => {
+    apiMocks.listCourseMaterials.mockResolvedValue([material]);
+
+    render(<ProfessorMaterialsClient courseId="course-1" />);
+
+    expect(await screen.findByText("lecture.txt")).toBeInTheDocument();
+    expect(apiMocks.listCourseMaterials).toHaveBeenCalledWith("course-1");
+    expect(apiMocks.listCourses).not.toHaveBeenCalled();
+    expect(screen.queryByRole("combobox", { name: "과목" })).not.toBeInTheDocument();
+  });
+
   it("loads the first course and its materials", async () => {
     arrangeLoadedMaterials();
 
@@ -115,18 +147,26 @@ describe("ProfessorMaterialsClient", () => {
     expect(apiMocks.listCourseMaterials).toHaveBeenCalledWith("course-1");
     expect(await screen.findByText("lecture.txt")).toBeInTheDocument();
     expect(screen.getByText("처리 완료")).toBeInTheDocument();
+    expect(screen.getByText("청크 3개")).toBeInTheDocument();
+    expect(screen.getByText("이 과목은 검색 준비 완료")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "lecture.txt 재처리" })).toBeEnabled();
   });
 
-  it("uploads a selected TXT file and adds the pending material", async () => {
+  it("adds an uploaded file as pending in the selected week", async () => {
     arrangeLoadedMaterials();
     apiMocks.uploadCourseMaterial.mockResolvedValue({
       ...material,
       id: "material-2",
       originalFileName: "week-2.txt",
-      processingStatus: "pending"
+      processingStatus: "pending",
+      chunkCount: 0,
+      week: 2
     });
     render(<ProfessorMaterialsClient />);
     await screen.findByText("lecture.txt");
+    fireEvent.change(screen.getByRole("combobox", { name: "주차" }), {
+      target: { value: "2" }
+    });
     const file = new File(["week two"], "week-2.txt", { type: "text/plain" });
 
     fireEvent.change(screen.getByLabelText("강의자료 파일"), {
@@ -135,12 +175,11 @@ describe("ProfessorMaterialsClient", () => {
     fireEvent.click(screen.getByRole("button", { name: "업로드" }));
 
     await waitFor(() =>
-      expect(apiMocks.uploadCourseMaterial).toHaveBeenCalledWith("course-1", file)
+      expect(apiMocks.uploadCourseMaterial).toHaveBeenCalledWith("course-1", file, 2)
     );
     expect(await screen.findByText("week-2.txt")).toBeInTheDocument();
     expect(screen.getByText("처리 대기")).toBeInTheDocument();
-    expect(screen.getAllByRole("row")[1]).toHaveTextContent("week-2.txt");
-    expect(screen.getAllByRole("row")[2]).toHaveTextContent("lecture.txt");
+    expect(screen.getByRole("button", { name: "week-2.txt 처리 시작" })).toBeEnabled();
   });
 
   it("keeps a row until delete succeeds and blocks duplicate deletion", async () => {
@@ -320,17 +359,58 @@ describe("ProfessorMaterialsClient", () => {
     expect(screen.getByText("lecture.txt")).toBeInTheDocument();
   });
 
-  it("renders processing and failed status labels", async () => {
+  it("renders processing and failed status details", async () => {
     apiMocks.listCourses.mockResolvedValue([course]);
     apiMocks.listCourseMaterials.mockResolvedValue([
       { ...material, id: "material-2", processingStatus: "processing" },
-      { ...material, id: "material-3", processingStatus: "failed" }
+      {
+        ...material,
+        id: "material-3",
+        processingStatus: "failed",
+        processingError: "PDF에서 텍스트를 찾지 못했습니다."
+      }
     ]);
 
     render(<ProfessorMaterialsClient />);
 
-    expect(await screen.findByText("처리 중")).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "lecture.txt 처리 중" })).toBeDisabled();
     expect(screen.getByText("처리 실패")).toBeInTheDocument();
+    expect(
+      screen.getByText("실패 원인: PDF에서 텍스트를 찾지 못했습니다.")
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "lecture.txt 재처리" })).toBeEnabled();
+  });
+
+  it("starts pending processing once and reloads materials and RAG status", async () => {
+    const pending = { ...material, processingStatus: "pending" as const, chunkCount: 0 };
+    const processing = deferred<CourseMaterial>();
+    apiMocks.listCourses.mockResolvedValue([course]);
+    apiMocks.listCourseMaterials
+      .mockResolvedValueOnce([pending])
+      .mockResolvedValueOnce([material]);
+    apiMocks.getCourseRagStatus
+      .mockResolvedValueOnce({ ...ragStatus, isSearchReady: false })
+      .mockResolvedValueOnce(ragStatus);
+    apiMocks.processCourseMaterial.mockReturnValue(processing.promise);
+    render(<ProfessorMaterialsClient />);
+    const processButton = await screen.findByRole("button", {
+      name: "lecture.txt 처리 시작"
+    });
+
+    fireEvent.click(processButton);
+    fireEvent.click(processButton);
+
+    expect(apiMocks.processCourseMaterial).toHaveBeenCalledTimes(1);
+    expect(processButton).toBeDisabled();
+    expect(screen.getByText("처리 중...")).toBeInTheDocument();
+
+    await act(async () => {
+      processing.resolve(material);
+      await processing.promise;
+    });
+
+    expect(await screen.findByText("이 과목은 검색 준비 완료")).toBeInTheDocument();
+    expect(apiMocks.listCourseMaterials).toHaveBeenCalledTimes(2);
   });
 
   it("suppresses the empty state when material loading fails", async () => {

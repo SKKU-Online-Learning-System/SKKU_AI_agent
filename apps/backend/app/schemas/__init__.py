@@ -25,12 +25,20 @@ from app.schemas.domain import (
     CourseRead,
     DocumentChunkRead,
     MaterialProcessingStatusRead,
+<<<<<<< HEAD
     RagSearchDebugRead,
     RagSearchRequest,
     RagSearchResponse,
     RagSearchResultRead,
     RetrievalSummaryRead,
     SafetyResultRead,
+=======
+    RAGSearchDebug,
+    RAGSearchRequest,
+    RAGSearchResponse,
+    RAGSearchResult,
+    RAGStatusResponse,
+>>>>>>> refs/remotes/origin/main
     UserRead,
 )
 
@@ -60,6 +68,12 @@ __all__ = [
     "CourseRagStatusRead",
     "CourseRead",
     "DocumentChunkRead",
+    "MaterialProcessingStatusRead",
+    "RAGSearchDebug",
+    "RAGSearchRequest",
+    "RAGSearchResponse",
+    "RAGSearchResult",
+    "RAGStatusResponse",
     "LoginRequest",
     "LoginResponse",
     "MaterialProcessingStatusRead",

@@ -274,11 +274,11 @@ def test_material_upload_requires_course_manage_permission(rbac_api: RBACApiCont
     student_own = upload_as("student", "owned")
     admin_other = upload_as("admin", "other")
 
-    assert professor_own.status_code == 202
+    assert professor_own.status_code == 201
     assert professor_own.json()["uploadedBy"] == rbac_api.users["professor"]
     assert professor_other.status_code == 403
     assert student_own.status_code == 403
-    assert admin_other.status_code == 202
+    assert admin_other.status_code == 201
     assert admin_other.json()["uploadedBy"] == rbac_api.users["admin"]
     with rbac_api.session_factory() as session:
         stored_paths = [

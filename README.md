@@ -1,7 +1,8 @@
-# SKKU Course Agent MVP
+# SKKU Course Agent
 
-## 프로젝트 소개
+성균관대학교 강의자료 기반 코스 에이전트 MVP입니다. 현재 인증·과목 관리·자료 처리·과목별 검색과 교수자 디버그 UI까지 구현되어 있습니다. LLM 답변 생성은 후속 단계입니다.
 
+<<<<<<< HEAD
 성균관대학교 AI중심대학사업의 강의자료 기반 RAG 챗봇 MVP입니다. 학생은 과목을 선택해 질문하고, 교수자는 강의자료를 업로드하며, 관리자는 과목·사용자·자료를 관리하는 구조입니다.
 
 이 문서는 현재 완료된 **2~4단계**를 처음부터 실행하고 검증하는 안내서입니다. 인증과 권한 관리부터 강의자료 처리, 과목 단위 검색, 출처가 포함된 챗봇 답변과 질문 로그 조회까지 동작합니다. 통계 대시보드는 5단계 범위로 남아 있습니다.
@@ -78,56 +79,30 @@
 ├── Makefile             # Linux/macOS용 개발·검증 단축 명령
 ├── .env.example         # API/DB용 로컬 환경변수 예시
 └── apps/frontend/.env.local.example # Next.js 공개 환경변수 예시
+=======
+## 구성
+
+```text
+apps/frontend     Next.js
+apps/backend      FastAPI, SQLAlchemy, Alembic
+packages/ai_rag   RAG 공통 모듈
+docs              제품·기술 문서
+>>>>>>> refs/remotes/origin/main
 ```
 
-## 사전 요구사항
+Python 패키지는 루트 `uv` 워크스페이스로, 프론트엔드는 npm workspace로 관리합니다.
 
-- Docker Desktop 또는 Docker Engine과 Docker Compose
-- Python 3.9 이상
-- Node.js 및 npm (저장소는 npm 10.8.0을 기준으로 관리)
-- `make`는 선택 사항입니다. Linux/macOS에서는 `Makefile` 단축 명령을 사용할 수 있고, Windows PowerShell에서는 아래의 직접 명령을 사용합니다.
+## 빠른 시작
 
-먼저 저장소 루트에서 Python 패키지와 프런트엔드 의존성을 설치합니다.
+필수 도구: [uv](https://docs.astral.sh/uv/), Python 3.9+, Node.js, Docker
 
-Linux/macOS:
-
-```bash
-python3 -m venv .venv
-source .venv/bin/activate
-python -m pip install --upgrade pip
-python -m pip install -e "./packages/ai_rag[dev]"
-python -m pip install -e "./apps/backend[dev]"
-npm install
-```
-
-Windows PowerShell:
-
-```powershell
-py -3 -m venv .venv
-& .\.venv\Scripts\python.exe -m pip install --upgrade pip
-& .\.venv\Scripts\python.exe -m pip install -e ".\packages\ai_rag[dev]"
-& .\.venv\Scripts\python.exe -m pip install -e ".\apps\backend[dev]"
-npm.cmd install
-```
-
-`npm` 명령이 PowerShell 실행 정책에 의해 `npm.ps1` 오류를 내면 `npm.cmd`를 계속 사용합니다. `npm.cmd install`의 audit 경고는 설치 실패가 아니며, 의존성 버전을 바꾸는 `npm audit fix --force`는 실행하지 마세요.
-
-## 환경변수 설정
-
-Linux/macOS:
-
-```bash
-cp .env.example .env
-cp apps/frontend/.env.local.example apps/frontend/.env.local
-```
-
-Windows PowerShell:
+저장소 루트에서 실행합니다.
 
 ```powershell
 Copy-Item .env.example .env
 Copy-Item apps\frontend\.env.local.example apps\frontend\.env.local
-```
 
+<<<<<<< HEAD
 루트 `.env`는 API/DB 설정 파일입니다. 기본값은 `APP_ENV=local`, 로컬 Docker DB, 프런트엔드 Origin(`http://localhost:3000`)을 대상으로 합니다. 예시 `JWT_SECRET`은 로컬 개발 전용입니다. `APP_ENV`가 `local`이 아닌 환경에서는 예시 키를 사용할 수 없으며, 고유하게 생성한 32자 이상의 임의 키로 교체해야 API가 시작됩니다. 실제 배포 전에는 `OPENAI_API_KEY`도 설정하고, `.env`는 커밋하지 마세요.
 
 | 변수 | 기본값 | 용도 |
@@ -165,140 +140,51 @@ Copy-Item apps\frontend\.env.local.example apps\frontend\.env.local
 Linux/macOS:
 
 ```bash
+=======
+uv sync --locked --all-packages --all-extras
+npm.cmd install
+>>>>>>> refs/remotes/origin/main
 docker compose up -d db
-docker compose ps
-# 선택 단축 명령: make dev-db
+
+uv run --all-packages --all-extras alembic -c apps/backend/alembic.ini upgrade head
+uv run --all-packages --all-extras python -m app.db.seed
 ```
 
-Windows PowerShell:
+API와 웹은 별도 터미널에서 실행합니다.
 
 ```powershell
-docker compose up -d db
-docker compose ps
+uv run --all-packages --all-extras uvicorn app.main:app --reload --app-dir apps/backend --host 0.0.0.0 --port 8000
 ```
-
-DB 컨테이너가 `running` 또는 healthcheck가 `healthy`가 된 뒤 다음 단계로 진행합니다.
-
-## 데이터베이스 마이그레이션
-
-Alembic 마이그레이션은 `apps/backend`에서 실행해야 합니다. 위의 Python 가상환경을 먼저 설치한 상태여야 합니다.
-
-Linux/macOS:
-
-```bash
-source .venv/bin/activate
-make migrate-db
-```
-
-Windows PowerShell:
-
-```powershell
-Push-Location apps\backend
-& ..\..\.venv\Scripts\python.exe -m alembic upgrade head
-Pop-Location
-```
-
-## Seed 데이터 생성
-
-Seed는 여러 번 실행해도 세 사용자, 두 과목, 학생의 접근 관계를 중복 생성하지 않고 동일한 데모 값으로 맞춥니다.
-
-Linux/macOS:
-
-```bash
-source .venv/bin/activate
-make seed-db
-```
-
-Windows PowerShell:
-
-```powershell
-Push-Location apps\backend
-& ..\..\.venv\Scripts\python.exe -m app.db.seed
-Pop-Location
-```
-
-성공하면 `users=3 courses=2 course_access=2`가 출력됩니다. 마이그레이션 또는 Seed가 `password authentication failed`로 실패하면 Alembic 문제가 아니라 기존 Docker 볼륨의 PostgreSQL 자격 증명이 `.env`/`docker-compose.yml`과 다른지 먼저 확인하세요. 로컬 개발 데이터를 버려도 되는 경우에만 `docker compose down -v` 후 DB를 다시 만들 수 있습니다.
-
-## 로컬 서버 실행
-
-터미널을 두 개 열어 API와 웹을 각각 실행합니다. 아래 명령은 저장소 루트에서 실행합니다.
-
-API 서버 (포트 8000)
-
-Linux/macOS:
-
-```bash
-source .venv/bin/activate
-make dev-api
-```
-
-Windows PowerShell:
-
-```powershell
-& .\.venv\Scripts\python.exe -m uvicorn app.main:app --reload --app-dir apps/backend --host 0.0.0.0 --port 8000
-```
-
-웹 서버 (포트 3000)
-
-Linux/macOS:
-
-```bash
-npm run dev:frontend
-```
-
-Windows PowerShell:
 
 ```powershell
 npm.cmd run dev:frontend
 ```
 
-브라우저에서 `http://localhost:3000`을 열고, API 상태는 다음으로 확인합니다.
+- 웹: `http://localhost:3000`
+- API 문서: `http://localhost:8000/docs`
+- 상태 확인: `http://localhost:8000/api/health`
 
-Linux/macOS:
+## Seed 계정
 
-```bash
-curl http://localhost:8000/api/health
-```
+공통 비밀번호: `password123`
 
-Windows PowerShell:
-
-```powershell
-Invoke-RestMethod http://localhost:8000/api/health
-```
-
-FastAPI 대화형 API 문서는 `http://localhost:8000/docs`에 있습니다.
-
-## 테스트 계정
-
-모든 Seed 계정의 비밀번호는 `password123`입니다.
-
-| 역할 | 이메일 | 기본 접속 결과 |
-| --- | --- | --- |
-| 관리자 | `admin@skku.edu` | 전체 과목 관리 화면 |
-| 교수자 | `professor@skku.edu` | 두 예시 과목과 자료 관리 화면 |
-| 학생 | `student@skku.edu` | 접근 가능한 활성 과목 목록 |
-
-Seed 과목과 관계는 다음과 같습니다.
-
-| 학기 | 과목 | 담당 교수자 | 학생 접근 |
-| --- | --- | --- | --- |
-| `2026-2` | 인공지능개론 | `professor@skku.edu` | `student@skku.edu` 허용 |
-| `2026-2` | 소프트웨어공학 | `professor@skku.edu` | `student@skku.edu` 허용 |
-
-## 역할별 접속 경로
-
-로그인 페이지는 `/login`이며, 성공 시 역할별 기본 경로로 이동합니다. 다른 역할의 경로를 직접 열면 프런트엔드는 `/forbidden`으로 이동하고, API도 별도로 401/403을 검사합니다.
-
-| 역할 | 경로 |
+| 역할 | 이메일 |
 | --- | --- |
+<<<<<<< HEAD
 | 관리자 | `/admin`, `/admin/courses`, `/admin/courses/new`, `/admin/logs` |
 | 교수자 | `/professor`, `/professor/courses`, `/professor/materials`, `/professor/logs` |
 | 학생 | `/student`, `/student/courses`, `/student/courses/[courseId]/chat`, `/student/chat`, `/student/chat-history` |
+=======
+| 관리자 | `admin@skku.edu` |
+| 교수자 | `professor@skku.edu` |
+| 학생 | `student@skku.edu` |
+>>>>>>> refs/remotes/origin/main
 
-## 주요 API
+## 문서 처리
 
-모든 `/api` 경로 중 인증 필요 항목에는 `Authorization: Bearer <access_token>` 헤더가 필요합니다. JSON 모델의 필드명은 camelCase로 반환됩니다.
+지원 형식은 TXT, PDF, DOCX, PPTX입니다. 스캔 PDF는 OCR을 지원하지 않습니다.
 
+<<<<<<< HEAD
 | 메서드 | 경로 | 권한/상태 | 설명 |
 | --- | --- | --- | --- |
 | GET | `/api/health` | 공개, 200 | API 환경 및 벡터 설정 상태 |
@@ -344,33 +230,29 @@ curl -X POST http://localhost:8000/api/auth/login \
 
 curl http://localhost:8000/api/auth/me \
   -H "Authorization: Bearer <access_token>"
+=======
+```text
+upload(pending) → process(processing) → text extraction
+→ chunk → embedding → DocumentChunk 저장 → completed/failed
+>>>>>>> refs/remotes/origin/main
 ```
 
-Windows PowerShell:
+임베딩은 외부 API 키가 필요 없는 deterministic local hash provider를 사용합니다. Anthropic은 임베딩 모델을 제공하지 않으며, 후속 LLM 답변 연결은 `ANTHROPIC_API_KEY`와 `CLAUDE_MODEL`을 사용합니다.
 
-```powershell
-$login = Invoke-RestMethod -Method Post -Uri http://localhost:8000/api/auth/login -ContentType "application/json" -Body '{"email":"student@skku.edu","password":"password123"}'
-Invoke-RestMethod -Uri http://localhost:8000/api/auth/me -Headers @{ Authorization = "Bearer $($login.access_token)" }
-```
+검색은 완료된 자료만 대상으로 하며 `course_id` 권한과 범위를 강제합니다. 현재 JSON embedding을 애플리케이션에서 cosine 비교합니다.
 
-JWT 로그아웃은 서버 상태를 바꾸지 않습니다. 클라이언트가 보관한 access token을 삭제하면 로그아웃됩니다.
+주요 자료 처리 API:
 
-## 파일 업로드 제한
-
-`POST /api/courses/{course_id}/materials`는 `multipart/form-data`의 `file` 필드를 받습니다. 관리자는 모든 과목, 교수자는 자기 담당 과목만 업로드·삭제할 수 있습니다. 학생은 접근 가능한 과목의 목록은 볼 수 있지만 업로드와 삭제는 403입니다.
-
-| 항목 | 현재 동작 |
+| 메서드 | 경로 |
 | --- | --- |
-| 허용 확장자 | `.pdf`, `.pptx`, `.docx`, `.txt` |
-| 최대 크기 | `MAX_UPLOAD_SIZE_BYTES=20971520` (20 MiB/안내상 20MB) |
-| 빈 파일 | HTTP 422로 거절 |
-| 허용되지 않은 확장자·최대 크기 초과 | HTTP 422로 거절 |
-| 업로드 요청 본문 한도 초과 | HTTP 413으로 파싱 완료 전에 거절 |
-| 내부 파일명 | 원본 확장자를 유지한 UUID 파일명 (`<uuid>.<ext>`) |
-| 기본 저장 위치 | 저장소 루트에서 API를 실행할 때 `uploads/<course_id>/<uuid>.<ext>` |
-| 원본 파일명 | 표시용 `originalFileName` 메타데이터로 보존, 내부 경로는 API에 노출하지 않음 |
-| 새 자료 상태 | DB 내부 `processing_status=pending`, API 응답 `processingStatus: "pending"` |
+| POST | `/api/courses/{course_id}/materials` |
+| POST | `/api/courses/{course_id}/materials/{material_id}/process` |
+| POST | `/api/courses/{course_id}/materials/{material_id}/reprocess` |
+| GET | `/api/courses/{course_id}/materials/{material_id}/processing-status` |
+| GET | `/api/courses/{course_id}/rag/status` |
+| POST | `/api/rag/search` |
 
+<<<<<<< HEAD
 성공한 업로드는 HTTP **202 Accepted**를 반환합니다. 자료의 실제 파일 저장과 DB 행 생성은 완료되지만, 이 상태는 문서 내용이 처리되었다는 뜻이 아니라 처리를 기다린다는 뜻입니다. 파일 저장 후 DB 커밋에 실패하면 저장된 파일은 제거됩니다. 운영 환경의 리버스 프록시도 `MAX_UPLOAD_REQUEST_SIZE_BYTES`와 일치하는 요청 본문 한도를 적용해 과도한 업로드를 애플리케이션에 도달하기 전에 차단하세요.
 
 ## 자료 처리와 RAG 검색
@@ -394,38 +276,38 @@ python -m pip install -e "./apps/backend[parsers]"
 텍스트가 전혀 추출되지 않는 파일(스캔 이미지 PDF, 빈 파일)은 성공으로 처리하지 않고 `failed` 상태와 사유를 남깁니다. OCR은 지원하지 않습니다.
 
 검색은 항상 `course_id`로 먼저 제한되며, 임베딩이 없는 청크는 검색 대상에서 제외됩니다. 현재 `VECTOR_SEARCH_MODE`는 `local`만 구현되어 있고, 저장된 벡터를 애플리케이션에서 코사인 유사도로 정렬합니다. 개발 규모를 위한 구현이며, pgvector로 교체할 때는 `VectorStoreService`만 바꾸면 됩니다.
+=======
+교수자는 `/professor/rag-debug` 또는 과목별 `/professor/courses/{courseId}/rag-debug`에서 점수와 출처 청크를 확인할 수 있습니다.
+>>>>>>> refs/remotes/origin/main
 
-## 자동 테스트
-
-아래 명령은 의존성 설치 후 저장소 루트에서 실행합니다. 백엔드와 RAG 테스트는 Docker DB 없이도 실행되도록 구성되어 있지만, 수동 통합 검증에는 실행 중인 PostgreSQL과 두 개 서버가 필요합니다.
-
-Linux/macOS:
-
-```bash
-source .venv/bin/activate
-make test-api
-make test-rag
-npm run test --workspace @skku-course-agent/frontend
-npm run typecheck --workspaces --if-present
-npm run lint
-npm run build:frontend
-```
-
-Windows PowerShell:
+샘플 자료 업로드부터 검색까지 확인하려면 API 실행 후 다음 명령을 사용합니다.
 
 ```powershell
-& .\.venv\Scripts\python.exe -m pytest apps/backend/tests
-& .\.venv\Scripts\python.exe -m pytest packages/ai_rag/tests
+uv run --locked --all-packages --all-extras python scripts/rag_smoke_test.py
+```
+
+## 테스트
+
+```powershell
+uv run --locked --all-packages --all-extras pytest apps/backend/tests
+uv run --locked --all-packages --all-extras pytest packages/ai_rag/tests
+uv run --locked --all-packages --all-extras ruff check apps/backend packages/ai_rag
+
 npm.cmd run test --workspace @skku-course-agent/frontend
-npm.cmd run typecheck --workspaces --if-present
+npm.cmd run typecheck
 npm.cmd run lint
 npm.cmd run build:frontend
 ```
 
-## 2단계 수동 통합 테스트 체크리스트
+## uv 규칙
 
-시작 전에 PostgreSQL, 마이그레이션, Seed, API(8000), 웹(3000)을 모두 실행합니다. 아래 체크는 의도적으로 데이터 상태를 바꿀 수 있으므로, 마지막의 재활성화와 임시 과목 정리를 확인합니다.
+- 루트 `.venv`와 `uv.lock` 하나를 사용합니다.
+- 설치는 `uv sync --locked --all-packages --all-extras`로 재현합니다.
+- 의존성은 `uv add --package <workspace-package> <dependency>`로 변경합니다.
+- `pyproject.toml` 변경 후 `uv lock`을 실행하고 `uv.lock`을 함께 커밋합니다.
+- 직접 `pip install`하거나 패키지별 가상환경을 만들지 않습니다.
 
+<<<<<<< HEAD
 ### 인증과 공통 권한
 
 - [ ] 세 Seed 계정 `admin@skku.edu`, `professor@skku.edu`, `student@skku.edu`가 모두 `password123`으로 로그인되고 각각 `/admin`, `/professor`, `/student`로 이동한다.
@@ -507,3 +389,6 @@ npm.cmd run build:frontend
 - 문서 처리의 백그라운드 워커/큐 전환 (현재는 API 요청 내 동기 처리)
 - 스캔 PDF OCR, HWP 지원
 - 답변 스트리밍, 출처 클릭으로 원문 열기
+=======
+상세 설계와 로드맵은 [기술 명세](docs/TEC_SPEC.md)를 참고하세요.
+>>>>>>> refs/remotes/origin/main

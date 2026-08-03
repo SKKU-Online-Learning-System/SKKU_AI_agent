@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 "use client";
 
 import { useParams, useSearchParams } from "next/navigation";
@@ -13,4 +14,10 @@ export default function StudentCourseChatPage() {
       initialSessionId={searchParams.get("sessionId")}
     />
   );
+=======
+import { CourseChatPanel } from "../../../../components/courses/course-chat-panel";
+
+export default function StudentCourseChatPage() {
+  return <CourseChatPanel />;
+>>>>>>> refs/remotes/origin/main
 }

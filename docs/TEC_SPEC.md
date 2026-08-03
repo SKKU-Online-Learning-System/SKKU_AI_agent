@@ -12,6 +12,19 @@
 | 개발 기간   | 2026년 7월 ~ 2026년 12월                                                            |
 | 개발 인력   | Frontend 1명, Backend 1명, AI/RAG 1명                                               |
 
+### 1.1 현재 구현 기준
+
+2026-07-28 기준으로 검색 가능한 지식베이스까지 구현되어 있다.
+
+- TXT, PDF, DOCX, PPTX 텍스트 추출
+- 1,000자 청크와 150자 중첩
+- deterministic local hash embedding
+- PostgreSQL JSON embedding 저장과 애플리케이션 cosine 검색
+- 과목 권한 및 `course_id` 범위가 강제되는 검색 API
+- 교수자 자료 처리 UI와 RAG 검색 디버그 UI
+
+LLM 답변 생성, citation 조립, SAFE 정책과 ChatLog 영속화는 4단계 범위다. pgvector 확장은 활성화되어 있지만 현재 vector 컬럼과 DB 거리 연산은 사용하지 않는다.
+
 ---
 
 ## 2. 시스템 목표
@@ -84,7 +97,7 @@ Backend: FastAPI 또는 Node.js API Server
 Database: PostgreSQL
 Vector DB: pgvector 우선 검토
 File Storage: Local Storage
-AI Provider: OpenAI API
+AI Provider: Anthropic Claude API
 Auth: JWT 기반 인증
 Deployment: Docker / Docker Compose
 ```
@@ -110,7 +123,7 @@ Backend: 단일 API 서버 → API 서버 + RAG Worker 분리
 | DB           | PostgreSQL                    | 사용자, 과목, 로그, 메타데이터 저장 |
 | ORM          | Prisma / SQLAlchemy           | 선택한 백엔드에 맞춰 사용           |
 | Vector DB    | pgvector                      | PostgreSQL 기반 벡터 검색           |
-| AI API       | OpenAI API                    | LLM 답변 생성 및 임베딩             |
+| AI API       | Anthropic Claude API          | LLM 답변 생성                       |
 | Auth         | JWT                           | MVP 인증                            |
 | File Storage | Local Storage                 | 업로드 파일 저장                    |
 | Deployment   | Docker Compose                | 로컬 및 서버 배포                   |
@@ -361,6 +374,7 @@ UNIQUE(course_id, user_id)
 | ------------------ | ------------- | ----------------------------------------- |
 | id                 | UUID / BIGINT | 자료 ID                                   |
 | course_id          | FK(Course.id) | 과목 ID                                   |
+| week               | SMALLINT      | 게시 주차(1~16), 기본값 1                 |
 | uploaded_by        | FK(User.id)   | 업로드 사용자                             |
 | file_name          | VARCHAR       | 내부 저장 파일명                          |
 | original_file_name | VARCHAR       | 원본 파일명                               |
@@ -387,10 +401,16 @@ UNIQUE(course_id, user_id)
 | chunk_text    | TEXT                  | 청크 내용                 |
 | page_number   | INT NULL              | 페이지 또는 슬라이드 번호 |
 | section_title | VARCHAR NULL          | 섹션명                    |
+<<<<<<< HEAD
 | char_count    | INT                   | 청크 글자 수              |
 | embedding     | JSON NULL             | 임베딩 벡터               |
 | embedding_model | VARCHAR NULL        | 임베딩 모델명             |
 | embedded_at   | TIMESTAMP NULL        | 임베딩 생성 시각          |
+=======
+| char_count    | INT                   | 청크 문자 수              |
+| embedding     | JSON                  | 임베딩 벡터               |
+| embedding_model | VARCHAR NULL        | 임베딩 모델명             |
+>>>>>>> refs/remotes/origin/main
 | created_at    | TIMESTAMP             | 생성 시각                 |
 | updated_at    | TIMESTAMP             | 수정 시각                 |
 
@@ -402,11 +422,15 @@ INDEX(material_id)
 UNIQUE(material_id, chunk_index)
 ```
 
+<<<<<<< HEAD
 **구현 현황 (2026-08 기준)**
 
 - `embedding`은 pgvector `VECTOR`가 아니라 이식 가능한 `JSON` 컬럼으로 구현했다. 검색은 `VECTOR_SEARCH_MODE=local`에서 애플리케이션 레벨 코사인 유사도로 수행한다. 개발 규모용 구현이며, pgvector 전환 시 `VectorStoreService`만 교체하면 된다.
 - 따라서 벡터 인덱스는 아직 생성하지 않는다.
 - `UNIQUE(material_id, chunk_index)`로 재처리 시 중복 저장을 막는다.
+=======
+현재 `VectorStoreService`가 과목별 후보 embedding을 읽어 Python에서 cosine similarity를 계산한다.
+>>>>>>> refs/remotes/origin/main
 
 ---
 
@@ -623,7 +647,7 @@ professor, admin
 ```text id="a44l93"
 professor: 본인 담당 과목
 admin: 전체 과목
-student: 기본적으로 제한
+student: 본인이 수강 중인 활성 과목
 ```
 
 ---
@@ -644,6 +668,7 @@ Request:
 ```text id="65ralt"
 multipart/form-data
 file: 강의자료 파일
+week: 게시 주차(1~16, 기본값 1)
 ```
 
 Response:
@@ -652,13 +677,20 @@ Response:
 {
   "id": "material-id",
   "course_id": "course-id",
+  "week": 1,
   "original_file_name": "lecture1.pdf",
   "file_type": "pdf",
   "file_size": 1048576,
-  "processing_status": "pending",
+  "processing_status": "completed",
   "created_at": "2026-07-01T10:00:00"
 }
 ```
+
+---
+
+### GET /courses/{course_id}/materials/{material_id}/download
+
+강의자료 원본 다운로드. 자료 목록 조회와 동일한 과목 접근 권한을 적용한다.
 
 ---
 
@@ -713,14 +745,16 @@ student
 
 ## 8.5 RAG 검색 API
 
-### POST /rag/search
+### POST /api/rag/search
 
 질문에 대한 관련 문서 청크 검색.
 
 권한:
 
 ```text id="2cy22h"
-해당 과목 접근 권한 필요
+student: 수강 중인 활성 과목
+professor: 본인 담당 과목
+admin: 모든 과목
 ```
 
 Request:
@@ -737,19 +771,25 @@ Response:
 
 ```json id="t2m54s"
 {
+  "course_id": "course-id",
+  "question": "경사하강법이 뭐야?",
+  "top_k": 5,
   "results": [
     {
       "chunk_id": "chunk-id",
       "material_id": "material-id",
       "document_name": "lecture1.pdf",
       "page_number": 12,
+      "chunk_index": 3,
       "chunk_text": "경사하강법은...",
       "score": 0.87
     }
-  ]
+  ],
+  "debug": null
 }
 ```
 
+<<<<<<< HEAD
 **구현 현황 (2026-08 기준)**
 
 - 실제 엔드포인트는 `POST /api/rag/search`이며, 요청/응답 필드는 camelCase(`courseId`, `topK`, `documentName`, `pageNumber`, `chunkIndex`)로 직렬화된다.
@@ -769,12 +809,19 @@ GET  /api/courses/{course_id}/rag/status
 ```
 
 권한은 과목 관리 권한(교수자는 담당 과목, 관리자는 전체)을 따르며, `rag/status`만 과목 접근 권한으로 충분하다. 이미 처리 중인 자료에 process를 다시 호출하면 409를 반환한다.
+=======
+`debug=true`는 professor/admin만 사용할 수 있다. 검색 API는 답변을 생성하지 않는다.
+
+### GET /api/courses/{course_id}/rag/status
+
+자료 처리 수, 전체/임베딩 청크 수와 검색 준비 상태를 반환한다. 완료된 자료에 임베딩 청크가 하나 이상 있을 때 `is_search_ready=true`다.
+>>>>>>> refs/remotes/origin/main
 
 ---
 
 ## 8.6 챗봇 API
 
-### POST /chat
+### POST /chat (4단계 Roadmap)
 
 과목별 RAG 기반 답변 생성.
 
@@ -956,18 +1003,13 @@ professor
 ## 9.1 문서 업로드 흐름
 
 ```text id="pgmt0a"
-1. 교수자가 강의자료 업로드
+1. 교수자가 게시 주차를 선택하고 강의자료 업로드
 2. Backend가 파일 검증
 3. 파일을 storage에 저장
 4. CourseMaterial 생성
-5. processing_status = pending
-6. 문서 처리 작업 시작
-7. processing_status = processing
-8. 텍스트 추출
-9. 청크 분할
-10. 임베딩 생성
-11. DocumentChunk 저장
-12. processing_status = completed
+5. processing_status = completed
+6. 학생·관리자 강의콘텐츠 목록에 즉시 게시
+7. 후속 RAG 인덱싱 파이프라인이 텍스트 추출, 청크 분할, 임베딩을 수행
 ```
 
 실패 시:
@@ -1032,12 +1074,12 @@ MVP 기본값:
 
 ## 9.4 임베딩 정책
 
-MVP에서는 OpenAI Embedding API를 기본으로 사용한다.
+임베딩은 외부 API 키가 필요 없는 deterministic local hash provider를 사용한다. Anthropic은 임베딩 모델을 제공하지 않으므로 Claude API는 답변 생성에만 사용한다.
 
 예시 모델:
 
 ```text id="ggqms5"
-text-embedding-3-small
+local-hash-128
 ```
 
 저장 방식:
@@ -1046,14 +1088,7 @@ text-embedding-3-small
 DocumentChunk.embedding
 ```
 
-개발 환경에서는 OpenAI API Key가 없을 수 있으므로 mock embedding 옵션을 제공한다.
-
-환경변수 예시:
-
-```text id="argtji"
-USE_MOCK_EMBEDDING=true
-OPENAI_API_KEY=...
-```
+로컬 임베딩은 항상 사용 가능하며 별도 API Key가 필요하지 않다.
 
 **구현 현황 (2026-08 기준)**
 
@@ -1078,8 +1113,8 @@ DocumentChunk.course_id = selected_course_id
 | 항목            | 값                |
 | --------------- | ----------------- |
 | top_k           | 5                 |
-| score_threshold | 0.3 ~ 0.5         |
-| 검색 방식       | cosine similarity |
+| score_threshold | 0.3               |
+| 검색 방식       | local cosine      |
 | 필터            | course_id 필수    |
 
 검색 결과가 부족한 경우:
@@ -1091,7 +1126,11 @@ DocumentChunk.course_id = selected_course_id
 
 ---
 
-## 9.6 답변 생성 프롬프트 정책
+## 9.6 답변 생성 프롬프트 정책 (4단계 Roadmap)
+
+답변 생성 provider는 Anthropic Claude Messages API를 사용하며 기본 모델은 `claude-sonnet-5`다. API 인증은 `ANTHROPIC_API_KEY`, 모델 설정은 `CLAUDE_MODEL`을 사용한다.
+
+Anthropic Messages API에서 시스템 프롬프트는 message의 `system` role이 아니라 최상위 `system` 파라미터로 전달한다. 응답은 `content` 배열의 `text` 블록만 순서대로 조합한다.
 
 LLM에는 다음 정보를 전달한다.
 
@@ -1270,12 +1309,12 @@ bcrypt 또는 argon2 기반 password_hash 저장
 
 ```text id="2b5pg4"
 DATABASE_URL=
-OPENAI_API_KEY=
+ANTHROPIC_API_KEY=
+CLAUDE_MODEL=claude-sonnet-5
 JWT_SECRET=
 JWT_EXPIRES_IN=
 UPLOAD_DIR=
 MAX_UPLOAD_SIZE=
-USE_MOCK_EMBEDDING=
 ```
 
 ---
@@ -1592,11 +1631,12 @@ volumes:
 ## 18.3 3단계: 문서 처리 / RAG 검색
 
 ```text id="u33s69"
-- 텍스트 추출
-- 청크 분할
-- 임베딩 생성
-- 벡터 저장
-- 검색 API
+- 완료: TXT/PDF/DOCX/PPTX 텍스트 추출
+- 완료: 청크 분할과 DocumentChunk 저장
+- 완료: deterministic local hash 임베딩 생성
+- 완료: JSON embedding과 local cosine 검색
+- 완료: 과목 권한/범위 검색 API와 상태 API
+- 완료: 교수자 처리 상태 및 검색 디버그 UI
 ```
 
 ---

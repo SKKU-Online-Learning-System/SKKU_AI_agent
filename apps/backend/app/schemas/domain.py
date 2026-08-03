@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Literal, Optional
+from typing import Annotated, Literal, Optional
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, StringConstraints
 
 
 def to_camel(value: str) -> str:
@@ -22,8 +22,6 @@ class CamelModel(BaseModel):
 UserRole = Literal["student", "professor", "admin"]
 CourseAgentStatus = Literal["draft", "active", "disabled"]
 CourseMaterialStatus = Literal["pending", "processing", "completed", "failed"]
-ChatSessionStatus = Literal["open", "archived"]
-ChatMessageRole = Literal["user", "assistant", "system"]
 
 
 class UserRead(CamelModel):
@@ -102,8 +100,10 @@ class CourseMaterialRead(CamelModel):
     original_file_name: str
     file_type: str
     file_size: int
+    week: int
     processing_status: CourseMaterialStatus
     processing_error: Optional[str] = None
+    chunk_count: int = 0
     created_at: datetime
     updated_at: datetime
 
@@ -113,11 +113,67 @@ class DocumentChunkRead(CamelModel):
     material_id: str
     course_id: str
     chunk_index: int
-    content: str
+    chunk_text: str
+    page_number: Optional[int] = None
+    section_title: Optional[str] = None
+    char_count: int
+    embedding: Optional[list[float]] = None
     embedding_model: Optional[str] = None
-    token_count: Optional[int] = None
-    metadata: dict[str, Any] = Field(default_factory=dict)
     created_at: datetime
+    updated_at: datetime
+
+
+class MaterialProcessingStatusRead(CamelModel):
+    material_id: str
+    processing_status: CourseMaterialStatus
+    processing_error: Optional[str] = None
+    chunk_count: int
+    updated_at: datetime
+
+
+NonBlankQuestion = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
+
+
+class RAGSearchRequest(BaseModel):
+    course_id: str = Field(min_length=1)
+    question: NonBlankQuestion
+    top_k: Optional[int] = Field(default=None, ge=1, le=20)
+    debug: bool = False
+
+
+class RAGSearchResult(BaseModel):
+    chunk_id: str
+    material_id: str
+    document_name: str
+    page_number: Optional[int] = None
+    chunk_index: int
+    chunk_text: str
+    score: float
+
+
+class RAGSearchDebug(BaseModel):
+    embedding_model: Optional[str] = None
+    search_mode: str
+    score_threshold: Optional[float] = None
+    total_candidate_chunks: int
+
+
+class RAGSearchResponse(BaseModel):
+    course_id: str
+    question: str
+    top_k: int
+    results: list[RAGSearchResult]
+    debug: Optional[RAGSearchDebug] = None
+
+
+class RAGStatusResponse(BaseModel):
+    course_id: str
+    material_count: int
+    completed_material_count: int
+    failed_material_count: int
+    chunk_count: int
+    embedded_chunk_count: int
+    is_search_ready: bool
 
 
 class Citation(CamelModel):
@@ -131,9 +187,12 @@ class Citation(CamelModel):
 
 class ChatSessionCreate(CamelModel):
     course_id: str
+<<<<<<< HEAD
     title: Optional[str] = None
     # Kept for backwards compatibility; the owner always comes from the access token.
     user_id: Optional[str] = None
+=======
+>>>>>>> refs/remotes/origin/main
 
 
 class ChatSessionRead(CamelModel):
@@ -141,7 +200,10 @@ class ChatSessionRead(CamelModel):
     user_id: str
     course_id: str
     title: Optional[str] = None
+<<<<<<< HEAD
     status: ChatSessionStatus = "open"
+=======
+>>>>>>> refs/remotes/origin/main
     created_at: datetime
     updated_at: datetime
 
@@ -149,13 +211,21 @@ class ChatSessionRead(CamelModel):
 class ChatLogRead(CamelModel):
     id: str
     session_id: str
-    course_id: str
     user_id: str
-    role: ChatMessageRole
-    message: str
-    citations: list[Citation] = Field(default_factory=list)
-    latency_ms: Optional[int] = None
+    course_id: str
+    question: str
+    answer: str
+    referenced_documents: list[dict[str, object]] = Field(default_factory=list)
+    model_name: str
+    response_time_ms: int
+    is_grounded: bool
+    safety_result: dict[str, object] = Field(default_factory=dict)
+    retrieval_result: dict[str, object] = Field(default_factory=dict)
     created_at: datetime
+
+
+class ChatSessionDetailRead(ChatSessionRead):
+    logs: list[ChatLogRead] = Field(default_factory=list)
 
 
 class ChatRequest(CamelModel):

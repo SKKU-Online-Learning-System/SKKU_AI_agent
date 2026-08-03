@@ -81,4 +81,14 @@ describe("AppShell", () => {
     );
     expect(contextNavigation).toHaveAttribute("data-open", "true");
   });
+
+  it("hands course detail routes over to the course workspace", () => {
+    mocks.pathname.value = "/student/courses/course-1";
+
+    render(<AppShell><p>Course workspace</p></AppShell>);
+
+    expect(screen.queryByRole("navigation", { name: "학생 메뉴" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("banner")).not.toBeInTheDocument();
+    expect(screen.getByText("Course workspace")).toBeInTheDocument();
+  });
 });

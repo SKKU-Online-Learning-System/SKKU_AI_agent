@@ -8,10 +8,14 @@ import {
   createAdminCourse,
   clearAccessToken,
   deleteCourseMaterial,
+  downloadCourseMaterial,
+  getCourseRagStatus,
   listAdminCourses,
   listCourseMaterials,
   listCourses,
   loginRequest,
+  processCourseMaterial,
+  searchRagDebug,
   saveAccessToken,
   uploadCourseMaterial
 } from "./api";
@@ -160,11 +164,12 @@ describe("api client", () => {
     vi.stubGlobal("fetch", fetchMock);
     const file = new File(["notes"], "week1.txt", { type: "text/plain" });
 
-    await uploadCourseMaterial("course-1", file);
+    await uploadCourseMaterial("course-1", file, 4);
 
     const [, options] = fetchMock.mock.calls[0];
     expect(options?.method).toBe("POST");
     expect(options?.body).toBeInstanceOf(FormData);
+    expect((options?.body as FormData).get("week")).toBe("4");
     expect(new Headers(options?.headers).has("Content-Type")).toBe(false);
   });
 
@@ -176,5 +181,99 @@ describe("api client", () => {
 
     expect(fetchMock.mock.calls[0][0]).toContain("/api/courses/course-1/materials/material-1");
     expect(fetchMock.mock.calls[0][1]?.method).toBe("DELETE");
+  });
+
+  it("processes a material and reads normalized RAG status", async () => {
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(Response.json({ id: "material-1" }))
+      .mockResolvedValueOnce(
+        Response.json({
+          course_id: "course-1",
+          material_count: 2,
+          completed_material_count: 1,
+          failed_material_count: 0,
+          chunk_count: 3,
+          embedded_chunk_count: 3,
+          is_search_ready: true
+        })
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await processCourseMaterial("course-1", "material-1");
+    const ragStatus = await getCourseRagStatus("course-1");
+
+    expect(fetchMock.mock.calls[0][0]).toContain(
+      "/api/courses/course-1/materials/material-1/process"
+    );
+    expect(fetchMock.mock.calls[0][1]?.method).toBe("POST");
+    expect(fetchMock.mock.calls[1][0]).toContain("/api/courses/course-1/rag/status");
+    expect(ragStatus).toMatchObject({ courseId: "course-1", isSearchReady: true });
+  });
+
+  it("downloads a course material with the stored bearer token", async () => {
+    saveAccessToken("student-token");
+    const fetchMock = vi.fn<typeof fetch>(async () =>
+      new Response(new Blob(["lecture"]))
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await downloadCourseMaterial("course-1", "material-1");
+
+    expect(fetchMock.mock.calls[0][0]).toContain(
+      "/api/courses/course-1/materials/material-1/download"
+    );
+    expect(new Headers(fetchMock.mock.calls[0][1]?.headers).get("Authorization")).toBe(
+      "Bearer student-token"
+    );
+  });
+
+  it("requests debug search and normalizes source metadata", async () => {
+    const fetchMock = vi.fn<typeof fetch>(async () =>
+      Response.json({
+        course_id: "course-1",
+        question: "경사하강법이 뭐야?",
+        top_k: 3,
+        results: [
+          {
+            chunk_id: "chunk-1",
+            material_id: "material-1",
+            document_name: "ai.txt",
+            page_number: null,
+            chunk_index: 2,
+            chunk_text: "경사하강법은 손실 함수를 줄인다.",
+            score: 0.87
+          }
+        ],
+        debug: {
+          embedding_model: "local-hash",
+          search_mode: "local_cosine",
+          total_candidate_chunks: 8
+        }
+      })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const response = await searchRagDebug("course-1", "경사하강법이 뭐야?", 3);
+
+    expect(fetchMock.mock.calls[0][1]?.body).toBe(
+      JSON.stringify({
+        course_id: "course-1",
+        question: "경사하강법이 뭐야?",
+        top_k: 3,
+        debug: true
+      })
+    );
+    expect(response.results[0]).toMatchObject({
+      chunkId: "chunk-1",
+      materialId: "material-1",
+      documentName: "ai.txt",
+      score: 0.87
+    });
+    expect(response.debug).toMatchObject({
+      embeddingModel: "local-hash",
+      searchMode: "local_cosine",
+      totalCandidateChunks: 8
+    });
   });
 });

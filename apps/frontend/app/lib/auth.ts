@@ -40,7 +40,11 @@ const roleMenuItems: Record<UserRole, RoleMenuItem[]> = {
     { href: "/professor", label: "대시보드", icon: "dashboard" },
     { href: "/professor/courses", label: "해당 과목", icon: "course" },
     { href: "/professor/materials", label: "강의자료", icon: "material" },
+<<<<<<< HEAD
     { href: "/professor/logs", label: "질문 로그", icon: "agent" }
+=======
+    { href: "/professor/rag-debug", label: "RAG 디버그", icon: "source" }
+>>>>>>> refs/remotes/origin/main
   ],
   student: [
     { href: "/student", label: "대시보드", icon: "dashboard" },

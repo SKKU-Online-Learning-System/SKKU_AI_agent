@@ -377,8 +377,7 @@ DocumentChunkInput 예시:
 
 목표:
 - 각 DocumentChunk의 chunk_text를 임베딩 벡터로 변환한다.
-- OpenAI Embedding API를 사용할 수 있는 구조를 만든다.
-- 개발 환경에서는 OpenAI API Key가 없어도 테스트할 수 있도록 mock embedding 옵션을 제공한다.
+- 외부 API Key 없이 동작하는 deterministic local hash embedding을 사용한다.
 
 구현할 서비스:
 - EmbeddingService
@@ -387,49 +386,35 @@ DocumentChunkInput 예시:
 embedText(text: string): number[]
 embedTexts(texts: string[]): number[][]
 
-환경변수:
-- OPENAI_API_KEY
-- EMBEDDING_MODEL
-- USE_MOCK_EMBEDDING
-
-기본 모델:
-- text-embedding-3-small
-
 주의:
-- 실제 모델명은 환경변수로 바꿀 수 있게 해줘.
-- OpenAI API 호출 코드는 한 곳에 모아줘.
-- API Key가 없고 USE_MOCK_EMBEDDING=false이면 명확한 에러를 내줘.
-- USE_MOCK_EMBEDDING=true이면 deterministic mock vector를 생성해줘.
-- mock vector는 매번 랜덤이면 테스트가 어려우므로 같은 텍스트에 대해 같은 벡터를 반환해야 한다.
+- 임베딩 코드는 한 곳에 모아줘.
+- 같은 텍스트에 대해 같은 로컬 벡터를 반환해야 한다.
 - batch embedding을 지원하면 좋다.
-- 너무 긴 chunk_text는 모델 입력 제한에 걸리지 않도록 방어해줘.
-- API 호출 실패 시 해당 material의 processing_status가 failed가 되어야 한다.
-- 비용 폭증 방지를 위해 처리할 청크 수와 텍스트 길이를 로그로 요약해줘. 단, 본문 전체를 로그에 남기지 마.
+- 너무 긴 chunk_text를 거부하도록 최대 입력 길이를 검증해줘.
+- 임베딩 생성 실패 시 해당 material의 processing_status가 failed가 되어야 한다.
+- 성능과 문제 추적을 위해 처리할 청크 수와 텍스트 길이를 로그로 요약해줘. 단, 본문 전체를 로그에 남기지 마.
 
 DB 저장:
 - DocumentChunk.embedding에 벡터 저장
 - DocumentChunk.embedding_model에 모델명 저장
 - embedding 생성 시각 필드가 있으면 저장
 
-Mock embedding 요구사항:
-- 차원 수는 실제 모델과 달라도 되지만 VectorStoreService에서 동일하게 처리 가능해야 한다.
-- 예: 128차원 mock vector
+Local hash embedding 요구사항:
+- VectorStoreService에서 동일하게 처리 가능해야 한다.
+- 128차원 local hash vector
 - 같은 텍스트 입력 → 같은 벡터 출력
 - cosine similarity 테스트가 가능해야 함
 
 수용 기준:
 - DocumentChunk의 chunk_text로 임베딩을 생성할 수 있어야 한다.
-- USE_MOCK_EMBEDDING=true일 때 외부 API 없이 임베딩이 생성되어야 한다.
-- USE_MOCK_EMBEDDING=false일 때 OpenAI API를 사용할 수 있어야 한다.
+- 외부 API 없이 임베딩이 생성되어야 한다.
 - 임베딩 결과가 DocumentChunk에 저장되어야 한다.
 - process API에서 청크 저장 후 임베딩 생성까지 연결되어야 한다.
 - 임베딩 실패 시 material 상태가 failed가 되어야 한다.
 
 작업 후 출력:
 - 임베딩 서비스 구조
-- 사용 환경변수
-- 실제 OpenAI embedding 사용 방식
-- mock embedding 방식
+- local hash embedding 사용 방식
 - DB 저장 방식
 - 테스트 방법
 ```
@@ -716,7 +701,7 @@ Frontend 동작:
 목표:
 - 문서가 제대로 청크화되고 검색되는지 개발자가 쉽게 확인할 수 있게 한다.
 - 4단계 챗봇 구현 전에 검색 품질을 검증한다.
-- mock embedding과 실제 embedding 환경 모두에서 동작해야 한다.
+- local hash embedding 환경에서 동작해야 한다.
 
 구현할 기능:
 
@@ -781,7 +766,7 @@ Frontend 동작:
 수용 기준:
 - 개발자가 특정 과목에서 질문을 입력하고 검색 결과를 확인할 수 있어야 한다.
 - 검색 결과에 score와 출처 정보가 표시되어야 한다.
-- mock embedding 환경에서도 검색 테스트가 가능해야 한다.
+- local hash embedding 환경에서도 검색 테스트가 가능해야 한다.
 - 검색 결과가 course_id로 제한되는지 확인할 수 있어야 한다.
 - 4단계 챗봇 구현 전에 RAG 검색이 정상 동작하는지 검증 가능해야 한다.
 
@@ -789,7 +774,7 @@ Frontend 동작:
 - 구현한 디버그 UI 또는 스크립트
 - 검색 결과 표시 항목
 - 테스트 샘플 자료 위치
-- mock embedding 테스트 방법
+- local hash embedding 테스트 방법
 - 실제 embedding 테스트 방법
 ```
 
@@ -862,10 +847,7 @@ README 업데이트 내용:
    - 검색 API
    - 자료 처리 상태 UI
 
-2. 환경변수 추가
-   - OPENAI_API_KEY
-   - EMBEDDING_MODEL
-   - USE_MOCK_EMBEDDING
+2. local hash embedding 설정 확인
    - VECTOR_SEARCH_MODE
    - RAG_TOP_K
    - RAG_SCORE_THRESHOLD
@@ -886,8 +868,7 @@ README 업데이트 내용:
    - POST /rag/search
 
 6. 테스트 방법 추가
-   - mock embedding으로 테스트
-   - 실제 OpenAI API로 테스트
+   - local hash embedding으로 테스트
    - 권한 테스트
    - 검색 품질 테스트
 
@@ -938,19 +919,18 @@ docs/TECH_SPEC.md 업데이트:
 5. 추출된 텍스트가 DocumentChunk로 분할되어 저장된다.
 6. 각 DocumentChunk에 course_id, material_id, chunk_index, page_number가 저장된다.
 7. 각 DocumentChunk에 임베딩이 생성되어 저장된다.
-8. mock embedding 모드로 외부 API 없이 테스트할 수 있다.
-9. OpenAI Embedding API를 사용할 수 있는 구조가 있다.
-10. VectorStoreService를 통해 유사 청크 검색이 가능하다.
-11. 검색은 반드시 course_id 기준으로 제한된다.
-12. POST /rag/search API가 동작한다.
-13. GET /courses/{course_id}/rag/status API가 동작한다.
-14. 교수자 화면에서 자료 처리 상태를 확인할 수 있다.
-15. failed 자료를 재처리할 수 있다.
-16. 처리 실패 사유가 processing_error에 저장된다.
-17. 권한 없는 사용자는 자료 처리/검색을 수행할 수 없다.
-18. README에 3단계 실행 및 테스트 방법이 정리되어 있다.
-19. docs/TECH_SPEC.md가 실제 구현 상태와 맞게 업데이트되어 있다.
-20. 4단계에서 챗봇 답변 생성 API가 바로 검색 API를 사용할 수 있다.
+8. local hash embedding으로 외부 API 없이 테스트할 수 있다.
+9. VectorStoreService를 통해 유사 청크 검색이 가능하다.
+10. 검색은 반드시 course_id 기준으로 제한된다.
+11. POST /rag/search API가 동작한다.
+12. GET /courses/{course_id}/rag/status API가 동작한다.
+13. 교수자 화면에서 자료 처리 상태를 확인할 수 있다.
+14. failed 자료를 재처리할 수 있다.
+15. 처리 실패 사유가 processing_error에 저장된다.
+16. 권한 없는 사용자는 자료 처리/검색을 수행할 수 없다.
+17. README에 3단계 실행 및 테스트 방법이 정리되어 있다.
+18. docs/TECH_SPEC.md가 실제 구현 상태와 맞게 업데이트되어 있다.
+19. 4단계에서 챗봇 답변 생성 API가 바로 검색 API를 사용할 수 있다.
 ```
 
 ---
@@ -960,8 +940,8 @@ docs/TECH_SPEC.md 업데이트:
 ```text id="step3-warnings"
 1. RAG 검색은 반드시 과목 단위로 제한해야 한다.
 2. 다른 과목의 DocumentChunk가 검색 결과에 섞이면 심각한 권한 문제다.
-3. 임베딩 API Key가 없어도 개발 가능하도록 mock embedding을 지원해야 한다.
-4. mock embedding은 랜덤이 아니라 deterministic해야 한다.
+3. 임베딩 API Key 없이 local hash embedding으로 개발 가능해야 한다.
+4. local hash embedding은 deterministic해야 한다.
 5. 문서 처리 실패 시 processing_status가 processing에 멈추면 안 된다.
 6. reprocess 시 기존 청크가 중복 저장되면 안 된다.
 7. 긴 문서 본문을 서버 로그에 그대로 남기면 안 된다.

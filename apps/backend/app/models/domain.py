@@ -12,8 +12,13 @@ from sqlalchemy import (
     CheckConstraint,
     DateTime,
     ForeignKey,
+<<<<<<< HEAD
     Integer,
+=======
+    JSON,
+>>>>>>> refs/remotes/origin/main
     String,
+    SmallInteger,
     Text,
     UniqueConstraint,
     func,
@@ -108,6 +113,14 @@ class User(Base):
         back_populates="uploader",
         foreign_keys="CourseMaterial.uploaded_by",
     )
+    chat_sessions: Mapped[list[ChatSession]] = relationship(
+        back_populates="user",
+        passive_deletes=True,
+    )
+    chat_logs: Mapped[list[ChatLog]] = relationship(
+        back_populates="user",
+        passive_deletes=True,
+    )
 
 
 class Course(Base):
@@ -146,6 +159,18 @@ class Course(Base):
         passive_deletes=True,
     )
     materials: Mapped[list[CourseMaterial]] = relationship(
+        back_populates="course",
+        passive_deletes=True,
+    )
+    document_chunks: Mapped[list[DocumentChunk]] = relationship(
+        back_populates="course",
+        passive_deletes=True,
+    )
+    chat_sessions: Mapped[list[ChatSession]] = relationship(
+        back_populates="course",
+        passive_deletes=True,
+    )
+    chat_logs: Mapped[list[ChatLog]] = relationship(
         back_populates="course",
         passive_deletes=True,
     )
@@ -191,6 +216,10 @@ class CourseMaterial(Base):
             "file_size >= 0",
             name="ck_course_materials_file_size_non_negative",
         ),
+        CheckConstraint(
+            "week >= 1 AND week <= 16",
+            name="ck_course_materials_week_range",
+        ),
     )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
@@ -208,6 +237,12 @@ class CourseMaterial(Base):
     original_file_name: Mapped[str] = mapped_column(String(255), nullable=False)
     file_type: Mapped[str] = mapped_column(String(40), nullable=False)
     file_size: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    week: Mapped[int] = mapped_column(
+        SmallInteger,
+        default=1,
+        server_default="1",
+        nullable=False,
+    )
     storage_path: Mapped[str] = mapped_column(Text, nullable=False)
     processing_status: Mapped[CourseMaterialStatus] = mapped_column(
         SQLEnum(
@@ -239,23 +274,39 @@ class CourseMaterial(Base):
         back_populates="uploaded_materials",
         foreign_keys=[uploaded_by],
     )
+<<<<<<< HEAD
     chunks: Mapped[list[DocumentChunk]] = relationship(
+=======
+    document_chunks: Mapped[list[DocumentChunk]] = relationship(
+>>>>>>> refs/remotes/origin/main
         back_populates="material",
         passive_deletes=True,
     )
 
 
 class DocumentChunk(Base):
+<<<<<<< HEAD
     """A retrievable slice of a processed course material."""
 
+=======
+>>>>>>> refs/remotes/origin/main
     __tablename__ = "document_chunks"
     __table_args__ = (
         UniqueConstraint(
             "material_id",
             "chunk_index",
+<<<<<<< HEAD
             name="uq_document_chunks_material_chunk_index",
         ),
         CheckConstraint("char_count >= 0", name="ck_document_chunks_char_count_non_negative"),
+=======
+            name="uq_document_chunks_material_index",
+        ),
+        CheckConstraint(
+            "char_count >= 0",
+            name="ck_document_chunks_char_count_non_negative",
+        ),
+>>>>>>> refs/remotes/origin/main
     )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
@@ -269,6 +320,7 @@ class DocumentChunk(Base):
         index=True,
         nullable=False,
     )
+<<<<<<< HEAD
     chunk_index: Mapped[int] = mapped_column(Integer, nullable=False)
     chunk_text: Mapped[str] = mapped_column(Text, nullable=False)
     page_number: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
@@ -280,6 +332,18 @@ class DocumentChunk(Base):
         DateTime(timezone=True),
         nullable=True,
     )
+=======
+    chunk_index: Mapped[int] = mapped_column(nullable=False)
+    chunk_text: Mapped[str] = mapped_column(Text, nullable=False)
+    page_number: Mapped[Optional[int]] = mapped_column(nullable=True)
+    section_title: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    char_count: Mapped[int] = mapped_column(nullable=False)
+    embedding: Mapped[Optional[list[float]]] = mapped_column(
+        JSON(none_as_null=True),
+        nullable=True,
+    )
+    embedding_model: Mapped[Optional[str]] = mapped_column(String(120), nullable=True)
+>>>>>>> refs/remotes/origin/main
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),
@@ -292,12 +356,20 @@ class DocumentChunk(Base):
         nullable=False,
     )
 
+<<<<<<< HEAD
     material: Mapped[CourseMaterial] = relationship(back_populates="chunks")
 
 
 class ChatSession(Base):
     """A course-scoped conversation owned by a single user."""
 
+=======
+    course: Mapped[Course] = relationship(back_populates="document_chunks")
+    material: Mapped[CourseMaterial] = relationship(back_populates="document_chunks")
+
+
+class ChatSession(Base):
+>>>>>>> refs/remotes/origin/main
     __tablename__ = "chat_sessions"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
@@ -324,19 +396,37 @@ class ChatSession(Base):
         nullable=False,
     )
 
+<<<<<<< HEAD
     user: Mapped[User] = relationship()
     course: Mapped[Course] = relationship()
     logs: Mapped[list[ChatLog]] = relationship(
         back_populates="session",
         passive_deletes=True,
+=======
+    user: Mapped[User] = relationship(back_populates="chat_sessions")
+    course: Mapped[Course] = relationship(back_populates="chat_sessions")
+    logs: Mapped[list[ChatLog]] = relationship(
+        back_populates="session",
+        cascade="all, delete-orphan",
+>>>>>>> refs/remotes/origin/main
         order_by="ChatLog.created_at",
     )
 
 
 class ChatLog(Base):
+<<<<<<< HEAD
     """One question/answer exchange kept for history, log review and statistics."""
 
     __tablename__ = "chat_logs"
+=======
+    __tablename__ = "chat_logs"
+    __table_args__ = (
+        CheckConstraint(
+            "response_time_ms >= 0",
+            name="ck_chat_logs_response_time_non_negative",
+        ),
+    )
+>>>>>>> refs/remotes/origin/main
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
     session_id: Mapped[str] = mapped_column(
@@ -356,11 +446,16 @@ class ChatLog(Base):
     )
     question: Mapped[str] = mapped_column(Text, nullable=False)
     answer: Mapped[str] = mapped_column(Text, nullable=False)
+<<<<<<< HEAD
     referenced_documents: Mapped[list[dict]] = mapped_column(
+=======
+    referenced_documents: Mapped[list[dict[str, object]]] = mapped_column(
+>>>>>>> refs/remotes/origin/main
         JSON,
         default=list,
         nullable=False,
     )
+<<<<<<< HEAD
     model_name: Mapped[Optional[str]] = mapped_column(String(120), nullable=True)
     response_time_ms: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     is_grounded: Mapped[bool] = mapped_column(
@@ -387,9 +482,32 @@ class ChatLog(Base):
         DateTime(timezone=True),
         server_default=func.now(),
         index=True,
+=======
+    model_name: Mapped[str] = mapped_column(String(120), nullable=False)
+    response_time_ms: Mapped[int] = mapped_column(nullable=False)
+    is_grounded: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    safety_result: Mapped[dict[str, object]] = mapped_column(
+        JSON,
+        default=dict,
+        nullable=False,
+    )
+    retrieval_result: Mapped[dict[str, object]] = mapped_column(
+        JSON,
+        default=dict,
+        nullable=False,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+>>>>>>> refs/remotes/origin/main
         nullable=False,
     )
 
     session: Mapped[ChatSession] = relationship(back_populates="logs")
+<<<<<<< HEAD
     user: Mapped[User] = relationship()
     course: Mapped[Course] = relationship()
+=======
+    user: Mapped[User] = relationship(back_populates="chat_logs")
+    course: Mapped[Course] = relationship(back_populates="chat_logs")
+>>>>>>> refs/remotes/origin/main
