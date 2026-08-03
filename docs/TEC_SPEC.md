@@ -387,16 +387,26 @@ UNIQUE(course_id, user_id)
 | chunk_text    | TEXT                  | 청크 내용                 |
 | page_number   | INT NULL              | 페이지 또는 슬라이드 번호 |
 | section_title | VARCHAR NULL          | 섹션명                    |
-| embedding     | VECTOR                | 임베딩 벡터               |
+| char_count    | INT                   | 청크 글자 수              |
+| embedding     | JSON NULL             | 임베딩 벡터               |
+| embedding_model | VARCHAR NULL        | 임베딩 모델명             |
+| embedded_at   | TIMESTAMP NULL        | 임베딩 생성 시각          |
 | created_at    | TIMESTAMP             | 생성 시각                 |
+| updated_at    | TIMESTAMP             | 수정 시각                 |
 
 인덱스:
 
 ```text id="vjfys3"
 INDEX(course_id)
 INDEX(material_id)
-VECTOR INDEX(embedding)
+UNIQUE(material_id, chunk_index)
 ```
+
+**구현 현황 (2026-08 기준)**
+
+- `embedding`은 pgvector `VECTOR`가 아니라 이식 가능한 `JSON` 컬럼으로 구현했다. 검색은 `VECTOR_SEARCH_MODE=local`에서 애플리케이션 레벨 코사인 유사도로 수행한다. 개발 규모용 구현이며, pgvector 전환 시 `VectorStoreService`만 교체하면 된다.
+- 따라서 벡터 인덱스는 아직 생성하지 않는다.
+- `UNIQUE(material_id, chunk_index)`로 재처리 시 중복 저장을 막는다.
 
 ---
 
@@ -427,12 +437,21 @@ VECTOR INDEX(embedding)
 | course_id            | FK(Course.id)      | 과목 ID            |
 | question             | TEXT               | 사용자 질문        |
 | answer               | TEXT               | AI 답변            |
-| referenced_documents | JSONB              | 참조 문서 목록     |
-| model_name           | VARCHAR            | 사용 모델          |
-| retrieval_score      | JSONB NULL         | 검색 점수 정보     |
-| response_time_ms     | INT                | 응답 시간          |
-| safety_result        | JSONB NULL         | SAFE 가드레일 결과 |
+| referenced_documents | JSON               | 참조 문서 목록     |
+| model_name           | VARCHAR NULL       | 사용 모델          |
+| retrieval_result     | JSON               | 검색 요약 정보     |
+| response_time_ms     | INT NULL           | 응답 시간          |
+| is_grounded          | BOOLEAN            | 강의자료 근거 여부 |
+| answer_source_type   | ENUM               | rag / general_llm / safety_response / no_material |
+| safety_result        | JSON               | SAFE 가드레일 결과 |
 | created_at           | TIMESTAMP          | 생성 시각          |
+
+**구현 현황 (2026-08 기준)**
+
+- 명세의 `retrieval_score`는 `retrieval_result`로 구현했고 `top_k`, `result_count`, `max_score`, `score_threshold`, `search_mode`, `embedding_model`, `total_candidate_chunks`, `reason`을 담는다.
+- 답변 근거 구분을 위해 `is_grounded`와 `answer_source_type`을 추가했다.
+- SQLite 테스트 호환을 위해 `JSONB` 대신 이식 가능한 `JSON` 타입을 사용한다.
+- LLM 호출이 실패한 요청은 로그로 저장하지 않는다. 저장되는 로그는 사용자에게 실제로 반환된 답변(안전 응답 포함)만이다.
 
 ---
 
@@ -731,6 +750,26 @@ Response:
 }
 ```
 
+**구현 현황 (2026-08 기준)**
+
+- 실제 엔드포인트는 `POST /api/rag/search`이며, 요청/응답 필드는 camelCase(`courseId`, `topK`, `documentName`, `pageNumber`, `chunkIndex`)로 직렬화된다.
+- 응답에는 `courseId`, `question`, `topK`가 함께 포함되고, 각 결과에 `chunkIndex`가 추가된다.
+- 요청에 `debug: true`를 넣으면 `embeddingModel`, `searchMode`, `scoreThreshold`, `totalCandidateChunks`가 담긴 `debug` 객체가 반환된다.
+- `topK`는 `RAG_TOP_K`가 기본값이고 `RAG_MAX_TOP_K`로 상한이 걸린다. 검색은 항상 `course_id`로 먼저 제한된다.
+
+### 자료 처리 API (구현 추가분)
+
+명세에 없었지만 3단계 파이프라인 실행을 위해 다음 엔드포인트를 추가했다.
+
+```text
+POST /api/courses/{course_id}/materials/{material_id}/process
+POST /api/courses/{course_id}/materials/{material_id}/reprocess
+GET  /api/courses/{course_id}/materials/{material_id}/processing-status
+GET  /api/courses/{course_id}/rag/status
+```
+
+권한은 과목 관리 권한(교수자는 담당 과목, 관리자는 전체)을 따르며, `rag/status`만 과목 접근 권한으로 충분하다. 이미 처리 중인 자료에 process를 다시 호출하면 409를 반환한다.
+
 ---
 
 ## 8.6 챗봇 API
@@ -788,6 +827,15 @@ Response:
 }
 ```
 
+**구현 현황 (2026-08 기준)**
+
+- 실제 엔드포인트는 `POST /api/chat`이고, 필드는 camelCase로 직렬화된다.
+- 응답에는 위 필드에 더해 `logId`, `answerSourceType`, `modelName`, `responseTimeMs`, `retrievalSummary`, `safety`, 각 출처의 `score`가 포함된다.
+- `answerSourceType`으로 `rag` / `general_llm` / `safety_response` / `no_material`을 구분한다.
+- 출처는 LLM 출력이 아니라 서버가 검색 결과에서 만들고, `(material_id, page_number, chunk_index)` 기준으로 중복을 제거한다.
+- 근거가 부족하면 `sources`는 빈 배열이고 답변 앞에 자료 부족 안내가 붙는다.
+- 오류 코드: 인증 없음 401, 과목 권한 없음 403, 세션 없음 404, 질문 검증 실패 422, 검색·생성 실패 503(`RAG_SEARCH_FAILED` / `LLM_GENERATION_FAILED`).
+
 ---
 
 ## 8.7 로그 API
@@ -801,6 +849,22 @@ Response:
 ```text id="3zj9x9"
 student
 ```
+
+**구현 현황 (2026-08 기준)**
+
+세션 단위 조회로 구현했다.
+
+```text
+GET    /api/student/chat-sessions           # 본인 세션 목록
+GET    /api/student/chat-sessions/{id}      # 세션 상세와 질문/답변 로그
+GET    /api/chat/sessions                   # 역할 무관, 본인 세션 목록
+POST   /api/chat/sessions                   # 세션 생성
+GET    /api/chat/sessions/{id}              # 세션 상세
+PATCH  /api/chat/sessions/{id}              # 세션 제목 수정
+DELETE /api/chat/sessions/{id}              # 세션 삭제
+```
+
+세션 제목은 첫 질문의 앞 40자로 자동 생성된다. 세션 상세 진입 시 소유자 확인과 과목 접근 권한을 다시 검사하므로, 수강이 취소되면 이전 대화도 열 수 없다.
 
 ---
 
@@ -826,6 +890,21 @@ admin: 전체 과목
 ```text id="tk4782"
 admin
 ```
+
+**구현 현황 (2026-08 기준)**
+
+```text
+GET /api/professor/courses/{course_id}/chat-logs
+GET /api/professor/chat-logs/{log_id}
+GET /api/admin/chat-logs
+GET /api/admin/chat-logs/{log_id}
+```
+
+- 지원 필터: `keyword`(질문·답변 본문), `from`, `to`, `is_grounded`, `safety_category`, `limit`, `offset`. 관리자 목록은 `course_id`, `user_id`도 지원한다.
+- 응답은 `{ "logs": [...], "total": n }` 형태이며, 목록에는 답변 전문 대신 120자 미리보기(`answerPreview`)만 담는다.
+- 개인정보 최소화: 교수자 화면에는 학생 이메일을 마스킹한 `userLabel`만 주고 `userId`는 `null`이다. 관리자에게만 이름·이메일과 `userId`를 노출한다.
+- 교수자는 담당 과목이 아닌 로그를 목록·상세 어느 쪽으로도 조회할 수 없다(403).
+- CSV 내보내기는 5단계로 남긴다.
 
 ---
 
@@ -912,6 +991,14 @@ MVP 우선순위:
 | PPTX | P1        | 슬라이드 텍스트 추출 |
 | HWP  | P2        | 별도 파서 검토 필요  |
 
+**구현 현황 (2026-08 기준)**
+
+- TXT는 기본 의존성만으로 동작한다(UTF-8 → UTF-8 BOM → CP949 순으로 디코딩 시도).
+- PDF는 `pypdf`로 페이지별 추출하며 백엔드 기본 의존성에 포함된다.
+- DOCX/PPTX는 `python-docx`, `python-pptx`를 지연 임포트한다. 선택 의존성(`apps/backend[parsers]`)이며, 미설치 상태로 처리하면 `DOCUMENT_PARSER_UNAVAILABLE` 사유와 함께 `failed` 처리된다.
+- HWP는 업로드 허용 확장자에 없으므로 업로드 단계에서 422로 거절된다.
+- 텍스트가 전혀 추출되지 않으면 `DOCUMENT_TEXT_NOT_FOUND`로 실패 처리한다. OCR은 지원하지 않는다.
+
 ---
 
 ## 9.3 청크 분할 정책
@@ -924,6 +1011,10 @@ MVP 기본값:
 | chunk_overlap | 100 ~ 200 tokens                                 |
 | 기준          | 문단 우선, 불가능하면 토큰 기준                  |
 | 메타데이터    | course_id, material_id, page_number, chunk_index |
+
+**구현 현황 (2026-08 기준)**
+
+토큰 대신 문자 수 기준으로 구현했다(`CHUNK_SIZE=1000`, `CHUNK_OVERLAP=150`). 문단을 우선 묶고, 한 문단이 `chunk_size`를 넘으면 겹침을 둔 문자 윈도로 자른다. `MIN_CHUNK_CHARS`(기본 40자)보다 짧은 청크는 같은 페이지의 앞 청크에 합친다. 재처리 시에는 해당 자료의 기존 청크를 먼저 삭제하므로 중복이 생기지 않는다.
 
 청크 예시:
 
@@ -963,6 +1054,12 @@ DocumentChunk.embedding
 USE_MOCK_EMBEDDING=true
 OPENAI_API_KEY=...
 ```
+
+**구현 현황 (2026-08 기준)**
+
+- 기본값은 `USE_MOCK_EMBEDDING=true`라서 키 없이 전체 흐름을 실행할 수 있다. 키 없이 `false`로 두면 명확한 오류를 반환한다.
+- mock 제공자는 같은 텍스트에 항상 같은 벡터를 만든다. 공백 토큰만 쓰면 한국어의 조사 변화("경사하강법은" vs "경사하강법이")를 잡지 못하므로, 단어 토큰과 문자 2/3-gram을 함께 해싱한다. 기본 차원은 512다.
+- mock 벡터의 유사도 값은 실제 모델보다 낮게 나오므로 `RAG_SCORE_THRESHOLD` 기본값을 0.1로 두었다. 실제 임베딩 모델로 바꿀 때는 0.3 수준으로 올리는 것을 권장한다.
 
 ---
 
@@ -1057,6 +1154,15 @@ MVP에서는 초기 SAFE Framework를 적용한다.
 | 개인정보 요청            | 거절                       |
 | 시스템 프롬프트 탈취     | 거절                       |
 | 위험하거나 부적절한 요청 | 거절 또는 안전한 방향 전환 |
+
+**구현 현황 (2026-08 기준)**
+
+`SafetyGuardService`가 답변 생성 전에 질문을 분류하고, 결과를 `ChatLog.safety_result`에 저장한다. 분류 값은 `normal`, `assignment_direct_answer`, `exam_direct_answer`, `privacy_request`, `prompt_injection`, `unsafe_content`이다.
+
+- 과제·시험 정답 요청은 차단이 아니라 `redirect_type=hint`로 표시하고, 힌트 중심 프롬프트로 답변을 생성한다(검색은 그대로 수행).
+- 개인정보·프롬프트 탈취·위험 요청은 LLM 호출 없이 안전 응답을 반환하고 `answer_source_type=safety_response`로 저장한다.
+- 규칙 기반(정규식) 구현이며 한국어/영어 표현을 함께 다룬다. 개념 설명, 힌트 요청, 오류 원인 분석 같은 정상 질문은 허용 목록으로 보호한다.
+- LLM 기반 moderation으로 교체할 수 있도록 서비스 경계로 분리했다.
 
 ---
 

@@ -9,15 +9,18 @@ import {
   waitFor
 } from "@testing-library/react";
 import "@testing-library/jest-dom/vitest";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "../../lib/api";
 import type { CourseMaterial } from "../../lib/api";
 import { ProfessorMaterialsClient } from "./professor-materials-client";
 
 const apiMocks = vi.hoisted(() => ({
   deleteCourseMaterial: vi.fn(),
+  getCourseRagStatus: vi.fn(),
   listCourseMaterials: vi.fn(),
   listCourses: vi.fn(),
+  processCourseMaterial: vi.fn(),
+  reprocessCourseMaterial: vi.fn(),
   uploadCourseMaterial: vi.fn()
 }));
 
@@ -26,11 +29,25 @@ vi.mock("../../lib/api", async () => {
   return {
     ...actual,
     deleteCourseMaterial: apiMocks.deleteCourseMaterial,
+    getCourseRagStatus: apiMocks.getCourseRagStatus,
     listCourseMaterials: apiMocks.listCourseMaterials,
     listCourses: apiMocks.listCourses,
+    processCourseMaterial: apiMocks.processCourseMaterial,
+    reprocessCourseMaterial: apiMocks.reprocessCourseMaterial,
     uploadCourseMaterial: apiMocks.uploadCourseMaterial
   };
 });
+
+const ragStatus = {
+  courseId: "course-1",
+  materialCount: 1,
+  completedMaterialCount: 1,
+  failedMaterialCount: 0,
+  pendingMaterialCount: 0,
+  chunkCount: 12,
+  embeddedChunkCount: 12,
+  isSearchReady: true
+};
 
 const course = {
   id: "course-1",
@@ -63,6 +80,10 @@ const material: CourseMaterial = {
   createdAt: "2026-07-20T00:00:00Z",
   updatedAt: "2026-07-20T00:00:00Z"
 };
+
+beforeEach(() => {
+  apiMocks.getCourseRagStatus.mockResolvedValue(ragStatus);
+});
 
 afterEach(() => {
   cleanup();

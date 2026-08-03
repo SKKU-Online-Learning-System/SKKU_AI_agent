@@ -5,7 +5,7 @@ from alembic.config import Config
 from sqlalchemy import create_engine, inspect
 
 
-def test_alembic_upgrade_and_downgrade_stage_two_schema(tmp_path: Path) -> None:
+def test_alembic_upgrade_and_downgrade_full_schema(tmp_path: Path) -> None:
     backend_root = Path(__file__).resolve().parents[1]
     database_path = tmp_path / "migration.sqlite"
     database_url = f"sqlite:///{database_path.as_posix()}"
@@ -21,7 +21,20 @@ def test_alembic_upgrade_and_downgrade_stage_two_schema(tmp_path: Path) -> None:
         "courses",
         "course_access",
         "course_materials",
+        "document_chunks",
+        "chat_sessions",
+        "chat_logs",
     }
+    chunk_columns = {column["name"] for column in inspector.get_columns("document_chunks")}
+    assert {"course_id", "material_id", "chunk_index", "embedding", "page_number"} <= chunk_columns
+    log_columns = {column["name"] for column in inspector.get_columns("chat_logs")}
+    assert {
+        "referenced_documents",
+        "safety_result",
+        "retrieval_result",
+        "is_grounded",
+        "answer_source_type",
+    } <= log_columns
     material_columns = {
         column["name"]: column for column in inspector.get_columns("course_materials")
     }

@@ -79,6 +79,151 @@ export type CourseMaterial = {
   updatedAt: string;
 };
 
+export type MaterialProcessingStatus = {
+  materialId: string;
+  processingStatus: CourseMaterial["processingStatus"];
+  processingError?: string | null;
+  chunkCount: number;
+  embeddingModel?: string | null;
+  updatedAt: string;
+};
+
+export type CourseRagStatus = {
+  courseId: string;
+  materialCount: number;
+  completedMaterialCount: number;
+  failedMaterialCount: number;
+  pendingMaterialCount: number;
+  chunkCount: number;
+  embeddedChunkCount: number;
+  isSearchReady: boolean;
+};
+
+export type AnswerSourceType =
+  | "rag"
+  | "general_llm"
+  | "safety_response"
+  | "no_material";
+
+export type SafetyCategory =
+  | "normal"
+  | "assignment_direct_answer"
+  | "exam_direct_answer"
+  | "privacy_request"
+  | "prompt_injection"
+  | "unsafe_content";
+
+export type AnswerSource = {
+  materialId: string;
+  documentName: string;
+  pageNumber?: number | null;
+  chunkIndex: number;
+  score: number;
+};
+
+export type ChatAnswer = {
+  sessionId: string;
+  logId: string;
+  answer: string;
+  sources: AnswerSource[];
+  isGrounded: boolean;
+  answerSourceType: AnswerSourceType;
+  modelName?: string | null;
+  responseTimeMs?: number | null;
+  retrievalSummary: {
+    resultCount: number;
+    maxScore?: number | null;
+    scoreThreshold: number;
+    reason?: string | null;
+  };
+  safety: {
+    blocked: boolean;
+    category: SafetyCategory;
+    reason?: string | null;
+    redirectType?: string | null;
+  };
+};
+
+export type ChatAskPayload = {
+  courseId: string;
+  question: string;
+  chatSessionId?: string | null;
+  topK?: number;
+};
+
+export type ChatSessionSummary = {
+  id: string;
+  courseId: string;
+  courseName: string;
+  title?: string | null;
+  messageCount: number;
+  lastMessageAt?: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type ChatHistoryLog = {
+  id: string;
+  question: string;
+  answer: string;
+  sources: AnswerSource[];
+  isGrounded: boolean;
+  answerSourceType: AnswerSourceType;
+  createdAt: string;
+};
+
+export type ChatSessionDetail = {
+  session: ChatSessionSummary;
+  logs: ChatHistoryLog[];
+};
+
+export type ChatLogListItem = {
+  id: string;
+  courseId: string;
+  courseName: string;
+  userLabel: string;
+  userId?: string | null;
+  question: string;
+  answerPreview: string;
+  isGrounded: boolean;
+  answerSourceType: AnswerSourceType;
+  safetyCategory: SafetyCategory;
+  createdAt: string;
+};
+
+export type ChatLogDetail = {
+  id: string;
+  courseId: string;
+  courseName: string;
+  userLabel: string;
+  userId?: string | null;
+  question: string;
+  answer: string;
+  referencedDocuments: AnswerSource[];
+  retrievalResult: Record<string, unknown>;
+  safetyResult: Record<string, unknown>;
+  isGrounded: boolean;
+  answerSourceType: AnswerSourceType;
+  modelName?: string | null;
+  responseTimeMs?: number | null;
+  createdAt: string;
+};
+
+export type ChatLogListResponse = {
+  logs: ChatLogListItem[];
+  total: number;
+};
+
+export type ChatLogFilters = {
+  courseId?: string;
+  keyword?: string;
+  isGrounded?: boolean | null;
+  safetyCategory?: string;
+  from?: string;
+  to?: string;
+  limit?: number;
+};
+
 export class ApiError extends Error {
   status: number;
 
@@ -189,6 +334,95 @@ export function deleteCourseMaterial(courseId: string, materialId: string): Prom
   return apiRequest<void>(`/api/courses/${courseId}/materials/${materialId}`, {
     method: "DELETE"
   });
+}
+
+export function processCourseMaterial(
+  courseId: string,
+  materialId: string
+): Promise<MaterialProcessingStatus> {
+  return apiRequest<MaterialProcessingStatus>(
+    `/api/courses/${courseId}/materials/${materialId}/process`,
+    { method: "POST" }
+  );
+}
+
+export function reprocessCourseMaterial(
+  courseId: string,
+  materialId: string
+): Promise<MaterialProcessingStatus> {
+  return apiRequest<MaterialProcessingStatus>(
+    `/api/courses/${courseId}/materials/${materialId}/reprocess`,
+    { method: "POST" }
+  );
+}
+
+export function getMaterialProcessingStatus(
+  courseId: string,
+  materialId: string
+): Promise<MaterialProcessingStatus> {
+  return apiRequest<MaterialProcessingStatus>(
+    `/api/courses/${courseId}/materials/${materialId}/processing-status`
+  );
+}
+
+export function getCourseRagStatus(courseId: string): Promise<CourseRagStatus> {
+  return apiRequest<CourseRagStatus>(`/api/courses/${courseId}/rag/status`);
+}
+
+export function askCourseAgent(payload: ChatAskPayload): Promise<ChatAnswer> {
+  return apiRequest<ChatAnswer>("/api/chat", {
+    body: JSON.stringify(payload),
+    method: "POST"
+  });
+}
+
+export function listChatSessions(courseId?: string): Promise<ChatSessionSummary[]> {
+  const query = courseId ? `?course_id=${encodeURIComponent(courseId)}` : "";
+  return apiRequest<ChatSessionSummary[]>(`/api/chat/sessions${query}`);
+}
+
+export function getChatSession(sessionId: string): Promise<ChatSessionDetail> {
+  return apiRequest<ChatSessionDetail>(`/api/chat/sessions/${sessionId}`);
+}
+
+function chatLogQuery(filters: ChatLogFilters = {}): string {
+  const params = new URLSearchParams();
+  if (filters.courseId) params.set("course_id", filters.courseId);
+  if (filters.keyword) params.set("keyword", filters.keyword);
+  if (filters.isGrounded !== undefined && filters.isGrounded !== null) {
+    params.set("is_grounded", String(filters.isGrounded));
+  }
+  if (filters.safetyCategory) params.set("safety_category", filters.safetyCategory);
+  if (filters.from) params.set("from", filters.from);
+  if (filters.to) params.set("to", filters.to);
+  if (filters.limit) params.set("limit", String(filters.limit));
+
+  const query = params.toString();
+  return query ? `?${query}` : "";
+}
+
+export function listCourseChatLogs(
+  courseId: string,
+  filters: ChatLogFilters = {}
+): Promise<ChatLogListResponse> {
+  const { courseId: _ignored, ...rest } = filters;
+  return apiRequest<ChatLogListResponse>(
+    `/api/professor/courses/${courseId}/chat-logs${chatLogQuery(rest)}`
+  );
+}
+
+export function listAdminChatLogs(
+  filters: ChatLogFilters = {}
+): Promise<ChatLogListResponse> {
+  return apiRequest<ChatLogListResponse>(`/api/admin/chat-logs${chatLogQuery(filters)}`);
+}
+
+export function getCourseChatLog(logId: string): Promise<ChatLogDetail> {
+  return apiRequest<ChatLogDetail>(`/api/professor/chat-logs/${logId}`);
+}
+
+export function getAdminChatLog(logId: string): Promise<ChatLogDetail> {
+  return apiRequest<ChatLogDetail>(`/api/admin/chat-logs/${logId}`);
 }
 
 function adminCourseQuery(filters: AdminCourseFilters = {}): string {

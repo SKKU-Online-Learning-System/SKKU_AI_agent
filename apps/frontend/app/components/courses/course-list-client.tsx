@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useState } from "react";
 import { ApiError, listCourses } from "../../lib/api";
 import type { CourseSummary } from "../../lib/api";
@@ -18,6 +19,8 @@ export function CourseListClient({ audience }: CourseListClientProps) {
   const [courses, setCourses] = useState<CourseSummary[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const isStudent = audience === "student";
+  const columnCount = isStudent ? 6 : 5;
   const title = audience === "professor" ? "담당 과목" : "내 과목";
   const description =
     audience === "professor"
@@ -82,16 +85,17 @@ export function CourseListClient({ audience }: CourseListClientProps) {
                 <th scope="col">담당 교수</th>
                 <th scope="col">학기</th>
                 <th scope="col">에이전트 상태</th>
+                {isStudent ? <th scope="col">챗봇</th> : null}
               </tr>
             </thead>
             <tbody>
               {isLoading ? (
                 <tr>
-                  <td colSpan={5}>과목 목록을 불러오고 있습니다.</td>
+                  <td colSpan={columnCount}>과목 목록을 불러오고 있습니다.</td>
                 </tr>
               ) : courses.length === 0 ? (
                 <tr>
-                  <td className="empty-state" colSpan={5}>
+                  <td className="empty-state" colSpan={columnCount}>
                     {emptyMessage}
                   </td>
                 </tr>
@@ -112,6 +116,11 @@ export function CourseListClient({ audience }: CourseListClientProps) {
                         {agentStatusLabels[course.agentStatus]}
                       </span>
                     </td>
+                    {isStudent ? (
+                      <td>
+                        <Link href={`/student/courses/${course.id}/chat`}>챗봇 시작</Link>
+                      </td>
+                    ) : null}
                   </tr>
                 ))
               )}

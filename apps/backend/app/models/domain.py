@@ -6,11 +6,13 @@ from typing import Optional
 from uuid import uuid4
 
 from sqlalchemy import (
+    JSON,
     BigInteger,
     Boolean,
     CheckConstraint,
     DateTime,
     ForeignKey,
+    Integer,
     String,
     Text,
     UniqueConstraint,
@@ -39,6 +41,15 @@ class CourseMaterialStatus(str, Enum):
     processing = "processing"
     completed = "completed"
     failed = "failed"
+
+
+class ChatAnswerSourceType(str, Enum):
+    """How a stored answer was produced, used by log screens and statistics."""
+
+    rag = "rag"
+    general_llm = "general_llm"
+    safety_response = "safety_response"
+    no_material = "no_material"
 
 
 class User(Base):
@@ -228,3 +239,157 @@ class CourseMaterial(Base):
         back_populates="uploaded_materials",
         foreign_keys=[uploaded_by],
     )
+    chunks: Mapped[list[DocumentChunk]] = relationship(
+        back_populates="material",
+        passive_deletes=True,
+    )
+
+
+class DocumentChunk(Base):
+    """A retrievable slice of a processed course material."""
+
+    __tablename__ = "document_chunks"
+    __table_args__ = (
+        UniqueConstraint(
+            "material_id",
+            "chunk_index",
+            name="uq_document_chunks_material_chunk_index",
+        ),
+        CheckConstraint("char_count >= 0", name="ck_document_chunks_char_count_non_negative"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    course_id: Mapped[str] = mapped_column(
+        ForeignKey("courses.id", ondelete="CASCADE"),
+        index=True,
+        nullable=False,
+    )
+    material_id: Mapped[str] = mapped_column(
+        ForeignKey("course_materials.id", ondelete="CASCADE"),
+        index=True,
+        nullable=False,
+    )
+    chunk_index: Mapped[int] = mapped_column(Integer, nullable=False)
+    chunk_text: Mapped[str] = mapped_column(Text, nullable=False)
+    page_number: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    section_title: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    char_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    embedding: Mapped[Optional[list[float]]] = mapped_column(JSON, nullable=True)
+    embedding_model: Mapped[Optional[str]] = mapped_column(String(120), nullable=True)
+    embedded_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+    material: Mapped[CourseMaterial] = relationship(back_populates="chunks")
+
+
+class ChatSession(Base):
+    """A course-scoped conversation owned by a single user."""
+
+    __tablename__ = "chat_sessions"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    user_id: Mapped[str] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"),
+        index=True,
+        nullable=False,
+    )
+    course_id: Mapped[str] = mapped_column(
+        ForeignKey("courses.id", ondelete="CASCADE"),
+        index=True,
+        nullable=False,
+    )
+    title: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+    user: Mapped[User] = relationship()
+    course: Mapped[Course] = relationship()
+    logs: Mapped[list[ChatLog]] = relationship(
+        back_populates="session",
+        passive_deletes=True,
+        order_by="ChatLog.created_at",
+    )
+
+
+class ChatLog(Base):
+    """One question/answer exchange kept for history, log review and statistics."""
+
+    __tablename__ = "chat_logs"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    session_id: Mapped[str] = mapped_column(
+        ForeignKey("chat_sessions.id", ondelete="CASCADE"),
+        index=True,
+        nullable=False,
+    )
+    user_id: Mapped[str] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"),
+        index=True,
+        nullable=False,
+    )
+    course_id: Mapped[str] = mapped_column(
+        ForeignKey("courses.id", ondelete="CASCADE"),
+        index=True,
+        nullable=False,
+    )
+    question: Mapped[str] = mapped_column(Text, nullable=False)
+    answer: Mapped[str] = mapped_column(Text, nullable=False)
+    referenced_documents: Mapped[list[dict]] = mapped_column(
+        JSON,
+        default=list,
+        nullable=False,
+    )
+    model_name: Mapped[Optional[str]] = mapped_column(String(120), nullable=True)
+    response_time_ms: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    is_grounded: Mapped[bool] = mapped_column(
+        Boolean,
+        default=False,
+        server_default="false",
+        nullable=False,
+    )
+    answer_source_type: Mapped[ChatAnswerSourceType] = mapped_column(
+        SQLEnum(
+            ChatAnswerSourceType,
+            name="chat_answer_source_type",
+            native_enum=False,
+            create_constraint=True,
+            validate_strings=True,
+        ),
+        default=ChatAnswerSourceType.rag,
+        server_default=ChatAnswerSourceType.rag.value,
+        nullable=False,
+    )
+    safety_result: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
+    retrieval_result: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        index=True,
+        nullable=False,
+    )
+
+    session: Mapped[ChatSession] = relationship(back_populates="logs")
+    user: Mapped[User] = relationship()
+    course: Mapped[Course] = relationship()

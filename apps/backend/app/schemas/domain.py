@@ -130,9 +130,10 @@ class Citation(CamelModel):
 
 
 class ChatSessionCreate(CamelModel):
-    user_id: str
     course_id: str
     title: Optional[str] = None
+    # Kept for backwards compatibility; the owner always comes from the access token.
+    user_id: Optional[str] = None
 
 
 class ChatSessionRead(CamelModel):
@@ -140,7 +141,7 @@ class ChatSessionRead(CamelModel):
     user_id: str
     course_id: str
     title: Optional[str] = None
-    status: ChatSessionStatus
+    status: ChatSessionStatus = "open"
     created_at: datetime
     updated_at: datetime
 
@@ -158,12 +159,193 @@ class ChatLogRead(CamelModel):
 
 
 class ChatRequest(CamelModel):
-    user_id: str
     course_id: str
     question: str = Field(min_length=1)
+    user_id: Optional[str] = None
 
 
 class ChatResponse(CamelModel):
     answer: str
     citations: list[Citation] = Field(default_factory=list)
     latency_ms: Optional[int] = None
+
+
+# --- Document processing and retrieval -------------------------------------
+
+
+class MaterialProcessingStatusRead(CamelModel):
+    material_id: str
+    processing_status: CourseMaterialStatus
+    processing_error: Optional[str] = None
+    chunk_count: int
+    embedding_model: Optional[str] = None
+    updated_at: datetime
+
+
+class CourseRagStatusRead(CamelModel):
+    course_id: str
+    material_count: int
+    completed_material_count: int
+    failed_material_count: int
+    pending_material_count: int
+    chunk_count: int
+    embedded_chunk_count: int
+    is_search_ready: bool
+
+
+class RagSearchRequest(CamelModel):
+    course_id: str
+    question: str = Field(min_length=1, max_length=2000)
+    top_k: Optional[int] = Field(default=None, ge=1, le=100)
+    debug: bool = False
+
+
+class RagSearchResultRead(CamelModel):
+    chunk_id: str
+    material_id: str
+    document_name: str
+    page_number: Optional[int] = None
+    chunk_index: int
+    chunk_text: str
+    score: float
+
+
+class RagSearchDebugRead(CamelModel):
+    embedding_model: str
+    search_mode: str
+    score_threshold: float
+    total_candidate_chunks: int
+
+
+class RagSearchResponse(CamelModel):
+    course_id: str
+    question: str
+    top_k: int
+    results: list[RagSearchResultRead] = Field(default_factory=list)
+    debug: Optional[RagSearchDebugRead] = None
+
+
+# --- Answer generation ------------------------------------------------------
+
+
+AnswerSourceType = Literal["rag", "general_llm", "safety_response", "no_material"]
+SafetyCategory = Literal[
+    "normal",
+    "assignment_direct_answer",
+    "exam_direct_answer",
+    "privacy_request",
+    "prompt_injection",
+    "unsafe_content",
+]
+
+
+class AnswerSourceRead(CamelModel):
+    material_id: str
+    document_name: str
+    page_number: Optional[int] = None
+    chunk_index: int
+    score: float
+
+
+class RetrievalSummaryRead(CamelModel):
+    result_count: int
+    max_score: Optional[float] = None
+    score_threshold: float
+    reason: Optional[str] = None
+
+
+class SafetyResultRead(CamelModel):
+    blocked: bool
+    category: SafetyCategory
+    reason: Optional[str] = None
+    redirect_type: Optional[str] = None
+
+
+class ChatAskRequest(CamelModel):
+    course_id: str
+    question: str = Field(min_length=1)
+    chat_session_id: Optional[str] = None
+    top_k: Optional[int] = Field(default=None, ge=1, le=100)
+
+
+class ChatAnswerResponse(CamelModel):
+    session_id: str
+    log_id: str
+    answer: str
+    sources: list[AnswerSourceRead] = Field(default_factory=list)
+    is_grounded: bool
+    answer_source_type: AnswerSourceType
+    model_name: Optional[str] = None
+    response_time_ms: Optional[int] = None
+    retrieval_summary: RetrievalSummaryRead
+    safety: SafetyResultRead
+
+
+class ChatSessionSummaryRead(CamelModel):
+    id: str
+    course_id: str
+    course_name: str
+    title: Optional[str] = None
+    message_count: int
+    last_message_at: Optional[datetime] = None
+    created_at: datetime
+    updated_at: datetime
+
+
+class ChatHistoryLogRead(CamelModel):
+    id: str
+    question: str
+    answer: str
+    sources: list[AnswerSourceRead] = Field(default_factory=list)
+    is_grounded: bool
+    answer_source_type: AnswerSourceType
+    created_at: datetime
+
+
+class ChatSessionDetailRead(CamelModel):
+    session: ChatSessionSummaryRead
+    logs: list[ChatHistoryLogRead] = Field(default_factory=list)
+
+
+class ChatSessionTitleUpdate(CamelModel):
+    title: str = Field(min_length=1, max_length=255)
+
+
+# --- Log review -------------------------------------------------------------
+
+
+class ChatLogListItemRead(CamelModel):
+    id: str
+    course_id: str
+    course_name: str
+    user_label: str
+    user_id: Optional[str] = None
+    question: str
+    answer_preview: str
+    is_grounded: bool
+    answer_source_type: AnswerSourceType
+    safety_category: SafetyCategory
+    created_at: datetime
+
+
+class ChatLogDetailRead(CamelModel):
+    id: str
+    course_id: str
+    course_name: str
+    user_label: str
+    user_id: Optional[str] = None
+    question: str
+    answer: str
+    referenced_documents: list[AnswerSourceRead] = Field(default_factory=list)
+    retrieval_result: dict[str, Any] = Field(default_factory=dict)
+    safety_result: dict[str, Any] = Field(default_factory=dict)
+    is_grounded: bool
+    answer_source_type: AnswerSourceType
+    model_name: Optional[str] = None
+    response_time_ms: Optional[int] = None
+    created_at: datetime
+
+
+class ChatLogListResponse(CamelModel):
+    logs: list[ChatLogListItemRead] = Field(default_factory=list)
+    total: int

@@ -1,14 +1,17 @@
 from sqlalchemy import CheckConstraint, UniqueConstraint
 
-from app.models.domain import Base, CourseMaterialStatus, UserRole
+from app.models.domain import Base, ChatAnswerSourceType, CourseMaterialStatus, UserRole
 
 
-def test_stage_two_metadata_contains_only_expected_tables() -> None:
+def test_metadata_contains_only_expected_tables() -> None:
     assert set(Base.metadata.tables) == {
         "users",
         "courses",
         "course_access",
         "course_materials",
+        "document_chunks",
+        "chat_sessions",
+        "chat_logs",
     }
 
 
@@ -20,6 +23,63 @@ def test_stage_two_enum_values_match_contract() -> None:
         "completed",
         "failed",
     ]
+
+
+def test_answer_source_type_values_match_contract() -> None:
+    assert [source.value for source in ChatAnswerSourceType] == [
+        "rag",
+        "general_llm",
+        "safety_response",
+        "no_material",
+    ]
+
+
+def test_document_chunk_matches_retrieval_contract() -> None:
+    table = Base.metadata.tables["document_chunks"]
+
+    assert {
+        "id",
+        "course_id",
+        "material_id",
+        "chunk_index",
+        "chunk_text",
+        "page_number",
+        "section_title",
+        "char_count",
+        "embedding",
+        "embedding_model",
+        "embedded_at",
+        "created_at",
+        "updated_at",
+    } == set(table.columns.keys())
+
+    unique_columns = {
+        tuple(column.name for column in constraint.columns)
+        for constraint in table.constraints
+        if isinstance(constraint, UniqueConstraint)
+    }
+    assert ("material_id", "chunk_index") in unique_columns
+
+
+def test_chat_log_stores_answer_provenance() -> None:
+    table = Base.metadata.tables["chat_logs"]
+
+    assert {
+        "id",
+        "session_id",
+        "user_id",
+        "course_id",
+        "question",
+        "answer",
+        "referenced_documents",
+        "model_name",
+        "response_time_ms",
+        "is_grounded",
+        "answer_source_type",
+        "safety_result",
+        "retrieval_result",
+        "created_at",
+    } == set(table.columns.keys())
 
 
 def test_user_supports_local_and_external_authentication() -> None:

@@ -38,6 +38,40 @@ class Settings(BaseSettings):
     max_upload_size_bytes: int = Field(default=20 * 1024 * 1024, gt=0)
     max_upload_request_size_bytes: int = Field(default=21 * 1024 * 1024, gt=0)
 
+    # Document processing and retrieval.
+    embedding_model: str = "text-embedding-3-small"
+    use_mock_embedding: bool = True
+    mock_embedding_dim: int = Field(default=512, gt=0)
+    embedding_max_chars: int = Field(default=8000, gt=0)
+    chunk_size: int = Field(default=1000, gt=0)
+    chunk_overlap: int = Field(default=150, ge=0)
+    min_chunk_chars: int = Field(default=40, ge=0)
+    vector_search_mode: Literal["local", "pgvector"] = "local"
+    rag_top_k: int = Field(default=5, gt=0)
+    rag_max_top_k: int = Field(default=20, gt=0)
+    # Tuned for the mock embedding provider; raise it (around 0.3) for real models.
+    rag_score_threshold: float = Field(default=0.1, ge=0.0, le=1.0)
+
+    # Answer generation.
+    chat_model: str = "gpt-4o-mini"
+    use_mock_llm: bool = True
+    llm_temperature: float = Field(default=0.2, ge=0.0, le=2.0)
+    llm_max_tokens: int = Field(default=800, gt=0)
+    max_question_length: int = Field(default=2000, gt=0)
+    max_context_chars: int = Field(default=12000, gt=0)
+
+    @model_validator(mode="after")
+    def validate_chunk_overlap(self) -> "Settings":
+        if self.chunk_overlap >= self.chunk_size:
+            raise ValueError("CHUNK_OVERLAP must be smaller than CHUNK_SIZE")
+        return self
+
+    @model_validator(mode="after")
+    def validate_top_k_bounds(self) -> "Settings":
+        if self.rag_top_k > self.rag_max_top_k:
+            raise ValueError("RAG_TOP_K must not exceed RAG_MAX_TOP_K")
+        return self
+
     @model_validator(mode="after")
     def validate_nonlocal_jwt_secret(self) -> "Settings":
         if self.app_env != "local" and (

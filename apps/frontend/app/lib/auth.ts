@@ -33,17 +33,20 @@ const roleMenuItems: Record<UserRole, RoleMenuItem[]> = {
     { href: "/admin", label: "대시보드", icon: "dashboard" },
     { href: "/admin/courses", label: "과목", icon: "course" },
     { href: "/admin/users", label: "사용자", icon: "group" },
-    { href: "/admin/materials", label: "자료", icon: "material" }
+    { href: "/admin/materials", label: "자료", icon: "material" },
+    { href: "/admin/logs", label: "질문 로그", icon: "agent" }
   ],
   professor: [
     { href: "/professor", label: "대시보드", icon: "dashboard" },
     { href: "/professor/courses", label: "해당 과목", icon: "course" },
-    { href: "/professor/materials", label: "강의자료", icon: "material" }
+    { href: "/professor/materials", label: "강의자료", icon: "material" },
+    { href: "/professor/logs", label: "질문 로그", icon: "agent" }
   ],
   student: [
     { href: "/student", label: "대시보드", icon: "dashboard" },
     { href: "/student/courses", label: "내 과목", icon: "course" },
-    { href: "/student/chat", label: "AI 질문", icon: "agent" }
+    { href: "/student/chat", label: "AI 질문", icon: "agent" },
+    { href: "/student/chat-history", label: "대화 이력", icon: "material" }
   ]
 };
 
