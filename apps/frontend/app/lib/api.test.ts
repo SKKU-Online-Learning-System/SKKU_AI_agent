@@ -183,19 +183,20 @@ describe("api client", () => {
     expect(fetchMock.mock.calls[0][1]?.method).toBe("DELETE");
   });
 
-  it("processes a material and reads normalized RAG status", async () => {
+  it("processes a material and reads RAG status", async () => {
     const fetchMock = vi
       .fn<typeof fetch>()
       .mockResolvedValueOnce(Response.json({ id: "material-1" }))
       .mockResolvedValueOnce(
         Response.json({
-          course_id: "course-1",
-          material_count: 2,
-          completed_material_count: 1,
-          failed_material_count: 0,
-          chunk_count: 3,
-          embedded_chunk_count: 3,
-          is_search_ready: true
+          courseId: "course-1",
+          materialCount: 2,
+          completedMaterialCount: 1,
+          failedMaterialCount: 0,
+          pendingMaterialCount: 1,
+          chunkCount: 3,
+          embeddedChunkCount: 3,
+          isSearchReady: true
         })
       );
     vi.stubGlobal("fetch", fetchMock);

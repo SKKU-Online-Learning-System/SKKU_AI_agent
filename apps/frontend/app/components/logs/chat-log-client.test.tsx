@@ -10,6 +10,7 @@ const apiMocks = vi.hoisted(() => ({
   getAdminChatLog: vi.fn(),
   getCourseChatLog: vi.fn(),
   listAdminChatLogs: vi.fn(),
+  listAdminUsers: vi.fn(),
   listCourseChatLogs: vi.fn(),
   listCourses: vi.fn()
 }));
@@ -21,6 +22,7 @@ vi.mock("../../lib/api", async () => {
     getAdminChatLog: apiMocks.getAdminChatLog,
     getCourseChatLog: apiMocks.getCourseChatLog,
     listAdminChatLogs: apiMocks.listAdminChatLogs,
+    listAdminUsers: apiMocks.listAdminUsers,
     listCourseChatLogs: apiMocks.listCourseChatLogs,
     listCourses: apiMocks.listCourses
   };
@@ -61,6 +63,7 @@ beforeEach(() => {
   apiMocks.listCourses.mockResolvedValue([course]);
   apiMocks.listCourseChatLogs.mockResolvedValue(logResponse);
   apiMocks.listAdminChatLogs.mockResolvedValue(logResponse);
+  apiMocks.listAdminUsers.mockResolvedValue([]);
 });
 
 afterEach(() => {
@@ -76,8 +79,11 @@ describe("ChatLogClient", () => {
     expect(screen.getByText("ch***@skku.edu")).toBeInTheDocument();
     expect(screen.getByRole("cell", { name: "강의자료 기반" })).toBeInTheDocument();
     expect(apiMocks.listCourseChatLogs).toHaveBeenCalledWith("course-1", {
+      from: undefined,
       keyword: undefined,
-      isGrounded: null
+      isGrounded: null,
+      to: undefined,
+      userId: undefined
     });
   });
 
@@ -98,8 +104,11 @@ describe("ChatLogClient", () => {
     fireEvent.click(screen.getByRole("button", { name: "검색" }));
 
     expect(apiMocks.listCourseChatLogs).toHaveBeenLastCalledWith("course-1", {
+      from: undefined,
       keyword: "경사",
-      isGrounded: false
+      isGrounded: false,
+      to: undefined,
+      userId: undefined
     });
   });
 

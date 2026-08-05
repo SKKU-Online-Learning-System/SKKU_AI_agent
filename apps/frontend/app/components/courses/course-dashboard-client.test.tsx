@@ -6,6 +6,9 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { CourseDashboardClient } from "./course-dashboard-client";
 
 const apiMocks = vi.hoisted(() => ({
+  getMyStatistics: vi.fn(),
+  getProfessorStatistics: vi.fn(),
+  getServiceStatistics: vi.fn(),
   listAdminCourses: vi.fn(),
   listCourses: vi.fn()
 }));
@@ -14,6 +17,9 @@ vi.mock("../../lib/api", async () => {
   const actual = await vi.importActual<typeof import("../../lib/api")>("../../lib/api");
   return {
     ...actual,
+    getMyStatistics: apiMocks.getMyStatistics,
+    getProfessorStatistics: apiMocks.getProfessorStatistics,
+    getServiceStatistics: apiMocks.getServiceStatistics,
     listAdminCourses: apiMocks.listAdminCourses,
     listCourses: apiMocks.listCourses
   };
@@ -26,6 +32,12 @@ afterEach(() => {
 
 describe("CourseDashboardClient", () => {
   it("renders each student course as a Canvas-style course card link", async () => {
+    apiMocks.getMyStatistics.mockResolvedValue({
+      questionCount: 0,
+      sessionCount: 0,
+      questionsByDate: [],
+      courses: []
+    });
     apiMocks.listCourses.mockResolvedValue([
       {
         id: "course-1",
@@ -50,6 +62,11 @@ describe("CourseDashboardClient", () => {
   });
 
   it("links an administrator course card to its course workspace", async () => {
+    apiMocks.getServiceStatistics.mockResolvedValue({
+      totals: { courseCount: 1, userCount: 3, questionCount: 0 },
+      questionsByDate: [],
+      courses: []
+    });
     apiMocks.listAdminCourses.mockResolvedValue([
       {
         id: "course-2",

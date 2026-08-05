@@ -1,9 +1,6 @@
 from app.models.domain import (
     Base,
-<<<<<<< HEAD
     ChatAnswerSourceType,
-=======
->>>>>>> refs/remotes/origin/main
     ChatLog,
     ChatSession,
     Course,
@@ -17,10 +14,7 @@ from app.models.domain import (
 
 __all__ = [
     "Base",
-<<<<<<< HEAD
     "ChatAnswerSourceType",
-=======
->>>>>>> refs/remotes/origin/main
     "ChatLog",
     "ChatSession",
     "Course",

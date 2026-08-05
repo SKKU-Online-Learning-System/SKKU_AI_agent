@@ -6,11 +6,13 @@ import {
   getAdminChatLog,
   getCourseChatLog,
   listAdminChatLogs,
+  listAdminUsers,
   listCourseChatLogs,
   listCourses
 } from "../../lib/api";
 import type {
   AnswerSourceType,
+  AdminUser,
   ChatLogDetail,
   ChatLogListItem,
   CourseSummary,
@@ -38,8 +40,11 @@ type ChatLogClientProps = {
 };
 
 type AppliedFilters = {
+  from: string;
   keyword: string;
   isGrounded: boolean | null;
+  to: string;
+  userId: string;
 };
 
 function apiErrorMessage(error: unknown, fallback: string): string {
@@ -53,12 +58,19 @@ function formatDateTime(value: string): string {
 
 export function ChatLogClient({ audience }: ChatLogClientProps) {
   const [courses, setCourses] = useState<CourseSummary[]>([]);
+  const [users, setUsers] = useState<AdminUser[]>([]);
   const [selectedCourseId, setSelectedCourseId] = useState("");
   const [keyword, setKeyword] = useState("");
   const [groundedFilter, setGroundedFilter] = useState("");
+  const [fromDate, setFromDate] = useState("");
+  const [toDate, setToDate] = useState("");
+  const [userId, setUserId] = useState("");
   const [appliedFilters, setAppliedFilters] = useState<AppliedFilters>({
+    from: "",
     keyword: "",
-    isGrounded: null
+    isGrounded: null,
+    to: "",
+    userId: ""
   });
   const [logs, setLogs] = useState<ChatLogListItem[]>([]);
   const [total, setTotal] = useState(0);
@@ -72,9 +84,13 @@ export function ChatLogClient({ audience }: ChatLogClientProps) {
 
     async function loadCourses() {
       try {
-        const courseList = await listCourses();
+        const [courseList, userList] = await Promise.all([
+          listCourses(),
+          isProfessor ? Promise.resolve([]) : listAdminUsers()
+        ]);
         if (isCancelled) return;
         setCourses(courseList);
+        setUsers(userList);
         if (isProfessor) {
           setSelectedCourseId(courseList[0]?.id ?? "");
           if (courseList.length === 0) setIsLoading(false);
@@ -103,8 +119,11 @@ export function ChatLogClient({ audience }: ChatLogClientProps) {
       setIsLoading(true);
       setErrorMessage(null);
       const filters = {
+        from: appliedFilters.from || undefined,
         keyword: appliedFilters.keyword || undefined,
-        isGrounded: appliedFilters.isGrounded
+        isGrounded: appliedFilters.isGrounded,
+        to: appliedFilters.to || undefined,
+        userId: appliedFilters.userId || undefined
       };
 
       try {
@@ -134,8 +153,11 @@ export function ChatLogClient({ audience }: ChatLogClientProps) {
   const handleFilterSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setAppliedFilters({
+      from: fromDate ? `${fromDate}T00:00:00` : "",
       keyword: keyword.trim(),
-      isGrounded: groundedFilter === "" ? null : groundedFilter === "true"
+      isGrounded: groundedFilter === "" ? null : groundedFilter === "true",
+      to: toDate ? `${toDate}T23:59:59.999` : "",
+      userId
     });
   };
 
@@ -196,6 +218,23 @@ export function ChatLogClient({ audience }: ChatLogClientProps) {
             <option value="false">자료 근거 없음</option>
           </select>
         </label>
+        <label>
+          시작일
+          <input onChange={(event) => setFromDate(event.target.value)} type="date" value={fromDate} />
+        </label>
+        <label>
+          종료일
+          <input onChange={(event) => setToDate(event.target.value)} type="date" value={toDate} />
+        </label>
+        {!isProfessor ? (
+          <label>
+            사용자
+            <select onChange={(event) => setUserId(event.target.value)} value={userId}>
+              <option value="">전체 사용자</option>
+              {users.map((user) => <option key={user.id} value={user.id}>{user.name} ({user.email})</option>)}
+            </select>
+          </label>
+        ) : null}
         <button type="submit">검색</button>
       </form>
 

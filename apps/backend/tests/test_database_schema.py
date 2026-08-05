@@ -3,11 +3,7 @@ from sqlalchemy import CheckConstraint, UniqueConstraint
 from app.models.domain import Base, ChatAnswerSourceType, CourseMaterialStatus, UserRole
 
 
-<<<<<<< HEAD
 def test_metadata_contains_only_expected_tables() -> None:
-=======
-def test_metadata_contains_expected_stage_three_tables() -> None:
->>>>>>> refs/remotes/origin/main
     assert set(Base.metadata.tables) == {
         "users",
         "courses",

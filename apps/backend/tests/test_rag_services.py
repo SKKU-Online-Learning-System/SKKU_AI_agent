@@ -13,7 +13,7 @@ from app.services.document_parser import (
     UnsupportedDocumentTypeError,
     parse_material,
 )
-from app.services.embedding_service import EmbeddingError, EmbeddingService, cosine_similarity
+from app.services.embedding_service import EmbeddingService, cosine_similarity
 from app.services.prompt_service import PromptBuilderService
 from app.services.safety_service import (
     CATEGORY_ASSIGNMENT,
@@ -156,7 +156,7 @@ class TestChunking:
 
 class TestEmbeddingService:
     def test_mock_embeddings_are_deterministic(self) -> None:
-        service = EmbeddingService(Settings(use_mock_embedding=True))
+        service = EmbeddingService(Settings())
 
         first = service.embed_text("경사하강법이 뭐야?")
         second = service.embed_text("경사하강법이 뭐야?")
@@ -165,7 +165,7 @@ class TestEmbeddingService:
         assert len(first) == 512
 
     def test_related_korean_text_scores_above_unrelated_text(self) -> None:
-        service = EmbeddingService(Settings(use_mock_embedding=True))
+        service = EmbeddingService(Settings())
         query = service.embed_text("경사하강법이 뭐야?")
 
         related = cosine_similarity(query, service.embed_text("경사하강법은 최적화 방법이다."))
@@ -173,13 +173,6 @@ class TestEmbeddingService:
 
         assert related > unrelated
         assert related > 0.1
-
-    def test_real_provider_without_a_key_fails_clearly(self) -> None:
-        service = EmbeddingService(Settings(use_mock_embedding=False, openai_api_key=None))
-
-        with pytest.raises(EmbeddingError):
-            service.embed_text("경사하강법이 뭐야?")
-
 
 class TestPromptBuilder:
     def build(self, policy: str, chunks) -> list:

@@ -20,10 +20,6 @@ const apiMocks = vi.hoisted(() => ({
   listCourseMaterials: vi.fn(),
   listCourses: vi.fn(),
   processCourseMaterial: vi.fn(),
-<<<<<<< HEAD
-  reprocessCourseMaterial: vi.fn(),
-=======
->>>>>>> refs/remotes/origin/main
   uploadCourseMaterial: vi.fn()
 }));
 
@@ -36,24 +32,9 @@ vi.mock("../../lib/api", async () => {
     listCourseMaterials: apiMocks.listCourseMaterials,
     listCourses: apiMocks.listCourses,
     processCourseMaterial: apiMocks.processCourseMaterial,
-<<<<<<< HEAD
-    reprocessCourseMaterial: apiMocks.reprocessCourseMaterial,
-=======
->>>>>>> refs/remotes/origin/main
     uploadCourseMaterial: apiMocks.uploadCourseMaterial
   };
 });
-
-const ragStatus = {
-  courseId: "course-1",
-  materialCount: 1,
-  completedMaterialCount: 1,
-  failedMaterialCount: 0,
-  pendingMaterialCount: 0,
-  chunkCount: 12,
-  embeddedChunkCount: 12,
-  isSearchReady: true
-};
 
 const course = {
   id: "course-1",
@@ -89,8 +70,6 @@ const material: CourseMaterial = {
   updatedAt: "2026-07-20T00:00:00Z"
 };
 
-<<<<<<< HEAD
-=======
 const ragStatus = {
   courseId: "course-1",
   materialCount: 1,
@@ -101,7 +80,6 @@ const ragStatus = {
   isSearchReady: true
 };
 
->>>>>>> refs/remotes/origin/main
 beforeEach(() => {
   apiMocks.getCourseRagStatus.mockResolvedValue(ragStatus);
 });

@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 """Course-scoped retrieval used by the search API and by answer generation."""
 
 from __future__ import annotations
@@ -13,21 +12,6 @@ from app.core.config import Settings
 from app.models import CourseMaterial, CourseMaterialStatus
 from app.services.embedding_service import EmbeddingService
 from app.services.vector_store_service import SearchResult, VectorStoreService
-=======
-from time import perf_counter
-from typing import Optional
-
-from sqlalchemy.orm import Session
-
-from app.core.config import Settings, get_settings
-from app.schemas import ChatResponse, RAGSearchResult
-from app.services.embedding_service import create_embedding_service
-from app.services.vector_store_service import VectorStoreService, create_vector_store_service
-
-
-class RAGSearchError(Exception):
-    pass
->>>>>>> refs/remotes/origin/main
 
 
 @dataclass(frozen=True)
@@ -41,34 +25,6 @@ class RetrievalSummary:
     total_candidate_chunks: int
     reason: Optional[str] = None
 
-<<<<<<< HEAD
-=======
-    def __init__(
-        self,
-        session: Optional[Session] = None,
-        settings: Optional[Settings] = None,
-    ) -> None:
-        self.settings = settings or get_settings()
-        self.vector_store: Optional[VectorStoreService] = (
-            create_vector_store_service(session, self.settings) if session else None
-        )
-
-    def search(self, course_id: str, question: str, top_k: int) -> list[RAGSearchResult]:
-        if self.vector_store is None:
-            raise RAGSearchError("RAG search requires a database session")
-        try:
-            query_embedding = create_embedding_service(self.settings).embed_text(question)
-            return [
-                RAGSearchResult(**result.__dict__)
-                for result in self.vector_store.search_similar_chunks(
-                    course_id,
-                    query_embedding,
-                    top_k,
-                )
-            ]
-        except Exception as exc:
-            raise RAGSearchError("RAG search failed") from exc
->>>>>>> refs/remotes/origin/main
 
 @dataclass(frozen=True)
 class RetrievalOutcome:

@@ -25,20 +25,12 @@ from app.schemas.domain import (
     CourseRead,
     DocumentChunkRead,
     MaterialProcessingStatusRead,
-<<<<<<< HEAD
     RagSearchDebugRead,
     RagSearchRequest,
     RagSearchResponse,
     RagSearchResultRead,
     RetrievalSummaryRead,
     SafetyResultRead,
-=======
-    RAGSearchDebug,
-    RAGSearchRequest,
-    RAGSearchResponse,
-    RAGSearchResult,
-    RAGStatusResponse,
->>>>>>> refs/remotes/origin/main
     UserRead,
 )
 

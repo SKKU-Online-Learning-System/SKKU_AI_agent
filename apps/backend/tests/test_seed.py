@@ -29,8 +29,8 @@ def test_seed_is_idempotent_and_creates_expected_demo_data() -> None:
     Base.metadata.create_all(engine)
 
     with Session(engine) as session:
-        first_summary = seed_database(session)
-        second_summary = seed_database(session)
+        first_summary = seed_database(session, "password123")
+        second_summary = seed_database(session, "password123")
 
         assert first_summary.users == second_summary.users == 3
         assert first_summary.courses == second_summary.courses == 2

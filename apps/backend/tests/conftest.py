@@ -137,7 +137,6 @@ def chat_api(tmp_path: Path) -> Generator[ChatApiContext, None, None]:
 
     settings = Settings(
         upload_dir=str(tmp_path / "uploads"),
-        use_mock_embedding=True,
         use_mock_llm=True,
         chunk_size=200,
         chunk_overlap=40,
