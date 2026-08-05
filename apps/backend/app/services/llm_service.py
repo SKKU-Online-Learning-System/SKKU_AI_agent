@@ -47,7 +47,7 @@ class LLMService:
 
     @property
     def model_name(self) -> str:
-        return MOCK_MODEL_NAME if self.settings.use_mock_llm else self.settings.chat_model
+        return MOCK_MODEL_NAME if self.settings.use_mock_llm else self.settings.claude_model
 
     def generate_answer(self, messages: Sequence[ChatMessage]) -> LLMResponse:
         if not messages:
@@ -67,39 +67,55 @@ class LLMService:
                 usage=LLMUsage(),
             )
 
-        return self._openai_answer(messages)
+        return self._claude_answer(messages)
 
-    def _openai_answer(self, messages: Sequence[ChatMessage]) -> LLMResponse:
-        if not self.settings.openai_api_key:
+    def _claude_answer(self, messages: Sequence[ChatMessage]) -> LLMResponse:
+        if not self.settings.anthropic_api_key:
             raise LLMError(
-                "OPENAI_API_KEY가 설정되지 않았습니다. USE_MOCK_LLM=true로 두거나 키를 설정하세요."
+                "ANTHROPIC_API_KEY가 설정되지 않았습니다. "
+                "USE_MOCK_LLM=true로 두거나 키를 설정하세요."
             )
 
         try:
-            from openai import OpenAI
+            from anthropic import Anthropic
 
-            client = OpenAI(api_key=self.settings.openai_api_key)
-            response = client.chat.completions.create(
-                model=self.settings.chat_model,
+            system = "\n\n".join(
+                message.content for message in messages if message.role == "system"
+            )
+            response = Anthropic(api_key=self.settings.anthropic_api_key).messages.create(
+                model=self.settings.claude_model,
                 temperature=self.settings.llm_temperature,
                 max_tokens=self.settings.llm_max_tokens,
                 messages=[
                     {"role": message.role, "content": message.content} for message in messages
+                    if message.role != "system"
                 ],
+                **({"system": system} if system else {}),
             )
         except LLMError:
             raise
         except Exception as error:
-            raise LLMError(f"답변 생성에 실패했습니다: {error}") from error
+            raise LLMError("Claude 답변 생성에 실패했습니다.") from error
 
-        usage = getattr(response, "usage", None)
+        answer = "".join(
+            block.text for block in response.content if block.type == "text"
+        ).strip()
+        if not answer:
+            raise LLMError("Claude가 빈 답변을 반환했습니다.")
+
+        prompt_tokens = getattr(response.usage, "input_tokens", None)
+        completion_tokens = getattr(response.usage, "output_tokens", None)
         return LLMResponse(
-            answer=response.choices[0].message.content or "",
-            model_name=self.settings.chat_model,
+            answer=answer,
+            model_name=response.model,
             usage=LLMUsage(
-                prompt_tokens=getattr(usage, "prompt_tokens", None),
-                completion_tokens=getattr(usage, "completion_tokens", None),
-                total_tokens=getattr(usage, "total_tokens", None),
+                prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens,
+                total_tokens=(
+                    prompt_tokens + completion_tokens
+                    if prompt_tokens is not None and completion_tokens is not None
+                    else None
+                ),
             ),
         )
 

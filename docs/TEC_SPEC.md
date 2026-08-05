@@ -401,16 +401,10 @@ UNIQUE(course_id, user_id)
 | chunk_text    | TEXT                  | 청크 내용                 |
 | page_number   | INT NULL              | 페이지 또는 슬라이드 번호 |
 | section_title | VARCHAR NULL          | 섹션명                    |
-<<<<<<< HEAD
 | char_count    | INT                   | 청크 글자 수              |
 | embedding     | JSON NULL             | 임베딩 벡터               |
 | embedding_model | VARCHAR NULL        | 임베딩 모델명             |
 | embedded_at   | TIMESTAMP NULL        | 임베딩 생성 시각          |
-=======
-| char_count    | INT                   | 청크 문자 수              |
-| embedding     | JSON                  | 임베딩 벡터               |
-| embedding_model | VARCHAR NULL        | 임베딩 모델명             |
->>>>>>> refs/remotes/origin/main
 | created_at    | TIMESTAMP             | 생성 시각                 |
 | updated_at    | TIMESTAMP             | 수정 시각                 |
 
@@ -422,15 +416,11 @@ INDEX(material_id)
 UNIQUE(material_id, chunk_index)
 ```
 
-<<<<<<< HEAD
 **구현 현황 (2026-08 기준)**
 
 - `embedding`은 pgvector `VECTOR`가 아니라 이식 가능한 `JSON` 컬럼으로 구현했다. 검색은 `VECTOR_SEARCH_MODE=local`에서 애플리케이션 레벨 코사인 유사도로 수행한다. 개발 규모용 구현이며, pgvector 전환 시 `VectorStoreService`만 교체하면 된다.
 - 따라서 벡터 인덱스는 아직 생성하지 않는다.
 - `UNIQUE(material_id, chunk_index)`로 재처리 시 중복 저장을 막는다.
-=======
-현재 `VectorStoreService`가 과목별 후보 embedding을 읽어 Python에서 cosine similarity를 계산한다.
->>>>>>> refs/remotes/origin/main
 
 ---
 
@@ -789,13 +779,13 @@ Response:
 }
 ```
 
-<<<<<<< HEAD
 **구현 현황 (2026-08 기준)**
 
 - 실제 엔드포인트는 `POST /api/rag/search`이며, 요청/응답 필드는 camelCase(`courseId`, `topK`, `documentName`, `pageNumber`, `chunkIndex`)로 직렬화된다.
 - 응답에는 `courseId`, `question`, `topK`가 함께 포함되고, 각 결과에 `chunkIndex`가 추가된다.
 - 요청에 `debug: true`를 넣으면 `embeddingModel`, `searchMode`, `scoreThreshold`, `totalCandidateChunks`가 담긴 `debug` 객체가 반환된다.
 - `topK`는 `RAG_TOP_K`가 기본값이고 `RAG_MAX_TOP_K`로 상한이 걸린다. 검색은 항상 `course_id`로 먼저 제한된다.
+- `debug=true`는 교수자와 관리자만 사용할 수 있으며 검색 API 자체는 답변을 생성하지 않는다.
 
 ### 자료 처리 API (구현 추가분)
 
@@ -809,13 +799,10 @@ GET  /api/courses/{course_id}/rag/status
 ```
 
 권한은 과목 관리 권한(교수자는 담당 과목, 관리자는 전체)을 따르며, `rag/status`만 과목 접근 권한으로 충분하다. 이미 처리 중인 자료에 process를 다시 호출하면 409를 반환한다.
-=======
-`debug=true`는 professor/admin만 사용할 수 있다. 검색 API는 답변을 생성하지 않는다.
 
 ### GET /api/courses/{course_id}/rag/status
 
 자료 처리 수, 전체/임베딩 청크 수와 검색 준비 상태를 반환한다. 완료된 자료에 임베딩 청크가 하나 이상 있을 때 `is_search_ready=true`다.
->>>>>>> refs/remotes/origin/main
 
 ---
 
@@ -1092,7 +1079,7 @@ DocumentChunk.embedding
 
 **구현 현황 (2026-08 기준)**
 
-- 기본값은 `USE_MOCK_EMBEDDING=true`라서 키 없이 전체 흐름을 실행할 수 있다. 키 없이 `false`로 두면 명확한 오류를 반환한다.
+- local hash 임베딩은 별도 API 키 없이 항상 사용할 수 있다.
 - mock 제공자는 같은 텍스트에 항상 같은 벡터를 만든다. 공백 토큰만 쓰면 한국어의 조사 변화("경사하강법은" vs "경사하강법이")를 잡지 못하므로, 단어 토큰과 문자 2/3-gram을 함께 해싱한다. 기본 차원은 512다.
 - mock 벡터의 유사도 값은 실제 모델보다 낮게 나오므로 `RAG_SCORE_THRESHOLD` 기본값을 0.1로 두었다. 실제 임베딩 모델로 바꿀 때는 0.3 수준으로 올리는 것을 권장한다.
 

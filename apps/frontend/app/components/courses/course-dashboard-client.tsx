@@ -2,11 +2,25 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { ApiError, listAdminCourses, listCourses } from "../../lib/api";
-import type { AdminCourse, CourseSummary } from "../../lib/api";
+import {
+  ApiError,
+  getMyStatistics,
+  getProfessorStatistics,
+  getServiceStatistics,
+  listAdminCourses,
+  listCourses
+} from "../../lib/api";
+import type {
+  AdminCourse,
+  CourseSummary,
+  MyStatistics,
+  ProfessorStatistics,
+  ServiceStatistics
+} from "../../lib/api";
 import { UiIcon } from "../ui/ui-icon";
 
 type DashboardAudience = "admin" | "professor" | "student";
+type DashboardStatistics = ServiceStatistics | ProfessorStatistics | MyStatistics;
 
 type DashboardCourse = {
   code: string;
@@ -66,8 +80,82 @@ function courseActions(audience: DashboardAudience, courseId: string) {
   ];
 }
 
+function StatisticsPanel({
+  audience,
+  statistics
+}: {
+  audience: DashboardAudience;
+  statistics: DashboardStatistics;
+}) {
+  if (audience === "admin") {
+    const data = statistics as ServiceStatistics;
+    return (
+      <section className="dashboard-statistics" aria-label="전체 서비스 통계">
+        <div className="role-page-grid">
+          <article><strong>전체 과목</strong><span>{data.totals.courseCount}개</span></article>
+          <article><strong>전체 사용자</strong><span>{data.totals.userCount}명</span></article>
+          <article><strong>전체 질문</strong><span>{data.totals.questionCount}건</span></article>
+        </div>
+        <div className="course-table-wrap">
+          <table className="course-table">
+            <thead><tr><th>과목</th><th>질문</th><th>사용자</th><th>업로드 자료</th></tr></thead>
+            <tbody>{data.courses.map((course) => (
+              <tr key={course.courseId}>
+                <td>{course.courseName}</td><td>{course.questionCount}</td>
+                <td>{course.userCount}</td><td>{course.materialCount}</td>
+              </tr>
+            ))}</tbody>
+          </table>
+        </div>
+        <p className="dashboard-daily-summary">
+          일자별 질문: {data.questionsByDate.length
+            ? data.questionsByDate.map((item) => `${item.date} ${item.count}건`).join(" · ")
+            : "아직 질문이 없습니다."}
+        </p>
+      </section>
+    );
+  }
+
+  if (audience === "professor") {
+    const data = statistics as ProfessorStatistics;
+    return (
+      <section className="dashboard-statistics" aria-label="담당 과목 통계">
+        <div className="course-table-wrap">
+          <table className="course-table">
+            <thead><tr><th>담당 과목</th><th>업로드 자료</th><th>질문</th></tr></thead>
+            <tbody>{data.courses.map((course) => (
+              <tr key={course.courseId}>
+                <td>{course.courseName}</td><td>{course.materialCount}</td><td>{course.questionCount}</td>
+              </tr>
+            ))}</tbody>
+          </table>
+        </div>
+        <div className="dashboard-statistics-columns">
+          <section><h2>최근 질문</h2>{data.recentQuestions.length
+            ? <ul>{data.recentQuestions.map((item) => <li key={item.id}>{item.courseName} · {item.question}</li>)}</ul>
+            : <p>최근 질문이 없습니다.</p>}</section>
+          <section><h2>자주 나온 키워드</h2>{data.keywords.length
+            ? <ul>{data.keywords.map((item) => <li key={item.keyword}>{item.keyword} ({item.count})</li>)}</ul>
+            : <p>분석할 질문이 없습니다.</p>}</section>
+        </div>
+      </section>
+    );
+  }
+
+  const data = statistics as MyStatistics;
+  return (
+    <section className="dashboard-statistics" aria-label="내 사용 통계">
+      <div className="role-page-grid">
+        <article><strong>내 질문</strong><span>{data.questionCount}건</span></article>
+        <article><strong>내 대화</strong><span>{data.sessionCount}개</span></article>
+      </div>
+    </section>
+  );
+}
+
 export function CourseDashboardClient({ audience }: { audience: DashboardAudience }) {
   const [courses, setCourses] = useState<DashboardCourse[]>([]);
+  const [statistics, setStatistics] = useState<DashboardStatistics | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
@@ -76,11 +164,22 @@ export function CourseDashboardClient({ audience }: { audience: DashboardAudienc
 
     async function loadDashboardCourses() {
       try {
-        const courseList =
+        const [courseResult, statisticsResult] = await Promise.all([
+          audience === "admin" ? listAdminCourses() : listCourses(),
           audience === "admin"
-            ? (await listAdminCourses()).map(adminCourseToDashboardCourse)
-            : (await listCourses()).map(summaryToDashboardCourse);
-        if (!isCancelled) setCourses(courseList);
+            ? getServiceStatistics()
+            : audience === "professor"
+              ? getProfessorStatistics()
+              : getMyStatistics()
+        ]);
+        if (!isCancelled) {
+          setCourses(
+            audience === "admin"
+              ? (courseResult as AdminCourse[]).map(adminCourseToDashboardCourse)
+              : (courseResult as CourseSummary[]).map(summaryToDashboardCourse)
+          );
+          setStatistics(statisticsResult);
+        }
       } catch (error) {
         if (!isCancelled) {
           setErrorMessage(
@@ -118,6 +217,9 @@ export function CourseDashboardClient({ audience }: { audience: DashboardAudienc
       </header>
 
       {errorMessage ? <p className="admin-alert" role="alert">{errorMessage}</p> : null}
+      {!isLoading && !errorMessage && statistics ? (
+        <StatisticsPanel audience={audience} statistics={statistics} />
+      ) : null}
 
       <div className="canvas-dashboard-layout">
         <div className="canvas-course-card-grid" aria-label="과목 카드">

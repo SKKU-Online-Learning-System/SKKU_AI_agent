@@ -1,11 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-<<<<<<< HEAD
-from app.api.routes import admin, auth, chat, chat_logs, courses, health, materials, rag
-=======
-from app.api.routes import admin, auth, chat, courses, health, materials, rag
->>>>>>> refs/remotes/origin/main
+from app.api.routes import admin, auth, chat, chat_logs, courses, health, materials, rag, stats
 from app.core.config import get_settings
 from app.middleware.upload_request_limit import UploadRequestSizeLimitMiddleware
 
@@ -38,6 +34,7 @@ def create_app() -> FastAPI:
     app.include_router(chat.router, prefix="/api")
     app.include_router(chat_logs.router, prefix="/api")
     app.include_router(admin.router, prefix="/api")
+    app.include_router(stats.router, prefix="/api")
 
     @app.get("/", tags=["root"])
     async def root() -> dict[str, str]:

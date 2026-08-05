@@ -5,11 +5,7 @@ from alembic.config import Config
 from sqlalchemy import create_engine, inspect
 
 
-<<<<<<< HEAD
 def test_alembic_upgrade_and_downgrade_full_schema(tmp_path: Path) -> None:
-=======
-def test_alembic_upgrade_and_downgrade_schema(tmp_path: Path) -> None:
->>>>>>> refs/remotes/origin/main
     backend_root = Path(__file__).resolve().parents[1]
     database_path = tmp_path / "migration.sqlite"
     database_url = f"sqlite:///{database_path.as_posix()}"

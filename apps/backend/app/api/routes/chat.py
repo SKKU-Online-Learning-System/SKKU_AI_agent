@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 """Chatbot endpoints: ask a question, and read your own conversation history."""
 
 from __future__ import annotations
@@ -7,19 +6,12 @@ from typing import Annotated, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import func, select
-=======
-from typing import Annotated
-
-from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import select
->>>>>>> refs/remotes/origin/main
 from sqlalchemy.orm import Session
 from starlette.concurrency import run_in_threadpool
 
 from app.api.deps import authorize_course_access, get_current_user, require_role
 from app.core.config import Settings, get_settings
 from app.db.session import get_db
-<<<<<<< HEAD
 from app.models import ChatLog, ChatSession, Course, User
 from app.schemas import (
     AnswerSourceRead,
@@ -41,17 +33,6 @@ from app.services.chat_service import (
     ChatSessionNotFoundError,
     ChatValidationError,
 )
-=======
-from app.models import ChatSession, User
-from app.schemas import (
-    ChatRequest,
-    ChatResponse,
-    ChatSessionCreate,
-    ChatSessionDetailRead,
-    ChatSessionRead,
-)
-from app.services.rag_service import RAGService
->>>>>>> refs/remotes/origin/main
 
 router = APIRouter(tags=["chat"])
 
@@ -135,7 +116,6 @@ async def create_chat_session(
     settings: Annotated[Settings, Depends(get_settings)],
     current_user: Annotated[User, Depends(get_current_user)],
 ) -> ChatSessionRead:
-<<<<<<< HEAD
     course = authorize_course_access(session, current_user, payload.course_id)
     chat_session = ChatService(session, settings).create_session(
         current_user,
@@ -268,13 +248,6 @@ def _read_session_detail(
             )
             for log in logs
         ],
-=======
-    authorize_course_access(session, current_user, payload.course_id)
-    chat_session = ChatSession(
-        user_id=current_user.id,
-        course_id=payload.course_id,
-        title=None,
->>>>>>> refs/remotes/origin/main
     )
     session.add(chat_session)
     session.commit()

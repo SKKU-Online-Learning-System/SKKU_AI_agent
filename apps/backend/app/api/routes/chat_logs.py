@@ -37,6 +37,7 @@ async def list_course_chat_logs(
     course_id: str,
     session: Annotated[Session, Depends(get_db)],
     current_user: Annotated[User, Depends(require_role(["professor", "admin"]))],
+    user_id: Annotated[Optional[str], Query()] = None,
     keyword: Annotated[Optional[str], Query()] = None,
     from_date: Annotated[Optional[datetime], Query(alias="from")] = None,
     to_date: Annotated[Optional[datetime], Query(alias="to")] = None,
@@ -49,6 +50,8 @@ async def list_course_chat_logs(
     _require_course_management(current_user, course)
 
     statement = select(ChatLog).where(ChatLog.course_id == course.id)
+    if user_id:
+        statement = statement.where(ChatLog.user_id == user_id)
     return _paginated_logs(
         session=session,
         statement=statement,
@@ -58,6 +61,37 @@ async def list_course_chat_logs(
         to_date=to_date,
         is_grounded=is_grounded,
         safety_category=safety_category,
+        limit=limit,
+        offset=offset,
+    )
+
+
+@router.get("/student/chat-logs", response_model=ChatLogListResponse)
+async def list_own_chat_logs(
+    session: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_role("student"))],
+    course_id: Annotated[Optional[str], Query()] = None,
+    keyword: Annotated[Optional[str], Query()] = None,
+    from_date: Annotated[Optional[datetime], Query(alias="from")] = None,
+    to_date: Annotated[Optional[datetime], Query(alias="to")] = None,
+    limit: Annotated[int, Query(ge=1, le=200)] = 50,
+    offset: Annotated[int, Query(ge=0)] = 0,
+) -> ChatLogListResponse:
+    """List only the authenticated student's own question history."""
+
+    statement = select(ChatLog).where(ChatLog.user_id == current_user.id)
+    if course_id:
+        authorize_course_access(session, current_user, course_id)
+        statement = statement.where(ChatLog.course_id == course_id)
+    return _paginated_logs(
+        session=session,
+        statement=statement,
+        reveal_identity=True,
+        keyword=keyword,
+        from_date=from_date,
+        to_date=to_date,
+        is_grounded=None,
+        safety_category=None,
         limit=limit,
         offset=offset,
     )

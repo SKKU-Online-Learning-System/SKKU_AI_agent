@@ -27,7 +27,7 @@ def client() -> Generator[TestClient, None, None]:
     Base.metadata.create_all(engine)
 
     with testing_session() as session:
-        seed_database(session)
+        seed_database(session, "password123")
 
     def override_get_db() -> Generator[Session, None, None]:
         with testing_session() as session:

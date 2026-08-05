@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Annotated, Literal, Optional
+from typing import Annotated, Any, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, StringConstraints
 
@@ -22,6 +22,7 @@ class CamelModel(BaseModel):
 UserRole = Literal["student", "professor", "admin"]
 CourseAgentStatus = Literal["draft", "active", "disabled"]
 CourseMaterialStatus = Literal["pending", "processing", "completed", "failed"]
+ChatSessionStatus = Literal["open", "archived"]
 
 
 class UserRead(CamelModel):
@@ -123,14 +124,6 @@ class DocumentChunkRead(CamelModel):
     updated_at: datetime
 
 
-class MaterialProcessingStatusRead(CamelModel):
-    material_id: str
-    processing_status: CourseMaterialStatus
-    processing_error: Optional[str] = None
-    chunk_count: int
-    updated_at: datetime
-
-
 NonBlankQuestion = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
 
 
@@ -187,12 +180,9 @@ class Citation(CamelModel):
 
 class ChatSessionCreate(CamelModel):
     course_id: str
-<<<<<<< HEAD
     title: Optional[str] = None
     # Kept for backwards compatibility; the owner always comes from the access token.
     user_id: Optional[str] = None
-=======
->>>>>>> refs/remotes/origin/main
 
 
 class ChatSessionRead(CamelModel):
@@ -200,10 +190,7 @@ class ChatSessionRead(CamelModel):
     user_id: str
     course_id: str
     title: Optional[str] = None
-<<<<<<< HEAD
     status: ChatSessionStatus = "open"
-=======
->>>>>>> refs/remotes/origin/main
     created_at: datetime
     updated_at: datetime
 
@@ -222,10 +209,6 @@ class ChatLogRead(CamelModel):
     safety_result: dict[str, object] = Field(default_factory=dict)
     retrieval_result: dict[str, object] = Field(default_factory=dict)
     created_at: datetime
-
-
-class ChatSessionDetailRead(ChatSessionRead):
-    logs: list[ChatLogRead] = Field(default_factory=list)
 
 
 class ChatRequest(CamelModel):

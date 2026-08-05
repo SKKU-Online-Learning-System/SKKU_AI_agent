@@ -9,10 +9,9 @@ from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
+from app.core.config import get_settings
 from app.db.session import SessionLocal
 from app.models import Course, CourseAccess, User, UserRole
-
-DEMO_PASSWORD = "password123"
 
 
 @dataclass(frozen=True)
@@ -57,19 +56,19 @@ COURSE_SEEDS = (
 )
 
 
-def ensure_demo_password(user: User, hasher: PasswordHasher) -> None:
+def ensure_demo_password(user: User, hasher: PasswordHasher, password: str) -> None:
     password_matches = False
     if user.password_hash:
         try:
-            password_matches = hasher.verify(user.password_hash, DEMO_PASSWORD)
+            password_matches = hasher.verify(user.password_hash, password)
         except (InvalidHashError, VerificationError):
             password_matches = False
 
     if not password_matches or hasher.check_needs_rehash(user.password_hash or ""):
-        user.password_hash = hasher.hash(DEMO_PASSWORD)
+        user.password_hash = hasher.hash(password)
 
 
-def seed_database(session: Session) -> SeedSummary:
+def seed_database(session: Session, password: str) -> SeedSummary:
     hasher = PasswordHasher()
 
     with session.begin():
@@ -89,7 +88,7 @@ def seed_database(session: Session) -> SeedSummary:
             user.school_id = user_seed.school_id
             user.role = user_seed.role
             user.external_auth_id = None
-            ensure_demo_password(user, hasher)
+            ensure_demo_password(user, hasher, password)
             users_by_email[user.email] = user
 
         session.flush()
@@ -141,9 +140,13 @@ def seed_database(session: Session) -> SeedSummary:
 
 
 def main() -> int:
+    password = get_settings().seed_password
+    if not password:
+        print("Seed failed. Set SEED_PASSWORD in .env.", file=sys.stderr)
+        return 1
     with SessionLocal() as session:
         try:
-            summary = seed_database(session)
+            summary = seed_database(session, password)
         except SQLAlchemyError as exc:
             session.rollback()
             print(

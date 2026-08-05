@@ -81,7 +81,7 @@ def stage2_api(tmp_path: Path) -> Generator[Stage2Api, None, None]:
     Base.metadata.create_all(engine)
 
     with testing_session() as session:
-        seed_database(session)
+        seed_database(session, "password123")
         professor = session.scalar(select(User).where(User.email == "professor@skku.edu"))
         student = session.scalar(select(User).where(User.email == "student@skku.edu"))
         assert professor is not None
