@@ -118,7 +118,9 @@ export function CourseListClient({ audience }: CourseListClientProps) {
                     </td>
                     {isStudent ? (
                       <td>
-                        <Link href={`/student/courses/${course.id}/chat`}>챗봇 시작</Link>
+                        <Link href={`/student/courses/${course.id}/course-agent`}>
+                          COURSE AGENT
+                        </Link>
                       </td>
                     ) : null}
                   </tr>

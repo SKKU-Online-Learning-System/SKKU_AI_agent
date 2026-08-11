@@ -7,11 +7,21 @@ import { CourseWorkspaceClient } from "./course-workspace-client";
 
 const mocks = vi.hoisted(() => ({
   listCourses: vi.fn(),
-  pathname: { value: "/student/courses/course-1/materials" }
+  logout: vi.fn(),
+  pathname: { value: "/student/courses/course-1/materials" },
+  replace: vi.fn()
 }));
 
 vi.mock("next/navigation", () => ({
-  usePathname: () => mocks.pathname.value
+  usePathname: () => mocks.pathname.value,
+  useRouter: () => ({ replace: mocks.replace })
+}));
+
+vi.mock("../auth/auth-provider", () => ({
+  useAuth: () => ({
+    logout: mocks.logout,
+    user: { id: "student-1", name: "Student", email: "student@skku.edu", role: "student" }
+  })
 }));
 
 vi.mock("../../lib/api", async () => {
@@ -48,8 +58,8 @@ describe("CourseWorkspaceClient", () => {
     );
 
     expect(await screen.findByText("Introduction to Database")).toBeInTheDocument();
-    expect(screen.getByText("2026-2")).toBeInTheDocument();
-    const navigation = screen.getByRole("navigation", { name: "과목 탐색 메뉴" });
+    expect(screen.getByText(/2026-2/)).toBeInTheDocument();
+    const navigation = screen.getByRole("navigation", { name: "과목 메뉴" });
     expect(within(navigation).getByRole("link", { name: "홈" })).toHaveAttribute(
       "href",
       "/student/courses/course-1"
@@ -58,9 +68,29 @@ describe("CourseWorkspaceClient", () => {
       "aria-current",
       "page"
     );
-    expect(within(navigation).getByRole("link", { name: "AI 질문" })).toHaveAttribute(
+    // COURSE AGENT replaces the old separate "AI 질문" tab.
+    expect(within(navigation).queryByText("AI 질문")).not.toBeInTheDocument();
+    expect(within(navigation).getByRole("link", { name: "COURSE AGENT" })).toHaveAttribute(
       "href",
-      "/student/courses/course-1/chat"
+      "/student/courses/course-1/course-agent"
+    );
+  });
+
+  it("renders the inactive i-Campus course tools alongside the live ones", async () => {
+    mocks.listCourses.mockResolvedValue([]);
+
+    render(
+      <CourseWorkspaceClient courseId="course-1" role="student">
+        <h1>강의자료</h1>
+      </CourseWorkspaceClient>
+    );
+
+    const navigation = await screen.findByRole("navigation", { name: "과목 메뉴" });
+    ["수업 계획서", "공지", "게시판", "과제 및 평가", "시험 및 설문", "출결현황", "학습 활동 현황", "성적"].forEach(
+      (label) => {
+        expect(within(navigation).getByText(label)).toBeInTheDocument();
+        expect(within(navigation).queryByRole("link", { name: label })).not.toBeInTheDocument();
+      }
     );
   });
 
@@ -86,7 +116,7 @@ describe("CourseWorkspaceClient", () => {
       </CourseWorkspaceClient>
     );
 
-    const navigation = await screen.findByRole("navigation", { name: "과목 탐색 메뉴" });
+    const navigation = await screen.findByRole("navigation", { name: "과목 메뉴" });
     expect(within(navigation).getByRole("link", { name: "RAG 디버그" })).toHaveAttribute(
       "aria-current",
       "page"

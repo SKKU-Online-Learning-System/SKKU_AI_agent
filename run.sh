@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+cd "$(dirname "$0")"
+UV="$(command -v uv || command -v uv.exe)"
+# .venv is the editor's (its Ruff LSP locks ruff.exe and blocks uv sync)
+export UV_PROJECT_ENVIRONMENT="${UV_PROJECT_ENVIRONMENT:-.venv-app}"
+export WSLENV="${WSLENV:+$WSLENV:}UV_PROJECT_ENVIRONMENT"
+unset VIRTUAL_ENV  # silence uv's warning when the editor's .venv is activated
+
+[ -f .env ] || cp .env.example .env
+[ -f apps/frontend/.env.local ] || cp apps/frontend/.env.local.example apps/frontend/.env.local
+[ -d node_modules ] || npm install
+
+docker compose up -d --wait db
+"$UV" run --locked --all-packages --extra dev --extra voice alembic -c apps/backend/alembic.ini upgrade head
+"$UV" run --locked --all-packages --extra dev --extra voice python -m app.db.seed
+
+# ponytail: kill 0 tears down the whole process group; fine for one dev shell
+trap 'kill 0' EXIT
+"$UV" run --locked --all-packages --extra dev --extra voice uvicorn app.main:app --reload --app-dir apps/backend --port 8000 &
+npm run dev:frontend

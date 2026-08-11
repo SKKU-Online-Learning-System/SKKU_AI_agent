@@ -66,7 +66,7 @@ function courseActions(audience: DashboardAudience, courseId: string) {
   if (audience === "student") {
     return [
       { href: `${basePath}/materials`, icon: "material" as const, label: "강의자료" },
-      { href: `${basePath}/chat`, icon: "agent" as const, label: "AI 질문" }
+      { href: `${basePath}/course-agent`, icon: "agent" as const, label: "COURSE AGENT" }
     ];
   }
   if (audience === "professor") {

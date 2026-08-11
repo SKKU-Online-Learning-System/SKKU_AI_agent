@@ -3,7 +3,12 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useState } from "react";
-import { getRoleHomePath, getRoleMenuItems, roleLabels } from "../../lib/auth";
+import {
+  getGlobalNavItems,
+  getRoleHomePath,
+  getRoleMenuItems,
+  roleLabels
+} from "../../lib/auth";
 import { UiIcon } from "../ui/ui-icon";
 import { useAuth } from "./auth-provider";
 
@@ -17,7 +22,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const { logout, user } = useAuth();
   const pathname = usePathname();
   const router = useRouter();
-  const [isContextNavOpen, setIsContextNavOpen] = useState(false);
+  const [isContextNavOpen, setIsContextNavOpen] = useState(true);
   const isCourseWorkspace =
     /^\/(student|professor)\/courses\/[^/]+/.test(pathname) ||
     /^\/admin\/course\/[^/]+/.test(pathname);
@@ -27,6 +32,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   }
 
   const menuItems = getRoleMenuItems(user.role);
+  const globalItems = getGlobalNavItems(user.role);
   const roleHomePath = getRoleHomePath(user.role);
   const activeMenuItem = menuItems.find((item) => isActivePath(pathname, item.href, roleHomePath));
   const currentTitle = activeMenuItem?.label ?? roleLabels[user.role];
@@ -44,42 +50,31 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img alt="성균관대학교" src="/skku-logo-white.PNG" />
         </Link>
-        <nav aria-label="글로벌 내비게이션">
-          {menuItems.map((item) => (
-            <Link
-              aria-current={isActivePath(pathname, item.href, roleHomePath) ? "page" : undefined}
-              href={item.href}
-              key={item.href}
-            >
-              <UiIcon name={item.icon} />
-              <span>{item.label}</span>
-            </Link>
-          ))}
-        </nav>
-      </aside>
-      {!isCourseWorkspace ? (
-        <aside
-          aria-label={`${roleLabels[user.role]} 보조 메뉴`}
-          className="icampus-context-nav"
-          data-open={isContextNavOpen}
-          id="icampus-context-navigation"
-        >
-          <strong>{roleLabels[user.role]} 메뉴</strong>
-          <nav aria-label={`${roleLabels[user.role]} 메뉴`}>
-            {menuItems.map((item) => (
+        <nav aria-label="i-Campus 전역 메뉴">
+          {globalItems.map((item) =>
+            item.href ? (
               <Link
-                aria-current={isActivePath(pathname, item.href, roleHomePath) ? "page" : undefined}
+                aria-current={
+                  isActivePath(pathname, item.href, roleHomePath) ? "page" : undefined
+                }
                 href={item.href}
-                key={item.href}
+                key={item.label}
               >
                 <UiIcon name={item.icon} />
                 <span>{item.label}</span>
               </Link>
-            ))}
-          </nav>
-        </aside>
-      ) : null}
+            ) : (
+              <span key={item.label} title="이 MVP에서는 제공하지 않는 메뉴입니다.">
+                <UiIcon name={item.icon} />
+                <span>{item.label}</span>
+              </span>
+            )
+          )}
+        </nav>
+      </aside>
       <div className="icampus-app-main">
+        {/* Inside a course the workspace renders the same top bar with the
+            course context, exactly like i-Campus does. */}
         {!isCourseWorkspace ? (
           <header className="icampus-app-topbar">
             <button
@@ -94,18 +89,46 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             </button>
             <strong>{currentTitle}</strong>
             <div className="icampus-user-menu">
-              <span>{user.name}</span>
+              <span>
+                {user.name} {roleLabels[user.role]}
+              </span>
               <button type="button" onClick={handleLogout}>
                 로그아웃
               </button>
             </div>
           </header>
         ) : null}
-        {isCourseWorkspace ? (
-          <div className="icampus-app-content icampus-app-content--course">{children}</div>
-        ) : (
-          <main className="icampus-app-content">{children}</main>
-        )}
+        <div className="icampus-app-body">
+          {!isCourseWorkspace ? (
+            <aside
+              aria-label={`${roleLabels[user.role]} 보조 메뉴`}
+              className="icampus-context-nav"
+              data-open={isContextNavOpen}
+              id="icampus-context-navigation"
+            >
+              <strong>{roleLabels[user.role]} 메뉴</strong>
+              <nav aria-label={`${roleLabels[user.role]} 메뉴`}>
+                {menuItems.map((item) => (
+                  <Link
+                    aria-current={
+                      isActivePath(pathname, item.href, roleHomePath) ? "page" : undefined
+                    }
+                    href={item.href}
+                    key={item.href}
+                  >
+                    <UiIcon name={item.icon} />
+                    <span>{item.label}</span>
+                  </Link>
+                ))}
+              </nav>
+            </aside>
+          ) : null}
+          {isCourseWorkspace ? (
+            <div className="icampus-app-content icampus-app-content--course">{children}</div>
+          ) : (
+            <main className="icampus-app-content">{children}</main>
+          )}
+        </div>
       </div>
     </div>
   );

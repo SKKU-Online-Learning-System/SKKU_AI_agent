@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional, Protocol
@@ -10,9 +11,20 @@ from pypdf import PdfReader
 
 from app.models import CourseMaterial
 
+# PDF and PPTX extraction regularly emits C0 control characters. PostgreSQL text
+# columns reject NUL outright ("text fields cannot contain NUL (0x00) bytes"),
+# which fails the whole INSERT of a material's chunks, and the rest are never
+# meaningful lecture content. Tab, newline and carriage return are kept.
+CONTROL_CHARACTERS = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
+
 
 class DocumentParsingError(Exception):
     pass
+
+
+def sanitize_text(text: str) -> str:
+    """Strip control characters that cannot be stored or read as text."""
+    return CONTROL_CHARACTERS.sub("", text)
 
 
 @dataclass(frozen=True)
@@ -57,10 +69,12 @@ class FileDocumentParserService:
                 f"DOCUMENT_UNSUPPORTED_TYPE: Unsupported document type: {file_type}"
             )
 
+        # Every format converges here, so this is the one place that has to
+        # guarantee storable text for chunks, embeddings and cited excerpts.
         pages = tuple(
-            ParsedPage(page.page_number, page.text.strip())
+            cleaned_page
             for page in pages
-            if page.text.strip()
+            if (cleaned_page := ParsedPage(page.page_number, sanitize_text(page.text).strip())).text
         )
         full_text = "\n\n".join(page.text for page in pages)
         if not full_text:

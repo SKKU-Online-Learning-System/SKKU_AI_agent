@@ -7,11 +7,18 @@ clear message instead of crashing the whole processing pipeline.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
 SUPPORTED_EXTENSIONS = frozenset({".txt", ".pdf", ".docx", ".pptx"})
+
+# PDF and PPTX extraction regularly emits C0 control characters. PostgreSQL text
+# columns reject NUL outright ("text fields cannot contain NUL (0x00) bytes"),
+# which fails the INSERT of every chunk of a material at once, and the rest are
+# never meaningful lecture content. Tab, newline and carriage return are kept.
+CONTROL_CHARACTERS = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
 
 
 class DocumentParseError(Exception):
@@ -54,6 +61,11 @@ class ParsedDocument:
         return "\n\n".join(page.text for page in self.pages if page.text.strip())
 
 
+def sanitize_text(text: str) -> str:
+    """Strip control characters that cannot be stored or read as text."""
+    return CONTROL_CHARACTERS.sub("", text)
+
+
 def parse_material(
     *,
     material_id: str,
@@ -80,7 +92,10 @@ def parse_material(
     else:
         pages = _read_pptx(path)
 
-    non_empty = [page for page in pages if page.text.strip()]
+    # Every extension converges here, so this is the one place that has to
+    # guarantee storable text for chunks, embeddings and cited excerpts.
+    cleaned = (ParsedPage(page.page_number, sanitize_text(page.text)) for page in pages)
+    non_empty = [page for page in cleaned if page.text.strip()]
     if not non_empty:
         raise EmptyDocumentError(
             "파일에서 텍스트를 추출할 수 없습니다. 스캔 이미지 PDF는 지원하지 않습니다."

@@ -16,6 +16,13 @@ export type RoleMenuItem = {
   icon: IconName;
 };
 
+/** One entry of the i-Campus global rail; `href` is null when unimplemented. */
+export type GlobalNavItem = {
+  href: string | null;
+  label: string;
+  icon: IconName;
+};
+
 export const roleLabels: Record<UserRole, string> = {
   admin: "관리자",
   professor: "교수자",
@@ -43,13 +50,38 @@ const roleMenuItems: Record<UserRole, RoleMenuItem[]> = {
     { href: "/professor/logs", label: "질문 로그", icon: "agent" },
     { href: "/professor/rag-debug", label: "RAG 디버그", icon: "source" }
   ],
+  // Questions are asked inside a course, through COURSE AGENT.
   student: [
     { href: "/student", label: "대시보드", icon: "dashboard" },
     { href: "/student/courses", label: "내 과목", icon: "course" },
-    { href: "/student/chat", label: "AI 질문", icon: "agent" },
     { href: "/student/chat-history", label: "대화 이력", icon: "material" }
   ]
 };
+
+const coursesPaths: Record<UserRole, string> = {
+  admin: "/admin/courses",
+  professor: "/professor/courses",
+  student: "/student/courses"
+};
+
+/**
+ * The nine i-Campus rail entries, in the order canvas.skku.edu renders them.
+ * Entries this MVP does not implement stay in place, greyed out, so the shell
+ * still reads as i-Campus instead of a shortened imitation.
+ */
+export function getGlobalNavItems(role: UserRole): GlobalNavItem[] {
+  return [
+    { href: null, label: "계정", icon: "account" },
+    { href: roleHomePaths[role], label: "대시보드", icon: "dashboard" },
+    { href: coursesPaths[role], label: "과목", icon: "course" },
+    { href: null, label: "그룹", icon: "group" },
+    { href: null, label: "캘린더", icon: "calendar" },
+    { href: null, label: "메시지함", icon: "message" },
+    { href: null, label: "전체게시물", icon: "posts" },
+    { href: null, label: "마이페이지", icon: "mypage" },
+    { href: null, label: "이용안내", icon: "info" }
+  ];
+}
 
 export function getRoleHomePath(role: UserRole): string {
   return roleHomePaths[role];

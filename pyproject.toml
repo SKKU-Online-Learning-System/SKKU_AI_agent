@@ -12,3 +12,7 @@ members = [
   "apps/backend",
   "packages/ai_rag",
 ]
+
+[tool.pytest.ini_options]
+testpaths = ["apps/backend/tests", "packages/ai_rag/tests"]
+pythonpath = ["apps/backend", "packages/ai_rag"]

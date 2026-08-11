@@ -59,6 +59,31 @@ class Settings(BaseSettings):
     max_context_chars: int = Field(default=12000, gt=0)
     seed_password: Optional[str] = None
 
+    # COURSE AGENT. Text answers use claude_model/use_mock_llm above; only the
+    # realtime speech-to-speech leg needs xAI, and without xai_api_key the voice
+    # button renders in "not configured" mode while text chat keeps working.
+    xai_api_key: Optional[str] = None
+    xai_realtime_url: str = "wss://api.x.ai/v1/realtime"
+    grok_voice_model: str = "grok-voice-latest"
+    grok_voice: str = "eve"
+    vad_threshold: float = Field(default=0.5, ge=0.0, le=1.0)
+    silence_ms: int = Field(default=900, gt=0)
+    prefix_ms: int = Field(default=300, gt=0)
+    min_speech_ms: int = Field(default=250, gt=0)
+    vad_aggressiveness: int = Field(default=2, ge=0, le=3)
+
+    # Weak-concept memory. Optional: falls back to a local JSON file.
+    moss_project_id: Optional[str] = None
+    moss_project_key: Optional[str] = None
+    moss_memory_index: str = "course-agent-weak-concepts"
+    moss_memory_model: str = "moss-minilm"
+    moss_sync_debounce_seconds: float = Field(default=0.75, ge=0.0)
+    moss_local_fallback_file: Optional[str] = None
+
+    @property
+    def is_voice_configured(self) -> bool:
+        return bool((self.xai_api_key or "").strip())
+
     @model_validator(mode="after")
     def validate_chunk_overlap(self) -> "Settings":
         if self.chunk_overlap >= self.chunk_size:

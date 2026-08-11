@@ -6,9 +6,11 @@ a deterministic mock keeps the chat flow testable without an API key.
 
 from __future__ import annotations
 
+import json
 import logging
-from dataclasses import dataclass
-from typing import Optional, Sequence
+from dataclasses import dataclass, field
+from typing import Awaitable, Callable, Optional, Sequence
+from urllib.parse import urlparse
 
 from app.core.config import Settings
 
@@ -25,6 +27,31 @@ class LLMError(Exception):
 class ChatMessage:
     role: str
     content: str
+
+
+@dataclass(frozen=True)
+class ToolCallRequest:
+    """One tool the model asked to run, with arguments already parsed."""
+
+    id: str
+    name: str
+    arguments: dict = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class ToolTurn:
+    """One assistant turn: free text, tool requests, or both."""
+
+    text: str
+    tool_calls: list[ToolCallRequest]
+    model_name: str
+
+
+@dataclass(frozen=True)
+class WebSearchAnswer:
+    answer: str
+    sources: list[str]
+    model_name: str
 
 
 @dataclass(frozen=True)
@@ -118,6 +145,234 @@ class LLMService:
                 ),
             ),
         )
+
+
+    # ----------------------------------------------------------------- tools
+    #
+    # The voice teaching assistant needs a tool-using, streaming turn. It runs
+    # on the same provider and the same mock as the text chatbot so the whole
+    # product keeps one answer-generation boundary.
+
+    def _require_client(self):
+        if not self.settings.anthropic_api_key:
+            raise LLMError(
+                "ANTHROPIC_API_KEY가 설정되지 않았습니다. "
+                "USE_MOCK_LLM=true로 두거나 키를 설정하세요."
+            )
+        from anthropic import AsyncAnthropic
+
+        return AsyncAnthropic(api_key=self.settings.anthropic_api_key)
+
+    async def stream_tool_turn(
+        self,
+        *,
+        system: str,
+        messages: Sequence[dict],
+        tools: Sequence[dict],
+        force_tools: Sequence[str] = (),
+        on_token: Optional[Callable[[str], Awaitable[None]]] = None,
+        max_tokens: Optional[int] = None,
+    ) -> ToolTurn:
+        """Run one Claude turn that may call tools, streaming any text it writes.
+
+        Args:
+            system: System prompt for the turn.
+            messages: Anthropic-shaped conversation, newest last.
+            tools: Anthropic-shaped tool schemas.
+            force_tools: Tool names the caller needs before an answer; a
+                non-empty value forbids Claude from replying without a tool.
+            on_token: Optional async callback receiving streamed text deltas.
+            max_tokens: Overrides the configured answer budget.
+
+        Returns:
+            The assistant text and any tool calls it requested.
+        """
+        if self.settings.use_mock_llm:
+            turn = _mock_tool_turn(messages, tools, force_tools)
+            if on_token and turn.text:
+                await on_token(turn.text)
+            return turn
+
+        client = self._require_client()
+        request = {
+            "model": self.settings.claude_model,
+            "max_tokens": max_tokens or self.settings.llm_max_tokens,
+            "temperature": self.settings.llm_temperature,
+            "system": system,
+            "messages": list(messages),
+            "tools": list(tools),
+            "tool_choice": {"type": "any"} if force_tools else {"type": "auto"},
+        }
+
+        try:
+            if on_token is None:
+                message = await client.messages.create(**request)
+            else:
+                async with client.messages.stream(**request) as stream:
+                    async for event in stream:
+                        if event.type == "text" and event.text:
+                            await on_token(event.text)
+                    message = await stream.get_final_message()
+        except LLMError:
+            raise
+        except Exception as error:
+            raise LLMError("Claude 답변 생성에 실패했습니다.") from error
+
+        text_parts: list[str] = []
+        tool_calls: list[ToolCallRequest] = []
+        for block in message.content:
+            if block.type == "text":
+                text_parts.append(block.text)
+            elif block.type == "tool_use":
+                arguments = block.input if isinstance(block.input, dict) else {}
+                tool_calls.append(ToolCallRequest(block.id, block.name, arguments))
+
+        return ToolTurn(
+            text="".join(text_parts),
+            tool_calls=tool_calls,
+            model_name=message.model,
+        )
+
+    async def search_web(
+        self,
+        *,
+        query: str,
+        system: str,
+        allowed_domains: Sequence[str],
+        max_uses: int = 3,
+    ) -> WebSearchAnswer:
+        """Answer from Claude's server-side web search, limited to an allowlist.
+
+        Args:
+            query: Focused search query.
+            system: System prompt describing how to answer.
+            allowed_domains: Only these hosts may be searched or cited.
+            max_uses: Upper bound on searches for this call.
+
+        Returns:
+            The cited answer and the trusted source URLs backing it.
+        """
+        if self.settings.use_mock_llm:
+            raise LLMError("모의 LLM 모드에서는 신뢰 웹 검색을 사용할 수 없습니다.")
+        if not allowed_domains:
+            raise LLMError("신뢰 사이트가 비어 있어 웹 검색을 실행할 수 없습니다.")
+
+        client = self._require_client()
+        try:
+            message = await client.messages.create(
+                model=self.settings.claude_model,
+                max_tokens=self.settings.llm_max_tokens,
+                system=system,
+                messages=[{"role": "user", "content": query}],
+                tools=[
+                    {
+                        "type": "web_search_20250305",
+                        "name": "web_search",
+                        "max_uses": max_uses,
+                        "allowed_domains": list(allowed_domains),
+                    }
+                ],
+            )
+        except Exception as error:
+            raise LLMError("신뢰 웹 검색에 실패했습니다.") from error
+
+        text_parts: list[str] = []
+        urls: list[str] = []
+        for block in message.content:
+            if block.type == "text":
+                text_parts.append(block.text)
+            elif block.type == "web_search_tool_result":
+                for result in getattr(block, "content", None) or []:
+                    url = getattr(result, "url", None)
+                    if url:
+                        urls.append(url)
+
+        return WebSearchAnswer(
+            answer="".join(text_parts).strip(),
+            # Re-check the allowlist locally: never trust the provider to have
+            # honoured the filter before we show a link to a student.
+            sources=[url for url in dict.fromkeys(urls) if _host_allowed(url, allowed_domains)],
+            model_name=message.model,
+        )
+
+
+def _host_allowed(url: str, allowed_domains: Sequence[str]) -> bool:
+    host = (urlparse(url).hostname or "").lower()
+    return any(host == domain or host.endswith(f".{domain}") for domain in allowed_domains)
+
+
+def _mock_tool_turn(
+    messages: Sequence[dict],
+    tools: Sequence[dict],
+    force_tools: Sequence[str],
+) -> ToolTurn:
+    """Deterministic tool-using turn so the voice assistant runs without a key."""
+
+    known = {tool["name"] for tool in tools}
+    if force_tools:
+        topic = _last_user_text(messages)
+        return ToolTurn(
+            text="",
+            tool_calls=[
+                ToolCallRequest(
+                    id=f"mock-{index}-{name}",
+                    name=name,
+                    arguments=_mock_tool_arguments(name, topic),
+                )
+                for index, name in enumerate(force_tools)
+                if name in known
+            ],
+            model_name=MOCK_MODEL_NAME,
+        )
+
+    return ToolTurn(
+        text=_mock_grounded_answer(messages),
+        tool_calls=[],
+        model_name=MOCK_MODEL_NAME,
+    )
+
+
+def _mock_tool_arguments(name: str, topic: str) -> dict:
+    if name == "recall_weak_concepts":
+        return {"topic": topic}
+    if name == "search_course_materials":
+        return {"query": topic}
+    return {}
+
+
+def _last_user_text(messages: Sequence[dict]) -> str:
+    for message in reversed(messages):
+        if message.get("role") != "user":
+            continue
+        content = message.get("content")
+        if isinstance(content, str):
+            return content
+    return ""
+
+
+def _mock_grounded_answer(messages: Sequence[dict]) -> str:
+    """Summarise the newest course-material tool result, or say it is missing."""
+
+    question = _last_user_text(messages)
+    for message in reversed(messages):
+        for block in message.get("content") or []:
+            if not isinstance(block, dict) or block.get("type") != "tool_result":
+                continue
+            try:
+                payload = json.loads(block.get("content") or "{}")
+            except json.JSONDecodeError:
+                continue
+            results = payload.get("results") if isinstance(payload, dict) else None
+            if not results:
+                continue
+            first = results[0]
+            preview = " ".join(str(first.get("excerpt", "")).split())[:200]
+            return (
+                f"[모의 답변] '{question}'은(는) {first.get('source', '강의자료')}에서 확인할 수 있어요. "
+                f"{preview}"
+            )
+
+    return f"[모의 답변] '{question}'에 대한 강의자료 근거를 찾지 못했어요."
 
 
 def _mock_answer(messages: Sequence[ChatMessage]) -> str:

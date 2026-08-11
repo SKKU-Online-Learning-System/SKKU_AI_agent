@@ -64,9 +64,9 @@ export function CourseHomeClient({ courseId, role }: { courseId: string; role: C
             <strong>{publishedCount}개</strong>
           </div>
           {role === "student" ? (
-            <Link href={`${basePath}/chat`}>
+            <Link href={`${basePath}/course-agent`}>
               <UiIcon name="agent" />
-              AI 질문 시작
+              COURSE AGENT 시작
             </Link>
           ) : null}
           {role === "admin" ? (

@@ -45,7 +45,7 @@ export function ChatHistoryClient() {
     <section className="course-list-page">
       <header>
         <h1>대화 이력</h1>
-        <p>이전에 나눈 과목별 대화를 다시 열어 이어서 질문할 수 있습니다.</p>
+        <p>이전에 나눈 과목별 대화를 COURSE AGENT에서 그대로 이어서 질문할 수 있습니다.</p>
       </header>
 
       {errorMessage ? (
@@ -86,7 +86,11 @@ export function ChatHistoryClient() {
                   <td>{session.messageCount}</td>
                   <td>{formatDateTime(session.lastMessageAt)}</td>
                   <td>
-                    <Link href={`/student/chat-history/${session.id}`}>이어서 보기</Link>
+                    <Link
+                      href={`/student/courses/${session.courseId}/course-agent?sessionId=${session.id}`}
+                    >
+                      이어서 질문하기
+                    </Link>
                   </td>
                 </tr>
               ))

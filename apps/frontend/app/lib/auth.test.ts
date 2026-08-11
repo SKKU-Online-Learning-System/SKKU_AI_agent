@@ -26,7 +26,6 @@ describe("auth route policy", () => {
     expect(getRoleMenuItems("student")).toEqual([
       { href: "/student", label: "대시보드", icon: "dashboard" },
       { href: "/student/courses", label: "내 과목", icon: "course" },
-      { href: "/student/chat", label: "AI 질문", icon: "agent" },
       { href: "/student/chat-history", label: "대화 이력", icon: "material" }
     ]);
   });

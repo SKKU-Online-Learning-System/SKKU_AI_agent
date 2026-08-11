@@ -1,14 +1,14 @@
 "use client";
 
 import { useParams, useSearchParams } from "next/navigation";
-import { ChatClient } from "../../../../components/chat/chat-client";
+import { CourseAgentClient } from "../../../../components/course-agent/course-agent-client";
 
-export default function StudentCourseChatPage() {
+export default function StudentCourseAgentPage() {
   const params = useParams<{ courseId: string }>();
   const searchParams = useSearchParams();
 
   return (
-    <ChatClient
+    <CourseAgentClient
       courseId={params.courseId}
       initialSessionId={searchParams.get("sessionId")}
     />
