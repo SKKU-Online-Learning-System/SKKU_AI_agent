@@ -9,7 +9,7 @@ from __future__ import annotations
 import json
 import logging
 from dataclasses import dataclass, field
-from typing import Awaitable, Callable, Optional, Sequence
+from typing import Awaitable, Callable, Literal, Optional, Sequence, cast
 from urllib.parse import urlparse
 
 from app.core.config import Settings
@@ -105,19 +105,24 @@ class LLMService:
 
         try:
             from anthropic import Anthropic
+            from anthropic.types import MessageParam
 
             system = "\n\n".join(
                 message.content for message in messages if message.role == "system"
             )
+            provider_messages: list[MessageParam] = [
+                {
+                    "role": cast(Literal["user", "assistant"], message.role),
+                    "content": message.content,
+                }
+                for message in messages
+                if message.role != "system"
+            ]
             response = Anthropic(api_key=self.settings.anthropic_api_key).messages.create(
                 model=self.settings.claude_model,
-                temperature=self.settings.llm_temperature,
                 max_tokens=self.settings.llm_max_tokens,
-                messages=[
-                    {"role": message.role, "content": message.content} for message in messages
-                    if message.role != "system"
-                ],
-                **({"system": system} if system else {}),
+                messages=provider_messages,
+                system=system,
             )
         except LLMError:
             raise
@@ -197,7 +202,6 @@ class LLMService:
         request = {
             "model": self.settings.claude_model,
             "max_tokens": max_tokens or self.settings.llm_max_tokens,
-            "temperature": self.settings.llm_temperature,
             "system": system,
             "messages": list(messages),
             "tools": list(tools),

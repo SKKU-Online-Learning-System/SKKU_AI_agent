@@ -115,7 +115,7 @@ def test_anthropic_service_uses_top_level_system_and_text_blocks(monkeypatch) ->
     assert response.usage.total_tokens == 1300
     assert calls[0]["model"] == "claude-test"
     assert calls[0]["max_tokens"] == 777
-    assert calls[0]["temperature"] == 0.4
+    assert "temperature" not in calls[0]
     assert "성균관대학교" in calls[0]["system"]
     assert all(message["role"] != "system" for message in calls[0]["messages"])
 

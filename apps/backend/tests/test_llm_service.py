@@ -44,6 +44,7 @@ def test_claude_uses_top_level_system_and_text_blocks(monkeypatch) -> None:
     assert response.usage.total_tokens == 130
     assert calls[0]["system"] == "규칙"
     assert calls[0]["messages"] == [{"role": "user", "content": "질문"}]
+    assert "temperature" not in calls[0]
 
 
 def test_claude_requires_api_key() -> None:

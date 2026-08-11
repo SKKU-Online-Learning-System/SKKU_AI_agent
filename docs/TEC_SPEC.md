@@ -1119,6 +1119,8 @@ DocumentChunk.course_id = selected_course_id
 
 Anthropic Messages API에서 시스템 프롬프트는 message의 `system` role이 아니라 최상위 `system` 파라미터로 전달한다. 응답은 `content` 배열의 `text` 블록만 순서대로 조합한다.
 
+현재 기본 모델인 `claude-sonnet-5` 요청에는 지원 중단된 `temperature` 파라미터를 전달하지 않는다.
+
 LLM에는 다음 정보를 전달한다.
 
 ```text id="c716b6"

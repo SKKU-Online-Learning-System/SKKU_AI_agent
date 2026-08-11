@@ -180,7 +180,6 @@ class AnthropicLLMService:
             response = await AsyncAnthropic(api_key=self.api_key).messages.create(
                 model=options.model_name,
                 max_tokens=options.max_tokens,
-                temperature=options.temperature,
                 system=prompt.system,
                 messages=[
                     {"role": message.role, "content": message.content}
