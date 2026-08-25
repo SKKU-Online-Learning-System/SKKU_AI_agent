@@ -1,7 +1,8 @@
 "use client";
 
-import { Fragment, useEffect, useRef } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import type { VoicePlotPoint, VoiceVisualization } from "../../lib/voice-api";
+import { fetchVoicePdfUrl } from "../../lib/voice-api";
 
 declare global {
   interface Window {
@@ -83,16 +84,38 @@ function Plot({ visualization }: { visualization: VoiceVisualization }) {
 }
 
 export function CourseAgentVisualizationCard({
+  courseId,
   visualization
 }: {
+  courseId: string;
   visualization: VoiceVisualization;
 }) {
   const formulaRef = useRef<HTMLDivElement | null>(null);
+  const [pdfUrl, setPdfUrl] = useState<string | null>(null);
+  const [pdfError, setPdfError] = useState<string | null>(null);
 
   useEffect(() => {
     if (visualization.kind !== "formula" || !formulaRef.current) return;
     void window.MathJax?.typesetPromise?.([formulaRef.current]).catch(() => undefined);
   }, [visualization]);
+
+  useEffect(() => {
+    if (visualization.kind !== "pdf" || !visualization.material_id) return;
+    let active = true;
+    let objectUrl = "";
+    fetchVoicePdfUrl(courseId, visualization.material_id)
+      .then((url) => {
+        objectUrl = url;
+        if (active) setPdfUrl(`${url}#page=${visualization.page ?? 1}&view=FitH`);
+      })
+      .catch(() => {
+        if (active) setPdfError("PDF 페이지를 불러오지 못했습니다.");
+      });
+    return () => {
+      active = false;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [courseId, visualization]);
 
   return (
     <div className="voice-message" data-role="assistant">
@@ -120,6 +143,19 @@ export function CourseAgentVisualizationCard({
             </div>
           ) : null}
           {visualization.kind === "plot" ? <Plot visualization={visualization} /> : null}
+          {visualization.kind === "pdf" ? (
+            pdfUrl ? (
+              <iframe
+                className="voice-visualization-pdf"
+                src={pdfUrl}
+                title={`${visualization.file ?? visualization.title} ${visualization.page ?? 1}쪽`}
+              />
+            ) : (
+              <p className="voice-visualization-pdf-status">
+                {pdfError ?? "PDF 페이지를 불러오는 중입니다."}
+              </p>
+            )
+          ) : null}
           <p className="voice-visualization-caption">{visualization.caption}</p>
         </div>
       </div>

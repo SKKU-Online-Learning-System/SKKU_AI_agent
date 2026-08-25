@@ -26,7 +26,14 @@ def test_alembic_upgrade_and_downgrade_full_schema(tmp_path: Path) -> None:
         "chat_logs",
     }
     chunk_columns = {column["name"] for column in inspector.get_columns("document_chunks")}
-    assert {"course_id", "material_id", "chunk_index", "embedding", "page_number"} <= chunk_columns
+    assert {
+        "course_id",
+        "material_id",
+        "chunk_index",
+        "embedding",
+        "embedded_at",
+        "page_number",
+    } <= chunk_columns
     log_columns = {column["name"] for column in inspector.get_columns("chat_logs")}
     assert {
         "referenced_documents",
@@ -69,6 +76,7 @@ def test_alembic_upgrade_and_downgrade_full_schema(tmp_path: Path) -> None:
         "char_count",
         "embedding",
         "embedding_model",
+        "embedded_at",
         "created_at",
         "updated_at",
     } == chunk_columns
@@ -93,6 +101,7 @@ def test_alembic_upgrade_and_downgrade_full_schema(tmp_path: Path) -> None:
         "is_grounded",
         "safety_result",
         "retrieval_result",
+        "answer_source_type",
         "created_at",
     } == {column["name"] for column in inspector.get_columns("chat_logs")}
 

@@ -11,12 +11,14 @@ from threading import RLock
 
 from app.core.config import get_settings
 from app.services.voice.brain import VoiceContext
+from app.services.voice.external_brain import ExternalBrain
 from app.services.voice.moss_memory import MossMemoryStore
 
 # Reentrant: get_context() calls memory_store() while already holding the lock.
 _lock = RLock()
 _contexts: dict[tuple[str, str], VoiceContext] = {}
 _memories: dict[str, MossMemoryStore] = {}
+_external_brains: dict[tuple[str, str], ExternalBrain] = {}
 
 
 def memory_store(user_id: str) -> MossMemoryStore:
@@ -47,6 +49,19 @@ def get_context(user_id: str, course_id: str, course_name: str) -> VoiceContext:
         return context
 
 
+def external_brain_for(user_id: str, course_id: str, course_name: str) -> ExternalBrain:
+    """Return the background learning assessor for one learner and course."""
+    key = (user_id, course_id)
+    with _lock:
+        worker = _external_brains.get(key)
+        if worker is None:
+            worker = ExternalBrain(memory_store(user_id), course_name)
+            _external_brains[key] = worker
+        else:
+            worker.course_name = course_name
+        return worker
+
+
 def reset_context(user_id: str, course_id: str) -> None:
     """Clear the conversation history for one learner and course."""
     with _lock:
@@ -63,7 +78,13 @@ def is_voice_configured() -> bool:
 async def shutdown() -> None:
     """Flush every learner's pending weak-concept sync."""
     with _lock:
+        workers = list(_external_brains.values())
         stores = list(_memories.values())
+    for worker in workers:
+        try:
+            await worker.flush()
+        except Exception:  # pragma: no cover - best effort on shutdown
+            pass
     for store in stores:
         try:
             await store.close()

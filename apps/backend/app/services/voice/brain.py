@@ -40,6 +40,15 @@ log = logging.getLogger("voice.brain")
 PDF_MAX_RESULTS = 3
 MAX_HISTORY_MESSAGES = 12
 MAX_TOOL_ROUNDS = 6
+MEMORY_TOP_K = 3
+
+MEMORY_GUIDANCE = """
+# Learner memory
+The server supplies up to three of this student's most recently observed weak
+concepts, newest first. Use a memory only when it is relevant to the current
+conversation. Never invent learner history or force an unrelated memory into
+the conversation.
+""".strip()
 
 
 class VoiceNotConfiguredError(RuntimeError):
@@ -98,13 +107,16 @@ class PlotPoint(BaseModel):
 
 class Visualization(BaseModel):
     title: str = Field(min_length=1, max_length=120)
-    kind: Literal["formula", "flow", "plot"]
+    kind: Literal["formula", "flow", "plot", "pdf"]
     caption: str = Field(min_length=1, max_length=300)
-    latex: str = Field(max_length=1000)
-    labels: list[str] = Field(max_length=8)
-    points: list[PlotPoint] = Field(max_length=40)
-    x_label: str = Field(max_length=40)
-    y_label: str = Field(max_length=40)
+    latex: str = Field(default="", max_length=1000)
+    labels: list[str] = Field(default_factory=list, max_length=8)
+    points: list[PlotPoint] = Field(default_factory=list, max_length=40)
+    x_label: str = Field(default="", max_length=40)
+    y_label: str = Field(default="", max_length=40)
+    file: str = Field(default="", max_length=255)
+    page: int = Field(default=0, ge=0)
+    material_id: str = Field(default="", max_length=36)
 
 
 @dataclass
@@ -140,15 +152,13 @@ You are COURSE AGENT, a Socratic voice teaching assistant for one
 Sungkyunkwan University student.
 
 # Language and speaking style
-Speak in Korean unless asked otherwise. Use natural spoken Korean in the
-polite 해요 style, as if talking with the student face to face. Prefer endings
-such as 해요, 예요, 볼까요, and 해볼게요. Avoid written declarative endings such
-as 한다, 이다, and 하였다, and avoid textbook or report-like prose unless you are
-quoting a source.
+Speak in Korean unless asked otherwise. Use natural, polite spoken Korean as if
+talking with the student face to face. Avoid textbook or report-like prose.
 
 # Tool workflow
-At the start of every student turn, call recall_weak_concepts and
-search_course_materials together.
+Learner memory and course materials are preloaded by the server before every
+turn. Do not call tools to repeat that work. Use trusted web only when the
+preloaded course evidence is missing or insufficient.
 
 # Evidence and sources
 Base factual claims only on tool results. For PDF evidence, state filename and
@@ -159,24 +169,17 @@ Return source URLs through the separate sources field; do not repeat raw URLs
 in the conversational answer.
 
 # Learning memory
-Use recalled weaknesses to personalize hints and check prerequisites. Call
-save_weak_concept only for explicit confusion, an incorrect answer, or an
-incomplete explanation; ordinary questions are not weaknesses. When the
-student answers a review prompt containing a memory id, call
-review_weak_concept with your correctness judgment.
+Use recalled weaknesses to personalize hints and check prerequisites. A
+separate background assessor records and reviews weak concepts after the turn.
 
 # Visual references
 Never put raw equations, symbolic notation, diagrams, or coordinate data in
 the conversational answer and never read them symbol by symbol. When the
 answer would otherwise contain a formula, process diagram, or graph, you MUST
 call show_visualization first and put the exact visual data only in that tool.
-Treat any mathematical expression—including a single equation, variable
-relationship, Greek letter, fraction, exponent, subscript, or LaTeX—as a
-formula. When unsure whether visual support is useful, prefer calling
-show_visualization. Do not send the final conversational answer until that tool
-has succeeded. In the spoken answer, explain only what the visual means; never
-repeat its LaTeX, symbols, equation, or coordinates, even when quoting a PDF.
-Then explain it naturally with a reference such as '제가 보여드린 그림처럼'.
+Treat a mathematical expression or process as visual content. When visual
+support helps, call show_visualization before the final answer and explain only
+what the visual means rather than reading raw symbols or coordinates aloud.
 
 # Academic integrity
 Never hand over a complete assignment answer, report, or exam solution. Turn
@@ -193,8 +196,13 @@ MODE_PROMPTS = {
         "one concrete example, then ask one short understanding-check question."
     ),
     "socratic": (
-        "Socratic mode: do not reveal the final answer first. Ask one focused "
-        "question or give one progressive hint that makes the student reason."
+        "Socratic mode: make the student perform the next reasoning step. On the "
+        "first turn, never explain or summarize the answer. Ask exactly one question "
+        "answerable in one short sentence. After one wrong or uncertain response, "
+        "give one minimal hint and ask an easier question. After two unsuccessful "
+        "attempts, ask whether the student wants another hint or a direct explanation. "
+        "Give a direct explanation only after the student explicitly chooses it. End "
+        "every response with exactly one question. Maximum two short spoken sentences."
     ),
 }
 
@@ -350,7 +358,10 @@ TOOLS = [
                 "type": "object",
                 "properties": {
                     "title": {"type": "string", "description": "Short Korean title."},
-                    "kind": {"type": "string", "enum": ["formula", "flow", "plot"]},
+                    "kind": {
+                        "type": "string",
+                        "enum": ["formula", "flow", "plot", "pdf"],
+                    },
                     "caption": {
                         "type": "string",
                         "description": "One concise Korean takeaway.",
@@ -387,6 +398,15 @@ TOOLS = [
                         "type": "string",
                         "description": "Plot y-axis label, otherwise empty.",
                     },
+                    "file": {
+                        "type": "string",
+                        "description": "Exact course material filename for a PDF page.",
+                    },
+                    "page": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "description": "Exact PDF page, otherwise zero.",
+                    },
                 },
                 "required": [
                     "title",
@@ -397,6 +417,8 @@ TOOLS = [
                     "points",
                     "x_label",
                     "y_label",
+                    "file",
+                    "page",
                 ],
                 "additionalProperties": False,
             },
@@ -418,6 +440,7 @@ def anthropic_tools() -> list[dict]:
             "input_schema": tool["function"]["parameters"],
         }
         for tool in TOOLS
+        if tool["function"]["name"] in {"search_trusted_web", "show_visualization"}
     ]
 
 
@@ -450,14 +473,49 @@ def show_visualization(**args) -> str:
     Returns:
         JSON string containing only validated, render-safe data.
     """
-    visualization = Visualization(**args)
+    visualization = Visualization(**_normalize_visualization_args(args))
     if visualization.kind == "formula" and not visualization.latex.strip():
         raise ValueError("formula visualization requires latex")
     if visualization.kind == "flow" and len(visualization.labels) < 2:
         raise ValueError("flow visualization requires at least two labels")
     if visualization.kind == "plot" and len(visualization.points) < 2:
         raise ValueError("plot visualization requires at least two points")
+    if visualization.kind == "pdf" and (not visualization.file.strip() or visualization.page < 1):
+        raise ValueError("pdf visualization requires an exact file and page")
     return _json(visualization.model_dump())
+
+
+def _normalize_visualization_args(args: dict) -> dict:
+    """Accept harmless provider variations before applying strict validation."""
+    normalized = dict(args)
+    nested = normalized.pop("visualization", None)
+    if isinstance(nested, dict):
+        normalized = {**nested, **normalized}
+
+    aliases = {
+        "type": "kind",
+        "name": "title",
+        "description": "caption",
+        "equation": "latex",
+        "formula": "latex",
+    }
+    for source, target in aliases.items():
+        if target not in normalized and source in normalized:
+            normalized[target] = normalized[source]
+
+    if "labels" not in normalized:
+        for key in ("nodes", "steps", "items"):
+            if key in normalized:
+                normalized["labels"] = normalized[key]
+                break
+    labels = normalized.get("labels")
+    if isinstance(labels, str):
+        normalized["labels"] = [
+            value.strip()
+            for value in re.split(r"\s*(?:→|->|=>|\||,|\n)\s*", labels)
+            if value.strip()
+        ]
+    return normalized
 
 
 def _terms(text: str) -> set[str]:
@@ -503,6 +561,9 @@ def search_course_materials(course_id: str, query: str) -> tuple[str, list[dict]
     results = [
         {
             "source": _source_label(result.document_name, result.page_number),
+            "file": result.document_name,
+            "page": result.page_number or 0,
+            "material_id": result.material_id,
             "excerpt": result.chunk_text.strip()[:1000],
         }
         for result in outcome.results
@@ -524,6 +585,103 @@ def search_course_materials(course_id: str, query: str) -> tuple[str, list[dict]
 
 def _source_label(document_name: str, page_number: Optional[int]) -> str:
     return f"{document_name} p.{page_number}" if page_number else document_name
+
+
+def _compact_memory(memory: dict) -> dict:
+    compact = {
+        "concept": memory.get("concept", ""),
+        "difficulty": memory.get("difficulty_note") or memory.get("difficulty", ""),
+        "status": memory.get("status", "new"),
+    }
+    if memory.get("course"):
+        compact["course"] = memory["course"]
+    return compact
+
+
+async def recent_weak_concepts(context: VoiceContext, *, top_k: int = MEMORY_TOP_K) -> dict:
+    """Return the learner's most recent compact weak-concept records."""
+    memories = await context.memory.all_memories()
+    if not isinstance(memories, list):
+        return {"found": False, "memories": []}
+    memories.sort(
+        key=lambda item: (
+            float(item.get("last_seen_at", 0) or 0),
+            float(item.get("saved_at", 0) or 0),
+        ),
+        reverse=True,
+    )
+    compact = [_compact_memory(item) for item in memories[:top_k]]
+    compact = [item for item in compact if item["concept"]]
+    return {"found": bool(compact), "memories": compact}
+
+
+async def prefetch_memory_context(context: VoiceContext, question: str = "") -> dict:
+    """Prefetch only learner memory for a realtime voice session."""
+    try:
+        memory = await recent_weak_concepts(context)
+    except Exception as exc:
+        memory = {"error": f"memory prefetch failed: {exc}"}
+    return {"student_question": question.strip(), "weak_concepts": memory}
+
+
+async def prefetch_context(
+    context: VoiceContext,
+    question: str,
+    timer: StageTimer | None = None,
+) -> dict:
+    """Prefetch learner memory and course evidence in parallel for text chat."""
+
+    async def recall() -> dict:
+        started = time.perf_counter()
+        try:
+            try:
+                return await recent_weak_concepts(context)
+            except Exception as exc:
+                log.warning("learner-memory prefetch failed: %s", exc)
+                return {"found": False, "memories": []}
+        finally:
+            if timer is not None:
+                timer.record("recall", started)
+
+    async def retrieve() -> tuple[str, list[dict]]:
+        started = time.perf_counter()
+        try:
+            try:
+                return await asyncio.to_thread(search_course_materials, context.course_id, question)
+            except Exception as exc:
+                log.warning("course-material prefetch failed: %s", exc)
+                return _json({"found": False, "error": str(exc)}), []
+        finally:
+            if timer is not None:
+                timer.record("material", started)
+
+    memory, (raw_materials, citations) = await asyncio.gather(recall(), retrieve())
+    context.last_material_sources = citations
+    try:
+        materials = json.loads(raw_materials)
+    except json.JSONDecodeError:
+        materials = {"error": "course material prefetch returned invalid JSON"}
+    return {
+        "student_question": question.strip(),
+        "weak_concepts": memory,
+        "course_materials": materials,
+    }
+
+
+def answer_instructions(context: VoiceContext, mode: str, prefetched: dict) -> str:
+    """Build the latest KINGO text policy with server-prefetched context."""
+    payload = json.dumps(prefetched, ensure_ascii=False, separators=(",", ":"))
+    return "\n\n".join(
+        (
+            SYSTEM_PROMPT,
+            f"# Course\nThis session belongs to '{context.course_name}'.",
+            MODE_PROMPTS.get(mode, MODE_PROMPTS["socratic"]),
+            MEMORY_GUIDANCE,
+            "# Preloaded context\n"
+            "Use trusted web only when course_materials is missing or insufficient.\n"
+            f"{payload}",
+        )
+    )
 
 
 WEB_SEARCH_SYSTEM_PROMPT = (
@@ -669,9 +827,23 @@ async def run_tool(context: VoiceContext, name: str, args: dict, timer: StageTim
 # --------------------------------------------------------------------------
 
 CONFUSION_MARKERS = (
-    "모르겠", "모르겠어", "잘 모르", "어려워", "어렵", "헷갈",
-    "이해가 안", "이해 안", "이해되지", "감이 안", "막혀", "틀린 것 같",
-    "don't know", "do not know", "confused", "difficult", "hard to understand",
+    "모르겠",
+    "모르겠어",
+    "잘 모르",
+    "어려워",
+    "어렵",
+    "헷갈",
+    "이해가 안",
+    "이해 안",
+    "이해되지",
+    "감이 안",
+    "막혀",
+    "틀린 것 같",
+    "don't know",
+    "do not know",
+    "confused",
+    "difficult",
+    "hard to understand",
 )
 
 
@@ -688,9 +860,6 @@ def _fallback_weak_concept(course_name: str, transcript: str) -> WeakConceptCapt
         original_question=concise_question,
         difficulty_note="학생이 명시적으로 이해 부족, 혼란 또는 어려움을 표현함",
     )
-
-
-REQUIRED_CONTEXT_TOOLS = ("recall_weak_concepts", "search_course_materials")
 
 
 def _conversation(history: list[dict]) -> list[dict]:
@@ -731,24 +900,16 @@ async def think(
     tools_used: list[str] = []
     external_sources: list[str] = []
     visualizations: list[dict] = []
-    system = "\n\n".join(
-        (
-            SYSTEM_PROMPT,
-            f"# Course\n이 대화는 성균관대학교 '{context.course_name}' 과목의 AI 조교 "
-            "세션입니다. 강의자료 검색은 이 과목으로만 한정됩니다.",
-            MODE_PROMPTS.get(mode, MODE_PROMPTS["socratic"]),
-        )
-    )
+    prefetched = await prefetch_context(context, transcript, timer)
+    system = answer_instructions(context, mode, prefetched)
     tools = anthropic_tools()
 
     for _ in range(MAX_TOOL_ROUNDS):
-        missing_context = [name for name in REQUIRED_CONTEXT_TOOLS if name not in tools_used]
         started_at = time.perf_counter()
         turn = await llm.stream_tool_turn(
             system=system,
             messages=[*_conversation(context.history), *tool_messages],
             tools=tools,
-            force_tools=missing_context,
             on_token=on_token,
         )
         elapsed_ms = round((time.perf_counter() - started_at) * 1000)
@@ -760,12 +921,14 @@ async def think(
             if external_sources:
                 reply_text = for_speech(reply_text)
 
-            if _explicit_confusion(transcript) and "save_weak_concept" not in tools_used:
-                memory = _fallback_weak_concept(context.course_name, transcript)
-                await run_tool(context, "save_weak_concept", memory.model_dump(), timer)
-                tools_used.append("save_weak_concept")
-
             context.append_history({"role": "assistant", "content": reply_text})
+            from app.services.voice.session_store import external_brain_for
+
+            external_brain_for(
+                context.user_id,
+                context.course_id,
+                context.course_name,
+            ).schedule(context.history, source="text")
             return reply_text, tools_used, external_sources[:3], visualizations
 
         assistant_blocks: list[dict] = []
@@ -790,9 +953,7 @@ async def think(
                 visual = json.loads(result)
                 if "error" not in visual:
                     visualizations.append(visual)
-            result_blocks.append(
-                {"type": "tool_result", "tool_use_id": call.id, "content": result}
-            )
+            result_blocks.append({"type": "tool_result", "tool_use_id": call.id, "content": result})
         tool_messages.append({"role": "user", "content": result_blocks})
 
     raise RuntimeError("the assistant exceeded the tool-call round limit")
@@ -806,7 +967,9 @@ async def think(
 def for_speech(text: str) -> str:
     """Remove URLs from speech while keeping them in screen text."""
     text = re.sub(
-        r"\s*외부 출처\s*:?\s*(?:https?://\S+\s*,?\s*)+$", "", text,
+        r"\s*외부 출처\s*:?\s*(?:https?://\S+\s*,?\s*)+$",
+        "",
+        text,
         flags=re.IGNORECASE,
     )
     return re.sub(r"https?://\S+", "", text).strip()
@@ -822,10 +985,12 @@ async def next_review_prompt(context: VoiceContext) -> dict:
     if memory is None:
         return {"due": False}
     question = f"{memory['concept']}을 자신의 말로 설명해 볼까요?"
-    context.append_history({
-        "role": "assistant",
-        "content": f"복습 질문 (memory_id={memory['id']}): {question}",
-    })
+    context.append_history(
+        {
+            "role": "assistant",
+            "content": f"복습 질문 (memory_id={memory['id']}): {question}",
+        }
+    )
     return {
         "due": True,
         "memory_id": memory["id"],

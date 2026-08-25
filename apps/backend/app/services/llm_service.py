@@ -129,9 +129,7 @@ class LLMService:
         except Exception as error:
             raise LLMError("Claude 답변 생성에 실패했습니다.") from error
 
-        answer = "".join(
-            block.text for block in response.content if block.type == "text"
-        ).strip()
+        answer = "".join(block.text for block in response.content if block.type == "text").strip()
         if not answer:
             raise LLMError("Claude가 빈 답변을 반환했습니다.")
 
@@ -150,7 +148,6 @@ class LLMService:
                 ),
             ),
         )
-
 
     # ----------------------------------------------------------------- tools
     #
@@ -193,7 +190,7 @@ class LLMService:
             The assistant text and any tool calls it requested.
         """
         if self.settings.use_mock_llm:
-            turn = _mock_tool_turn(messages, tools, force_tools)
+            turn = _mock_tool_turn(messages, tools, force_tools, system=system)
             if on_token and turn.text:
                 await on_token(turn.text)
             return turn
@@ -236,6 +233,28 @@ class LLMService:
             tool_calls=tool_calls,
             model_name=message.model,
         )
+
+    async def generate_json(self, *, system: str, payload: dict, max_tokens: int = 900) -> dict:
+        """Generate one JSON object through the configured provider boundary."""
+        if self.settings.use_mock_llm:
+            return {"save": None, "reviews": []}
+        client = self._require_client()
+        try:
+            message = await client.messages.create(
+                model=self.settings.claude_model,
+                max_tokens=max_tokens,
+                system=system,
+                messages=[{"role": "user", "content": json.dumps(payload, ensure_ascii=False)}],
+            )
+            raw = "".join(block.text for block in message.content if block.type == "text").strip()
+            if raw.startswith("```"):
+                raw = raw.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
+            result = json.loads(raw)
+        except Exception as error:
+            raise LLMError("구조화 JSON 생성에 실패했습니다.") from error
+        if not isinstance(result, dict):
+            raise LLMError("구조화 응답이 JSON 객체가 아닙니다.")
+        return result
 
     async def search_web(
         self,
@@ -309,6 +328,8 @@ def _mock_tool_turn(
     messages: Sequence[dict],
     tools: Sequence[dict],
     force_tools: Sequence[str],
+    *,
+    system: str = "",
 ) -> ToolTurn:
     """Deterministic tool-using turn so the voice assistant runs without a key."""
 
@@ -330,9 +351,27 @@ def _mock_tool_turn(
         )
 
     return ToolTurn(
-        text=_mock_grounded_answer(messages),
+        text=_mock_prefetched_answer(system, messages),
         tool_calls=[],
         model_name=MOCK_MODEL_NAME,
+    )
+
+
+def _mock_prefetched_answer(system: str, messages: Sequence[dict]) -> str:
+    """Ground the mock response in the server-prefetched course context."""
+    try:
+        context = json.loads(system.rsplit("\n", 1)[-1])
+        results = context.get("course_materials", {}).get("results", [])
+    except (json.JSONDecodeError, AttributeError):
+        results = []
+    if not results:
+        return _mock_grounded_answer(messages)
+    first = results[0]
+    question = _last_user_text(messages)
+    preview = " ".join(str(first.get("excerpt", "")).split())[:200]
+    return (
+        f"[모의 응답] '{question}'은(는) {first.get('source', '강의자료')}에서 "
+        f"확인할 수 있어요. {preview}"
     )
 
 

@@ -24,9 +24,7 @@ def _load_sdk() -> SimpleNamespace:
     try:
         from moss import DocumentInfo, GetDocumentsOptions, MossClient, QueryOptions
     except ImportError as exc:  # pragma: no cover - exercised only in misconfigured installs
-        raise RuntimeError(
-            "Moss SDK is not installed. Run: uv sync"
-        ) from exc
+        raise RuntimeError("Moss SDK is not installed. Run: uv sync") from exc
     return SimpleNamespace(
         DocumentInfo=DocumentInfo,
         GetDocumentsOptions=GetDocumentsOptions,
@@ -108,10 +106,8 @@ class MossMemoryStore:
         )
 
     def _activate_local_mode(self, exc: Exception) -> bool:
-        if not self._is_quota_error(exc):
-            return False
         if not self._local_mode:
-            log.warning("Moss usage limit reached; using local weak-concept memory: %s", exc)
+            log.warning("Moss unavailable; using local weak-concept memory: %s", exc)
         self._local_mode = True
         push_task = self._push_task
         if (
@@ -132,9 +128,7 @@ class MossMemoryStore:
             if not value
         ]
         if missing:
-            raise RuntimeError(
-                f"{', '.join(missing)} is not set. Add it to your environment."
-            )
+            raise RuntimeError(f"{', '.join(missing)} is not set. Add it to your environment.")
 
     async def initialize(self) -> None:
         """Hydrate the cloud index once; later reads and writes stay in-process."""
@@ -147,8 +141,7 @@ class MossMemoryStore:
                 # Without Moss credentials the agent still remembers weak concepts,
                 # it just keeps them in the local JSON file instead of the cloud.
                 log.warning(
-                    "MOSS_PROJECT_ID/MOSS_PROJECT_KEY are not set; "
-                    "using local weak-concept memory"
+                    "MOSS_PROJECT_ID/MOSS_PROJECT_KEY are not set; using local weak-concept memory"
                 )
                 self._local_mode = True
                 return
@@ -189,7 +182,11 @@ class MossMemoryStore:
         except (OSError, json.JSONDecodeError):
             log.exception("failed to read local weak-concept memory")
             return []
-        return [memory for memory in data if isinstance(memory, dict)] if isinstance(data, list) else []
+        return (
+            [memory for memory in data if isinstance(memory, dict)]
+            if isinstance(data, list)
+            else []
+        )
 
     def _write_local(self, memories: list[dict[str, Any]]) -> None:
         self.local_path.parent.mkdir(parents=True, exist_ok=True)
@@ -413,8 +410,7 @@ class MossMemoryStore:
         due = [
             memory
             for memory in await self.all_memories()
-            if memory.get("status") != "mastered"
-            and float(memory.get("next_review_at", 0)) <= now
+            if memory.get("status") != "mastered" and float(memory.get("next_review_at", 0)) <= now
         ]
         return min(due, key=lambda memory: memory.get("next_review_at", 0), default=None)
 
@@ -443,9 +439,7 @@ class MossMemoryStore:
                 return await self._recall_local(topic, top_k)
             raise
         memories = [
-            memory
-            for doc in result.docs
-            if (memory := self._memory_from_doc(doc)) is not None
+            memory for doc in result.docs if (memory := self._memory_from_doc(doc)) is not None
         ]
         return self._recall_response(topic, memories, "moss")
 
@@ -497,10 +491,7 @@ class MossMemoryStore:
 
     @staticmethod
     def _terms(text: str) -> set[str]:
-        return {
-            token.casefold()
-            for token in re.findall(r"[0-9A-Za-z가-힣_]{2,}", text)
-        }
+        return {token.casefold() for token in re.findall(r"[0-9A-Za-z가-힣_]{2,}", text)}
 
     async def all_memories(self) -> list[dict[str, Any]]:
         """Return structured records for the optional follow-up worker."""

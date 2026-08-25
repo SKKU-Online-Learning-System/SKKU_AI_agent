@@ -7,8 +7,9 @@ import json
 import pytest
 from sqlalchemy import select
 
+from app.api.routes import voice as voice_routes
 from app.core.config import Settings
-from app.models import ChatLog
+from app.models import ChatLog, CourseMaterial
 from app.services.voice import brain, trusted_sites
 from app.services.voice.session_store import get_context, reset_context
 
@@ -26,7 +27,10 @@ def stub_course_search(monkeypatch):
         {
             "found": True,
             "results": [
-                {"source": "lecture1.txt", "excerpt": "경사하강법은 기울기의 반대 방향으로 갱신합니다."}
+                {
+                    "source": "lecture1.txt",
+                    "excerpt": "경사하강법은 기울기의 반대 방향으로 갱신합니다.",
+                }
             ],
         },
         ensure_ascii=False,
@@ -43,9 +47,7 @@ def stub_course_search(monkeypatch):
     monkeypatch.setattr(
         brain, "search_course_materials", lambda _course_id, query: (result, citations)
     )
-    monkeypatch.setattr(
-        brain, "get_settings", lambda: Settings(_env_file=None, use_mock_llm=True)
-    )
+    monkeypatch.setattr(brain, "get_settings", lambda: Settings(_env_file=None, use_mock_llm=True))
     return citations
 
 
@@ -84,9 +86,7 @@ def test_professor_manages_the_trusted_site_allowlist(chat_api) -> None:
 
 
 def test_students_cannot_manage_the_trusted_site_allowlist(chat_api) -> None:
-    response = chat_api.get(
-        f"/api/voice/courses/{chat_api.courses['ai']}/trusted-sites", "student"
-    )
+    response = chat_api.get(f"/api/voice/courses/{chat_api.courses['ai']}/trusted-sites", "student")
 
     assert response.status_code == 403
 
@@ -132,7 +132,8 @@ def test_voice_answer_is_grounded_and_logged_with_its_sources(
     assert response.status_code == 200
     body = response.json()
     assert body["safety"]["blocked"] is False
-    assert body["tools"] == ["recall_weak_concepts", "search_course_materials"]
+    # Course evidence and learner memory are server-prefetched, not model tool calls.
+    assert body["tools"] == []
     assert body["material_sources"] == stub_course_search
     assert "lecture1.txt" in body["reply"]
 
@@ -142,6 +143,57 @@ def test_voice_answer_is_grounded_and_logged_with_its_sources(
         assert log.is_grounded is True
         assert log.answer_source_type.value == "rag"
         assert log.referenced_documents == stub_course_search
+
+
+def test_text_stream_sends_filler_before_answer(
+    chat_api,
+    stub_course_search,
+    monkeypatch,
+) -> None:
+    course_id = chat_api.courses["ai"]
+    reset_context(chat_api.users["student"], course_id)
+    monkeypatch.setattr(voice_routes, "SessionLocal", chat_api.session_factory)
+
+    response = chat_api.client.post(
+        f"/api/voice/courses/{course_id}/answer-text/stream",
+        headers=chat_api.headers("student"),
+        json={"text": "경사하강법이 뭐야?", "mode": "explain"},
+    )
+
+    assert response.status_code == 200
+    events = [json.loads(line) for line in response.text.splitlines()]
+    assert events[0] == {
+        "type": "status",
+        "text": "질문을 살펴보고 있어요. 잠시만 기다려 주세요.",
+    }
+    assert events[-1]["type"] == "done"
+
+
+def test_pdf_visualization_content_is_course_authorized(chat_api, tmp_path) -> None:
+    pdf_path = tmp_path / "lecture.pdf"
+    pdf_path.write_bytes(b"%PDF-1.4\n%%EOF")
+    with chat_api.session_factory() as session:
+        material = CourseMaterial(
+            course_id=chat_api.courses["ai"],
+            uploaded_by=chat_api.users["professor"],
+            file_name="internal.pdf",
+            original_file_name="lecture.pdf",
+            file_type="pdf",
+            file_size=pdf_path.stat().st_size,
+            week=1,
+            storage_path=str(pdf_path),
+        )
+        session.add(material)
+        session.commit()
+        material_id = material.id
+
+    path = f"/api/courses/{chat_api.courses['ai']}/materials/{material_id}/content"
+    allowed = chat_api.get(path, "student")
+    denied = chat_api.get(path, "other_student")
+
+    assert allowed.status_code == 200
+    assert allowed.headers["content-type"] == "application/pdf"
+    assert denied.status_code == 403
 
 
 def test_voice_turns_of_one_conversation_share_a_chat_session(
@@ -209,9 +261,7 @@ def test_reopening_another_learners_conversation_is_rejected(
 
 
 def test_reset_clears_the_conversation(chat_api) -> None:
-    response = chat_api.post(
-        f"/api/voice/courses/{chat_api.courses['ai']}/reset", "student", {}
-    )
+    response = chat_api.post(f"/api/voice/courses/{chat_api.courses['ai']}/reset", "student", {})
 
     assert response.status_code == 200
     assert response.json() == {"ok": True}

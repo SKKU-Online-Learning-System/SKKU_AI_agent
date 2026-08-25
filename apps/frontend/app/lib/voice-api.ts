@@ -6,13 +6,16 @@ export type VoicePlotPoint = { x: number; y: number };
 
 export type VoiceVisualization = {
   title: string;
-  kind: "formula" | "flow" | "plot";
+  kind: "formula" | "flow" | "plot" | "pdf";
   caption: string;
   latex: string;
   labels: string[];
   points: VoicePlotPoint[];
   x_label: string;
   y_label: string;
+  file?: string;
+  page?: number;
+  material_id?: string;
 };
 
 export type VoiceMaterialSource = {
@@ -95,6 +98,20 @@ export function voiceStreamUrl(courseId: string, mode: VoiceMode): string {
   return `${base}/api/voice/courses/${courseId}/stream?mode=${mode}&token=${encodeURIComponent(token)}`;
 }
 
+export async function fetchVoicePdfUrl(courseId: string, materialId: string): Promise<string> {
+  const token = readAccessToken();
+  const headers = new Headers();
+  if (token) headers.set("Authorization", `Bearer ${token}`);
+  const response = await fetch(
+    `${apiBaseUrl()}/api/courses/${courseId}/materials/${materialId}/content`,
+    { headers }
+  );
+  if (!response.ok) {
+    throw new ApiError(response.status, "PDF 페이지를 불러오지 못했습니다.");
+  }
+  return URL.createObjectURL(await response.blob());
+}
+
 /**
  * Stream one typed question. Answer tokens arrive through `onToken` as they are
  * generated; the resolved value is the final `done` event.
@@ -102,7 +119,8 @@ export function voiceStreamUrl(courseId: string, mode: VoiceMode): string {
 export async function streamVoiceAnswer(
   courseId: string,
   payload: { text: string; mode: VoiceMode; chat_session_id?: string | null },
-  onToken: (token: string) => void
+  onToken: (token: string) => void,
+  onStatus?: (message: string) => void
 ): Promise<VoiceAnswer> {
   const token = readAccessToken();
   const headers = new Headers({ "Content-Type": "application/json" });
@@ -139,6 +157,8 @@ export async function streamVoiceAnswer(
       const event = JSON.parse(line) as { type: string } & Record<string, unknown>;
       if (event.type === "token") {
         onToken(String(event.text ?? ""));
+      } else if (event.type === "status") {
+        onStatus?.(String(event.text ?? ""));
       } else if (event.type === "done") {
         result = event as unknown as VoiceAnswer;
       } else if (event.type === "error") {

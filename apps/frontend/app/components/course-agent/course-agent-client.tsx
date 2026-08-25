@@ -1,6 +1,5 @@
 "use client";
 
-import Script from "next/script";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ApiError, getChatSession } from "../../lib/api";
 import type { AnswerSource } from "../../lib/api";
@@ -23,16 +22,18 @@ import { CourseAgentVisualizationCard } from "./course-agent-visualization";
 
 const SAMPLE_RATE = 16000;
 const FRAME_SAMPLES = 320;
+const MAX_PENDING_AUDIO_FRAMES = 250;
 
 const MODE_LABELS: Record<VoiceMode, string> = {
   explain: "설명 모드",
   socratic: "소크라테스 모드"
 };
 
-type VoiceState = "idle" | "listening" | "hearing" | "thinking" | "speaking";
+type VoiceState = "idle" | "connecting" | "listening" | "hearing" | "thinking" | "speaking";
 
 const VOICE_STATE_LABELS: Record<VoiceState, string> = {
   idle: "음성 시작",
+  connecting: "음성 연결 중",
   listening: "듣는 중",
   hearing: "말씀 듣는 중",
   thinking: "응답 준비 중",
@@ -126,13 +127,19 @@ export function CourseAgentClient({
   const captureContextRef = useRef<AudioContext | null>(null);
   const playContextRef = useRef<AudioContext | null>(null);
   const pcmBufferRef = useRef<Float32Array>(new Float32Array(0));
+  const pendingAudioFramesRef = useRef<string[]>([]);
   const nextPlayAtRef = useRef(0);
   const activeSourcesRef = useRef<Set<AudioBufferSourceNode>>(new Set());
   const mutedRef = useRef(false);
   const modeRef = useRef<VoiceMode>("socratic");
-  const voiceTurnRef = useRef<{ tools: string[]; latency?: number; pendingId?: number }>({
-    tools: []
-  });
+  const voiceTurnRef = useRef<{
+    tools: string[];
+    latency?: number;
+    pendingId?: number;
+    streamStarted?: boolean;
+  }>({ tools: [] });
+  const lastLocalTextRef = useRef("");
+  const voiceTranscriptMessageIdsRef = useRef<Map<string, number>>(new Map());
 
   const allocateId = () => {
     nextId.current += 1;
@@ -252,10 +259,24 @@ export function CourseAgentClient({
     const pendingId = appendMessage({
       role: "assistant",
       text: "답변을 준비하고 있습니다.",
-      symbolState: "resonance"
+      symbolState: "flow"
     });
     setQuestion("");
     setIsSending(true);
+
+    const liveSocket = socketRef.current;
+    if (isVoiceOpen && liveSocket?.readyState === WebSocket.OPEN) {
+      lastLocalTextRef.current = text.toLocaleLowerCase().trim().replace(/\s+/g, " ");
+      voiceTurnRef.current = {
+        pendingId,
+        streamStarted: false,
+        tools: []
+      };
+      setVoiceState("thinking");
+      setVoiceStatus(VOICE_STATE_LABELS.thinking);
+      liveSocket.send(JSON.stringify({ type: "text", text }));
+      return;
+    }
 
     let streamed = "";
     try {
@@ -265,6 +286,11 @@ export function CourseAgentClient({
         (token) => {
           streamed += token;
           patchMessage(pendingId, { text: streamed, symbolState: "flow" });
+        },
+        (message) => {
+          if (!streamed) {
+            patchMessage(pendingId, { text: message, symbolState: "flow" });
+          }
         }
       );
       setChatSessionId(answer.session_id);
@@ -289,6 +315,7 @@ export function CourseAgentClient({
   };
 
   const handleNewChat = async () => {
+    if (isVoiceOpen) stopVoice();
     await resetVoiceConversation(courseId).catch(() => undefined);
     nextId.current = 1;
     setChatSessionId(null);
@@ -353,6 +380,10 @@ export function CourseAgentClient({
             text: token,
             symbolState: "flow"
           });
+          turn.streamStarted = true;
+        } else if (!turn.streamStarted) {
+          patchMessage(turn.pendingId, { text: token, symbolState: "flow" });
+          turn.streamStarted = true;
         } else {
           setEntries((current) =>
             current.map((entry) =>
@@ -362,10 +393,42 @@ export function CourseAgentClient({
             )
           );
         }
+      } else if (type === "filler") {
+        const text = String(message.text ?? "").trim();
+        if (text) {
+          const turn = voiceTurnRef.current;
+          if (turn.pendingId === undefined) {
+            appendMessage({ role: "assistant", text, symbolState: "resonance" });
+          } else {
+            patchMessage(turn.pendingId, { text, symbolState: "resonance" });
+            turn.pendingId = undefined;
+            turn.streamStarted = false;
+          }
+        }
+      } else if (type === "text_boundary") {
+        const turn = voiceTurnRef.current;
+        if (turn.pendingId !== undefined) {
+          patchMessage(turn.pendingId, { symbolState: "resonance" });
+          turn.pendingId = undefined;
+          turn.streamStarted = false;
+        }
       } else if (type === "transcript") {
         const text = String(message.text ?? "");
         if (message.who === "user") {
-          appendMessage({ role: "user", text, symbolState: "presence" });
+          const transcriptId = String(message.item_id ?? "");
+          const existingId = transcriptId
+            ? voiceTranscriptMessageIdsRef.current.get(transcriptId)
+            : undefined;
+          const normalized = text.toLocaleLowerCase().trim().replace(/\s+/g, " ");
+          if (existingId !== undefined) {
+            patchMessage(existingId, { text });
+          } else if (normalized !== lastLocalTextRef.current) {
+            const messageId = appendMessage({ role: "user", text, symbolState: "presence" });
+            if (transcriptId) {
+              voiceTranscriptMessageIdsRef.current.set(transcriptId, messageId);
+            }
+          }
+          lastLocalTextRef.current = "";
         } else {
           const turn = voiceTurnRef.current;
           const patch = {
@@ -381,10 +444,18 @@ export function CourseAgentClient({
           }
           voiceTurnRef.current = { tools: [] };
         }
+      } else if (type === "turn_done") {
+        setIsSending(false);
       } else if (type === "tool") {
         voiceTurnRef.current.tools.push(String(message.name ?? ""));
       } else if (type === "visualization") {
         appendVisualizations([message.visualization as VoiceVisualization]);
+      } else if (type === "visualization_error") {
+        appendMessage({
+          role: "assistant",
+          symbolState: "error",
+          text: String(message.message ?? "시각 자료를 표시하지 못했습니다.")
+        });
       } else if (type === "latency") {
         voiceTurnRef.current.latency = Number(message.ms);
       } else if (type === "audio") {
@@ -397,6 +468,7 @@ export function CourseAgentClient({
         });
         setVoiceState("listening");
         setVoiceStatus(VOICE_STATE_LABELS.listening);
+        setIsSending(false);
       }
     },
     [appendMessage, appendVisualizations, flushPlayback, patchMessage, playChunk]
@@ -404,7 +476,7 @@ export function CourseAgentClient({
 
   const sendSamples = useCallback((block: Float32Array) => {
     const socket = socketRef.current;
-    if (mutedRef.current || !socket || socket.readyState !== WebSocket.OPEN) return;
+    if (mutedRef.current) return;
 
     const joined = new Float32Array(pcmBufferRef.current.length + block.length);
     joined.set(pcmBufferRef.current);
@@ -419,9 +491,18 @@ export function CourseAgentClient({
         const sample = Math.max(-1, Math.min(1, frame[index]));
         int16[index] = sample < 0 ? sample * 0x8000 : sample * 0x7fff;
       }
-      socket.send(
-        JSON.stringify({ data: toBase64(new Uint8Array(int16.buffer)), type: "audio" })
-      );
+      const payload = JSON.stringify({
+        data: toBase64(new Uint8Array(int16.buffer)),
+        type: "audio"
+      });
+      if (socket?.readyState === WebSocket.OPEN) {
+        socket.send(payload);
+      } else if (!socket || socket.readyState === WebSocket.CONNECTING) {
+        pendingAudioFramesRef.current.push(payload);
+        if (pendingAudioFramesRef.current.length > MAX_PENDING_AUDIO_FRAMES) {
+          pendingAudioFramesRef.current.shift();
+        }
+      }
     }
   }, []);
 
@@ -436,9 +517,12 @@ export function CourseAgentClient({
     captureContextRef.current = null;
     playContextRef.current = null;
     pcmBufferRef.current = new Float32Array(0);
+    pendingAudioFramesRef.current = [];
     voiceTurnRef.current = { tools: [] };
+    voiceTranscriptMessageIdsRef.current.clear();
     setIsVoiceOpen(false);
     setIsMuted(false);
+    setIsSending(false);
     setVoiceState("idle");
     setVoiceStatus("마이크가 꺼져 있습니다");
   }, [flushPlayback]);
@@ -469,6 +553,10 @@ export function CourseAgentClient({
       nextPlayAtRef.current = 0;
 
       const socket = new WebSocket(voiceStreamUrl(courseId, modeRef.current));
+      socket.onopen = () => {
+        pendingAudioFramesRef.current.forEach((payload) => socket.send(payload));
+        pendingAudioFramesRef.current = [];
+      };
       socket.onmessage = handleSocketMessage;
       socket.onclose = () => {
         setVoiceState("idle");
@@ -477,8 +565,8 @@ export function CourseAgentClient({
       socketRef.current = socket;
 
       setIsVoiceOpen(true);
-      setVoiceState("listening");
-      setVoiceStatus(VOICE_STATE_LABELS.listening);
+      setVoiceState("connecting");
+      setVoiceStatus(VOICE_STATE_LABELS.connecting);
     } catch (error) {
       setVoiceStatus(
         `마이크 오류: ${error instanceof Error ? error.message : "알 수 없는 오류"}`
@@ -492,14 +580,6 @@ export function CourseAgentClient({
 
   return (
     <section className="course-agent-page">
-      <Script id="mathjax-config" strategy="beforeInteractive">
-        {`window.MathJax = { tex: { inlineMath: [["$","$"]], displayMath: [["$$","$$"]] } };`}
-      </Script>
-      <Script
-        src="https://cdn.jsdelivr.net/npm/mathjax@3.2.2/es5/tex-chtml.js"
-        strategy="afterInteractive"
-      />
-
       <div className="icampus-breadcrumb">
         과목 &gt; {config?.course_name ?? "강의"} &gt; <b>COURSE AGENT</b>
       </div>
@@ -532,6 +612,7 @@ export function CourseAgentClient({
         <button
           aria-checked={mode === "explain"}
           className="voice-mode"
+          disabled={isVoiceOpen}
           onClick={() => setMode("explain")}
           role="radio"
           type="button"
@@ -542,6 +623,7 @@ export function CourseAgentClient({
         <button
           aria-checked={mode === "socratic"}
           className="voice-mode"
+          disabled={isVoiceOpen}
           onClick={() => setMode("socratic")}
           role="radio"
           type="button"
@@ -569,7 +651,11 @@ export function CourseAgentClient({
           <div aria-live="polite" className="voice-messages" ref={messagesRef}>
             {entries.map((entry) =>
               entry.kind === "visualization" ? (
-                <CourseAgentVisualizationCard key={entry.id} visualization={entry.visualization} />
+                <CourseAgentVisualizationCard
+                  courseId={courseId}
+                  key={entry.id}
+                  visualization={entry.visualization}
+                />
               ) : (
                 <div className="voice-message" data-role={entry.role} key={entry.id}>
                   <div className="voice-avatar">

@@ -64,6 +64,10 @@ class Settings(BaseSettings):
     # button renders in "not configured" mode while text chat keeps working.
     xai_api_key: Optional[str] = None
     xai_realtime_url: str = "wss://api.x.ai/v1/realtime"
+    xai_connect_timeout_seconds: float = Field(default=20.0, gt=0)
+    xai_connect_attempts: int = Field(default=2, ge=1, le=5)
+    xai_connect_retry_delay_seconds: float = Field(default=0.75, ge=0, le=10)
+    visual_router_timeout_seconds: float = Field(default=3.0, gt=0, le=15)
     grok_voice_model: str = "grok-voice-latest"
     grok_voice: str = "eve"
     vad_threshold: float = Field(default=0.5, ge=0.0, le=1.0)

@@ -27,9 +27,12 @@
 [kingo-voice-agent](https://github.com/lyh030725/kingo-voice-agent)를 과목 에이전트에
 통합한 음성 조교입니다. 과목 메뉴의 `COURSE AGENT`에서 사용합니다.
 
-- 텍스트 스트리밍 답변과 핸즈프리 음성 대화(서버 VAD, barge-in)
-- 6개 function tool: 취약 개념 회상·저장·복습, 강의자료 검색, 신뢰 웹 검색, visualization
-- 수식·단계 도식·좌표 그래프 visualization 카드
+- 텍스트 스트리밍 답변과 핸즈프리 음성 대화(서버 VAD, barge-in, 동일 세션 텍스트 입력)
+- 매 turn 전에 취약 개념과 강의자료를 병렬 사전 로딩하고, 음성에는 강의자료 검색·신뢰 웹
+  검색·visualization의 3개 대화형 tool만 노출
+- 수식·단계 도식·좌표 그래프·강의 PDF 페이지 visualization 카드와 사전 visual gate
+- 음성 응답과 분리된 External Brain이 완료된 대화를 진단해 취약 개념 저장·복습 상태 갱신
+- tool 실행 전 음성 filler를 실시간 채팅 말풍선에도 즉시 표시
 - 설명 모드와 소크라테스 모드
 - 강의자료 근거는 기존 과목 RAG(pgvector)를 그대로 사용하며 파일명·페이지를 출처로 표시
 - 강의자료 근거가 부족할 때만 교수자가 등록한 신뢰 도메인에서 보충 검색

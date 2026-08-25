@@ -25,19 +25,11 @@ def call(call_id: str, name: str, args: dict) -> ToolCallRequest:
 
 
 class FakeLLM:
-    """Three scripted Claude turns: context tools, action tools, final answer."""
+    """Two scripted turns: optional action tools, then the final answer."""
 
     def __init__(self) -> None:
         self.turns = iter(
             [
-                ToolTurn(
-                    text="",
-                    model_name="claude-test",
-                    tool_calls=[
-                        call("recall", "recall_weak_concepts", {"topic": "attention"}),
-                        call("material", "search_course_materials", {"query": "attention"}),
-                    ],
-                ),
                 ToolTurn(
                     text="",
                     model_name="claude-test",
@@ -47,17 +39,6 @@ class FakeLLM:
                             "search_trusted_web",
                             {"query": "attention paper", "reason": "강의자료 설명이 불충분함"},
                         ),
-                        call(
-                            "save",
-                            "save_weak_concept",
-                            {
-                                "course": "AI 개론",
-                                "concept": "Self-Attention",
-                                "original_question": "왜 곱해?",
-                                "difficulty_note": "유사도 의미가 불명확함",
-                            },
-                        ),
-                        call("review", "review_weak_concept", {"memory_id": "M-x", "correct": True}),
                         call(
                             "visual",
                             "show_visualization",
@@ -112,6 +93,7 @@ def test_all_schemas_execute_through_dispatcher() -> None:
     fake_llm = FakeLLM()
     memory = AsyncMock()
     memory.recall.return_value = {"found": False, "memories": []}
+    memory.all_memories.return_value = []
     memory.save.return_value = {"status": "saved"}
     memory.review.return_value = {"status": "practicing"}
     context = make_context(memory)
@@ -121,7 +103,10 @@ def test_all_schemas_execute_through_dispatcher() -> None:
         patch.object(
             brain,
             "search_course_materials",
-            return_value=(json.dumps({"found": True, "results": []}), [{"document_name": "w1.pdf"}]),
+            return_value=(
+                json.dumps({"found": True, "results": []}),
+                [{"document_name": "w1.pdf"}],
+            ),
         ) as material_search,
         patch.object(
             brain,
@@ -137,27 +122,17 @@ def test_all_schemas_execute_through_dispatcher() -> None:
             brain.think(context, "Query와 Key를 왜 곱해?", brain.StageTimer())
         )
 
-    assert set(tools) == {
-        "recall_weak_concepts",
-        "search_course_materials",
-        "search_trusted_web",
-        "save_weak_concept",
-        "review_weak_concept",
-        "show_visualization",
-    }
-    # Context tools are forced until both have run, then Claude may answer.
-    assert list(fake_llm.calls[0]["force_tools"]) == [
-        "recall_weak_concepts",
-        "search_course_materials",
-    ]
-    assert list(fake_llm.calls[1]["force_tools"]) == []
+    assert set(tools) == {"search_trusted_web", "show_visualization"}
+    # Memory and course evidence are prefetched; only action tools reach Claude.
+    assert "force_tools" not in fake_llm.calls[0]
     assert {tool["name"] for tool in fake_llm.calls[0]["tools"]} == {
-        tool["function"]["name"] for tool in brain.TOOLS
+        "search_trusted_web",
+        "show_visualization",
     }
     assert "input_schema" in fake_llm.calls[0]["tools"][0]
 
     # The tool results reach Claude as one user turn of tool_result blocks.
-    last_messages = fake_llm.calls[2]["messages"]
+    last_messages = fake_llm.calls[1]["messages"]
     result_blocks = [
         block
         for message in last_messages
@@ -165,18 +140,18 @@ def test_all_schemas_execute_through_dispatcher() -> None:
         for block in message["content"]
         if block.get("type") == "tool_result"
     ]
-    assert len(result_blocks) == 6
+    assert len(result_blocks) == 2
 
-    memory.recall.assert_awaited_once_with(topic="attention")
-    material_search.assert_called_once_with("course-1", query="attention")
+    memory.all_memories.assert_awaited_once()
+    material_search.assert_called_once_with("course-1", "Query와 Key를 왜 곱해?")
     web_search.assert_awaited_once_with(
         "course-1",
         pdf_evidence_insufficient=True,
         query="attention paper",
         reason="강의자료 설명이 불충분함",
     )
-    memory.save.assert_awaited_once()
-    memory.review.assert_awaited_once_with(memory_id="M-x", correct=True)
+    memory.save.assert_not_awaited()
+    memory.review.assert_not_awaited()
 
     # Trusted URLs travel in `sources`, never inside the spoken answer.
     assert "https://arxiv.org/abs/1706.03762" not in reply
@@ -189,12 +164,14 @@ def test_mock_llm_grounds_the_answer_without_any_api_key() -> None:
     """The voice TA must work on the project default (USE_MOCK_LLM=true)."""
 
     memory = AsyncMock()
-    memory.recall.return_value = {"found": False, "memories": []}
+    memory.all_memories.return_value = []
     context = make_context(memory)
     material_result = json.dumps(
         {
             "found": True,
-            "results": [{"source": "week1.pdf p.3", "excerpt": "정상성은 평균과 분산이 일정한 성질입니다."}],
+            "results": [
+                {"source": "week1.pdf p.3", "excerpt": "정상성은 평균과 분산이 일정한 성질입니다."}
+            ],
         },
         ensure_ascii=False,
     )
@@ -217,7 +194,7 @@ def test_mock_llm_grounds_the_answer_without_any_api_key() -> None:
             brain.think(context, "정상성이 뭐야?", brain.StageTimer(), on_token=on_token)
         )
 
-    assert tools == ["recall_weak_concepts", "search_course_materials"]
+    assert tools == []
     assert "week1.pdf p.3" in reply
     assert "".join(streamed) == reply
     assert sources == []
@@ -236,6 +213,21 @@ def test_visualization_rejects_incomplete_shapes() -> None:
             x_label="x",
             y_label="y",
         )
+
+
+def test_visualization_normalizes_realtime_provider_aliases() -> None:
+    rendered = json.loads(
+        brain.show_visualization(
+            type="flow",
+            name="트랜스포머 구조",
+            description="정보가 블록을 따라 흐릅니다.",
+            steps="입력 → Self-Attention → Feed Forward → 출력",
+        )
+    )
+
+    assert rendered["kind"] == "flow"
+    assert rendered["title"] == "트랜스포머 구조"
+    assert rendered["labels"] == ["입력", "Self-Attention", "Feed Forward", "출력"]
 
 
 def test_tool_logs_include_args_status_timing_and_result() -> None:

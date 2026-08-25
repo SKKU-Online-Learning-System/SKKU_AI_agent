@@ -513,7 +513,8 @@
 }
 
 .voice-primary:disabled,
-.voice-secondary:disabled {
+.voice-secondary:disabled,
+.voice-mode:disabled {
   cursor: not-allowed;
   opacity: 0.55;
 }
@@ -613,6 +614,20 @@
   font-size: 18px;
   overflow-x: auto;
   padding: 12px 4px;
+  text-align: center;
+}
+
+.voice-visualization-pdf {
+  background: #f3f5f7;
+  border: 1px solid #d9e0e7;
+  border-radius: 6px;
+  height: min(68vh, 620px);
+  width: 100%;
+}
+
+.voice-visualization-pdf-status {
+  color: var(--icampus-muted);
+  padding: 24px 12px;
   text-align: center;
 }
 

@@ -175,6 +175,7 @@ def test_document_chunk_matches_processing_contract() -> None:
         "char_count",
         "embedding",
         "embedding_model",
+        "embedded_at",
         "created_at",
         "updated_at",
     } == set(table.columns.keys())
@@ -211,6 +212,7 @@ def test_chat_storage_matches_stage_four_contract() -> None:
         "is_grounded",
         "safety_result",
         "retrieval_result",
+        "answer_source_type",
         "created_at",
     }
     assert all(session_table.columns[name].foreign_keys for name in ("user_id", "course_id"))

@@ -1,7 +1,9 @@
 import logging
+from pathlib import Path
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
+from fastapi.responses import FileResponse
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 from starlette.concurrency import run_in_threadpool
@@ -41,9 +43,7 @@ async def list_materials(
         .order_by(CourseMaterial.created_at.desc())
     )
     return [
-        CourseMaterialRead.model_validate(material).model_copy(
-            update={"chunk_count": chunk_count}
-        )
+        CourseMaterialRead.model_validate(material).model_copy(update={"chunk_count": chunk_count})
         for material, chunk_count in rows
     ]
 
@@ -208,6 +208,27 @@ async def read_material_processing_status(
 ) -> MaterialProcessingStatusRead:
     material = _load_course_material(session, course.id, material_id)
     return _processing_status_response(session, settings, material)
+
+
+@router.get("/courses/{course_id}/materials/{material_id}/content")
+async def read_material_content(
+    course: Annotated[Course, Depends(require_course_access)],
+    material_id: str,
+    session: Annotated[Session, Depends(get_db)],
+) -> FileResponse:
+    """Serve an authorized course PDF inline for KINGO's page visualization."""
+    material = _load_course_material(session, course.id, material_id)
+    if material.file_type.lower() != "pdf":
+        raise HTTPException(status_code=422, detail="Only PDF materials can be previewed")
+    path = Path(material.storage_path).resolve()
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail="Material file not found")
+    return FileResponse(
+        path,
+        media_type="application/pdf",
+        filename=material.original_file_name,
+        content_disposition_type="inline",
+    )
 
 
 @router.delete(

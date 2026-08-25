@@ -37,6 +37,18 @@ class AgentTextDelta:
 
 
 @dataclass(frozen=True)
+class AgentFiller:
+    text: str
+
+
+@dataclass(frozen=True)
+class AgentTextBoundary:
+    """The streamed pre-tool filler ended; the next text is a new bubble."""
+
+    pass
+
+
+@dataclass(frozen=True)
 class AgentTurnDone:
     pass
 
@@ -45,6 +57,8 @@ class AgentTurnDone:
 class Transcript:
     who: str
     text: str
+    item_id: str = ""
+    replace: bool = False
 
 
 @dataclass(frozen=True)
@@ -65,6 +79,8 @@ Event = (
     | UserStoppedSpeaking
     | AgentAudio
     | AgentTextDelta
+    | AgentFiller
+    | AgentTextBoundary
     | AgentTurnDone
     | Transcript
     | ToolCalled
@@ -81,6 +97,12 @@ class Transport(ABC):
 
     @abstractmethod
     async def send_audio(self, pcm: bytes) -> None:
+        pass
+
+    @abstractmethod
+    async def send_text(self, text: str) -> None:
+        """Submit a typed turn through the same live session."""
+
         pass
 
     @abstractmethod

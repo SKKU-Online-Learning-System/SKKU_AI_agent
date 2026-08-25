@@ -32,9 +32,10 @@ from app.models import Course, User
 from app.services.rag_service import RagService
 from app.services.safety_service import NORMAL_RESULT, SafetyGuardService
 from app.services.voice import agent_spec, voice_log
-from app.services.voice.brain import StageTimer, VoiceContext, think
-from app.services.voice.grok_live import GrokTransport
+from app.services.voice.brain import StageTimer, VoiceContext, prefetch_memory_context, think
+from app.services.voice.grok_live import GrokConnectionError, GrokTransport
 from app.services.voice.session_store import (
+    external_brain_for,
     get_context,
     is_voice_configured,
     reset_context,
@@ -42,6 +43,8 @@ from app.services.voice.session_store import (
 from app.services.voice.turn_detector import FRAME_BYTES
 from app.services.voice.transport import (
     AgentAudio,
+    AgentFiller,
+    AgentTextBoundary,
     AgentTextDelta,
     AgentTurnDone,
     Failed,
@@ -61,6 +64,7 @@ from app.services.voice.trusted_sites import (
 log = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/voice", tags=["voice"])
+TEXT_FILLER_MESSAGE = "질문을 살펴보고 있어요. 잠시만 기다려 주세요."
 
 VALID_MODES = {"explain", "socratic"}
 
@@ -377,6 +381,7 @@ async def answer_text_stream(
                 log.exception("streaming voice answer failed")
                 await queue.put({"type": "error", "message": str(exc)})
 
+        await queue.put({"type": "status", "text": TEXT_FILLER_MESSAGE})
         task = asyncio.create_task(generate())
         try:
             while True:
@@ -432,18 +437,38 @@ async def voice_stream(websocket: WebSocket, course_id: str) -> None:
 
     mode = _normalized_mode(websocket.query_params.get("mode"))
     context = get_context(user.id, course.id, course.name)
+    try:
+        memory_context = await asyncio.wait_for(prefetch_memory_context(context), timeout=3)
+    except Exception:
+        memory_context = {"found": False}
+
+    async def refresh_instructions() -> str:
+        memory = await prefetch_memory_context(context)
+        return agent_spec.persona(course.name, mode, memory)
+
+    external_brain = external_brain_for(user.id, course.id, course.name)
     transport = GrokTransport(
-        instructions=agent_spec.persona(course.name, mode),
+        instructions=agent_spec.persona(course.name, mode, memory_context),
         tools=agent_spec.json_schemas(),
         run_tool=agent_spec.tool_runner(context),
+        refresh_instructions=refresh_instructions,
+        schedule_assessment=lambda conversation: external_brain.schedule(
+            conversation,
+            source="realtime",
+        ),
     )
-    reader = asyncio.create_task(_pump_provider_events(websocket, transport, context, user, course, mode))
+    reader = asyncio.create_task(
+        _pump_provider_events(websocket, transport, context, user, course, mode)
+    )
     try:
         await transport.start()
         await websocket.send_json({"type": "ready", "provider": transport.name})
         await _pump_caller_audio(websocket, transport)
     except WebSocketDisconnect:
         log.info("voice stream closed")
+    except GrokConnectionError as exc:
+        log.warning("realtime voice connection unavailable: %s", exc)
+        await _try_send(websocket, {"type": "error", "message": str(exc)})
     except Exception as exc:
         log.exception("realtime voice failed")
         await _try_send(websocket, {"type": "error", "message": str(exc)})
@@ -454,10 +479,17 @@ async def voice_stream(websocket: WebSocket, course_id: str) -> None:
 
 
 async def _pump_caller_audio(websocket: WebSocket, transport: Transport) -> None:
-    """Relay validated 20 ms PCM frames while the mic stays open."""
+    """Relay PCM or typed turns through the same live session."""
     while True:
         message = await websocket.receive_json()
-        if not isinstance(message, dict) or message.get("type") != "audio":
+        if not isinstance(message, dict):
+            continue
+        if message.get("type") == "text":
+            text = str(message.get("text", "")).strip()
+            if text:
+                await transport.send_text(text[:4000])
+            continue
+        if message.get("type") != "audio":
             continue
         try:
             frame = base64.b64decode(message.get("data", ""), validate=True)
@@ -479,6 +511,10 @@ async def _pump_provider_events(
     speaking = False
     turn_ended_at: Optional[float] = None
     pending_question = ""
+    pending_question_id = ""
+    pending_answer = ""
+    completed_question_id = ""
+    completed_log_id: Optional[str] = None
     turn_started_at = time.perf_counter()
     turn_tools: list[str] = []
     try:
@@ -488,9 +524,8 @@ async def _pump_provider_events(
                     log.info("realtime session configured")
                 case UserStartedSpeaking():
                     await websocket.send_json({"type": "state", "value": "hearing"})
-                    if speaking:
-                        speaking = False
-                        await websocket.send_json({"type": "flush"})
+                    speaking = False
+                    await websocket.send_json({"type": "flush"})
                 case UserStoppedSpeaking():
                     turn_ended_at = time.perf_counter()
                     await websocket.send_json({"type": "state", "value": "thinking"})
@@ -499,29 +534,79 @@ async def _pump_provider_events(
                         speaking = True
                         await websocket.send_json({"type": "state", "value": "speaking"})
                         if turn_ended_at is not None:
-                            await websocket.send_json({
-                                "type": "latency",
-                                "ms": round((time.perf_counter() - turn_ended_at) * 1000),
-                            })
+                            await websocket.send_json(
+                                {
+                                    "type": "latency",
+                                    "ms": round((time.perf_counter() - turn_ended_at) * 1000),
+                                }
+                            )
                             turn_ended_at = None
-                    await websocket.send_json({
-                        "type": "audio",
-                        "data": base64.b64encode(pcm).decode(),
-                        "rate": rate,
-                    })
+                    await websocket.send_json(
+                        {
+                            "type": "audio",
+                            "data": base64.b64encode(pcm).decode(),
+                            "rate": rate,
+                        }
+                    )
                 case AgentTextDelta(text=text) if text:
                     await websocket.send_json({"type": "token", "text": text})
+                case AgentFiller(text=text) if text:
+                    await websocket.send_json({"type": "filler", "text": text})
+                case AgentTextBoundary():
+                    await websocket.send_json({"type": "text_boundary"})
                 case AgentTurnDone():
                     speaking = False
                     await websocket.send_json({"type": "state", "value": "listening"})
-                case Transcript(who=who, text=text) if text:
-                    await websocket.send_json({"type": "transcript", "who": who, "text": text})
+                    await websocket.send_json({"type": "turn_done"})
+                case Transcript(
+                    who=who,
+                    text=text,
+                    item_id=item_id,
+                    replace=replace,
+                ) if text:
+                    await websocket.send_json(
+                        {
+                            "type": "transcript",
+                            "who": who,
+                            "text": text,
+                            "item_id": item_id,
+                            "replace": replace,
+                        }
+                    )
                     if who == "user":
-                        pending_question = text
-                        turn_started_at = time.perf_counter()
-                        turn_tools = []
+                        if replace and item_id and item_id == pending_question_id:
+                            pending_question = text
+                            _replace_latest_history(context, "user", text)
+                        elif replace and item_id and item_id == completed_question_id:
+                            _replace_latest_history(context, "user", text)
+                            if completed_log_id:
+                                _update_logged_question(completed_log_id, text)
+                        else:
+                            context.append_history({"role": "user", "content": text})
+                            pending_question = text
+                            pending_question_id = item_id
+                            if not pending_answer:
+                                turn_started_at = time.perf_counter()
+                                turn_tools = []
+                        if pending_answer:
+                            context.append_history({"role": "assistant", "content": pending_answer})
+                            completed_log_id = _log_voice_turn(
+                                user,
+                                course,
+                                context,
+                                pending_question,
+                                pending_answer,
+                                turn_tools,
+                                mode,
+                                round((time.perf_counter() - turn_started_at) * 1000),
+                            )
+                            completed_question_id = pending_question_id
+                            pending_question = ""
+                            pending_question_id = ""
+                            pending_answer = ""
                     elif pending_question:
-                        _log_voice_turn(
+                        context.append_history({"role": "assistant", "content": text})
+                        completed_log_id = _log_voice_turn(
                             user,
                             course,
                             context,
@@ -531,15 +616,29 @@ async def _pump_provider_events(
                             mode,
                             round((time.perf_counter() - turn_started_at) * 1000),
                         )
+                        completed_question_id = pending_question_id
                         pending_question = ""
+                        pending_question_id = ""
+                    else:
+                        pending_answer = text
                 case ToolCalled(name=name, result=result):
                     turn_tools.append(name)
                     await websocket.send_json({"type": "tool", "name": name})
                     if name == "show_visualization" and isinstance(result, dict):
-                        await websocket.send_json({
-                            "type": "visualization",
-                            "visualization": result,
-                        })
+                        if "error" in result:
+                            await websocket.send_json(
+                                {
+                                    "type": "visualization_error",
+                                    "message": "시각 자료를 표시하지 못했어요.",
+                                }
+                            )
+                        else:
+                            await websocket.send_json(
+                                {
+                                    "type": "visualization",
+                                    "visualization": result,
+                                }
+                            )
                 case Failed(message=message):
                     await websocket.send_json({"type": "error", "message": message})
                     return
@@ -559,7 +658,7 @@ def _log_voice_turn(
     tools_used: list[str],
     mode: str,
     elapsed_ms: int,
-) -> None:
+) -> Optional[str]:
     """Persist one spoken turn; a logging failure must not drop the call."""
     try:
         with SessionLocal() as db:
@@ -569,7 +668,7 @@ def _log_voice_turn(
                 db, db_user, db_course, context.chat_session_id
             )
             context.chat_session_id = chat_session.id
-            voice_log.log_turn(
+            return voice_log.log_turn(
                 db,
                 chat_session=chat_session,
                 user=db_user,
@@ -586,6 +685,28 @@ def _log_voice_turn(
             )
     except Exception:
         log.exception("failed to persist a voice turn")
+    return None
+
+
+def _replace_latest_history(context: VoiceContext, role: str, text: str) -> None:
+    for message in reversed(context.history):
+        if message.get("role") == role:
+            message["content"] = text
+            return
+
+
+def _update_logged_question(log_id: str, question: str) -> None:
+    """Apply a late provider transcript correction to the persisted voice log."""
+    try:
+        from app.models import ChatLog
+
+        with SessionLocal() as db:
+            chat_log = db.get(ChatLog, log_id)
+            if chat_log is not None:
+                chat_log.question = question
+                db.commit()
+    except Exception:
+        log.exception("failed to update corrected voice transcript")
 
 
 async def _try_send(websocket: WebSocket, payload: dict) -> None:
