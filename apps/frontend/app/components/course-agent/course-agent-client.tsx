@@ -8,10 +8,12 @@ import type {
   VoiceConfig,
   VoiceMaterialSource,
   VoiceMode,
-  VoiceVisualization
+  VoiceVisualization,
+  WeakConcept
 } from "../../lib/voice-api";
 import {
   getVoiceConfig,
+  listWeakConcepts,
   resetVoiceConversation,
   streamVoiceAnswer,
   voiceStreamUrl
@@ -38,6 +40,12 @@ const VOICE_STATE_LABELS: Record<VoiceState, string> = {
   hearing: "말씀 듣는 중",
   thinking: "응답 준비 중",
   speaking: "응답 중"
+};
+
+const WEAK_CONCEPT_STATUS_LABELS: Record<WeakConcept["status"], string> = {
+  new: "신규",
+  practicing: "학습 중",
+  mastered: "학습 완료"
 };
 
 type ChatEntry =
@@ -119,11 +127,16 @@ export function CourseAgentClient({
   const [voiceStatus, setVoiceStatus] = useState("마이크가 꺼져 있습니다");
   const [isMuted, setIsMuted] = useState(false);
   const [isVoiceOpen, setIsVoiceOpen] = useState(false);
+  const [isMicrophoneAvailable, setIsMicrophoneAvailable] = useState(true);
+  const [weakConcepts, setWeakConcepts] = useState<WeakConcept[]>([]);
+  const [weakConceptError, setWeakConceptError] = useState<string | null>(null);
+  const [isWeakConceptLoading, setIsWeakConceptLoading] = useState(true);
 
   const nextId = useRef(1);
   const messagesRef = useRef<HTMLDivElement | null>(null);
   const socketRef = useRef<WebSocket | null>(null);
   const micStreamRef = useRef<MediaStream | null>(null);
+  const micUnavailableRef = useRef(false);
   const captureContextRef = useRef<AudioContext | null>(null);
   const playContextRef = useRef<AudioContext | null>(null);
   const pcmBufferRef = useRef<Float32Array>(new Float32Array(0));
@@ -166,6 +179,42 @@ export function CourseAgentClient({
             error instanceof ApiError ? error.message : "AI 조교 정보를 불러오지 못했습니다."
           );
         }
+      });
+    return () => {
+      isCancelled = true;
+    };
+  }, [courseId]);
+
+  const loadWeakConcepts = useCallback(async () => {
+    setIsWeakConceptLoading(true);
+    setWeakConceptError(null);
+    try {
+      const result = await listWeakConcepts(courseId);
+      setWeakConcepts(result.concepts);
+    } catch (error) {
+      setWeakConceptError(
+        error instanceof ApiError ? error.message : "취약 개념을 불러오지 못했습니다."
+      );
+    } finally {
+      setIsWeakConceptLoading(false);
+    }
+  }, [courseId]);
+
+  useEffect(() => {
+    let isCancelled = false;
+    listWeakConcepts(courseId)
+      .then((result) => {
+        if (!isCancelled) setWeakConcepts(result.concepts);
+      })
+      .catch((error: unknown) => {
+        if (!isCancelled) {
+          setWeakConceptError(
+            error instanceof ApiError ? error.message : "취약 개념을 불러오지 못했습니다."
+          );
+        }
+      })
+      .finally(() => {
+        if (!isCancelled) setIsWeakConceptLoading(false);
       });
     return () => {
       isCancelled = true;
@@ -364,11 +413,19 @@ export function CourseAgentClient({
 
       if (type === "ready") {
         setVoiceState("listening");
-        setVoiceStatus(VOICE_STATE_LABELS.listening);
+        setVoiceStatus(
+          micUnavailableRef.current
+            ? "마이크 없음 · 채팅창에 입력해 음성 에이전트 테스트"
+            : VOICE_STATE_LABELS.listening
+        );
       } else if (type === "state") {
         const next = String(message.value) as VoiceState;
         setVoiceState(next);
-        setVoiceStatus(VOICE_STATE_LABELS[next] ?? next);
+        setVoiceStatus(
+          next === "listening" && micUnavailableRef.current
+            ? "마이크 없음 · 채팅창에 입력해 음성 에이전트 테스트"
+            : VOICE_STATE_LABELS[next] ?? next
+        );
       } else if (type === "flush") {
         flushPlayback();
       } else if (type === "token") {
@@ -514,6 +571,7 @@ export function CourseAgentClient({
     void playContextRef.current?.close();
     socketRef.current = null;
     micStreamRef.current = null;
+    micUnavailableRef.current = false;
     captureContextRef.current = null;
     playContextRef.current = null;
     pcmBufferRef.current = new Float32Array(0);
@@ -521,6 +579,7 @@ export function CourseAgentClient({
     voiceTurnRef.current = { tools: [] };
     voiceTranscriptMessageIdsRef.current.clear();
     setIsVoiceOpen(false);
+    setIsMicrophoneAvailable(true);
     setIsMuted(false);
     setIsSending(false);
     setVoiceState("idle");
@@ -530,7 +589,44 @@ export function CourseAgentClient({
   useEffect(() => stopVoice, [stopVoice]);
 
   const startVoice = async () => {
+    micUnavailableRef.current = false;
+    setIsMicrophoneAvailable(true);
+    setIsVoiceOpen(true);
+    setVoiceState("connecting");
+    setVoiceStatus(VOICE_STATE_LABELS.connecting);
+
     try {
+      const playContext = new AudioContext();
+      void playContext.resume().catch(() => undefined);
+      playContextRef.current = playContext;
+      nextPlayAtRef.current = 0;
+
+      const socket = new WebSocket(voiceStreamUrl(courseId, modeRef.current));
+      socket.onopen = () => {
+        pendingAudioFramesRef.current.forEach((payload) => socket.send(payload));
+        pendingAudioFramesRef.current = [];
+      };
+      socket.onmessage = handleSocketMessage;
+      socket.onclose = () => {
+        socketRef.current = null;
+        setIsVoiceOpen(false);
+        setVoiceState("idle");
+        setVoiceStatus("연결 종료");
+      };
+      socketRef.current = socket;
+    } catch (error) {
+      setVoiceStatus(
+        `음성 연결 오류: ${error instanceof Error ? error.message : "알 수 없는 오류"}`
+      );
+      setIsVoiceOpen(false);
+      setVoiceState("idle");
+      return;
+    }
+
+    try {
+      if (!navigator.mediaDevices?.getUserMedia) {
+        throw new Error("사용 가능한 마이크 장치가 없습니다.");
+      }
       const micStream = await navigator.mediaDevices.getUserMedia({
         audio: { autoGainControl: true, echoCancellation: true, noiseSuppression: true }
       });
@@ -546,31 +642,15 @@ export function CourseAgentClient({
       const capture = new AudioWorkletNode(captureContext, "pcm-capture");
       source.connect(capture);
       capture.port.onmessage = (event: MessageEvent<Float32Array>) => sendSamples(event.data);
-
-      const playContext = new AudioContext();
-      void playContext.resume().catch(() => undefined);
-      playContextRef.current = playContext;
-      nextPlayAtRef.current = 0;
-
-      const socket = new WebSocket(voiceStreamUrl(courseId, modeRef.current));
-      socket.onopen = () => {
-        pendingAudioFramesRef.current.forEach((payload) => socket.send(payload));
-        pendingAudioFramesRef.current = [];
-      };
-      socket.onmessage = handleSocketMessage;
-      socket.onclose = () => {
-        setVoiceState("idle");
-        setVoiceStatus("연결 종료");
-      };
-      socketRef.current = socket;
-
-      setIsVoiceOpen(true);
-      setVoiceState("connecting");
-      setVoiceStatus(VOICE_STATE_LABELS.connecting);
-    } catch (error) {
-      setVoiceStatus(
-        `마이크 오류: ${error instanceof Error ? error.message : "알 수 없는 오류"}`
-      );
+    } catch {
+      micStreamRef.current?.getTracks().forEach((track) => track.stop());
+      void captureContextRef.current?.close();
+      micStreamRef.current = null;
+      captureContextRef.current = null;
+      micUnavailableRef.current = true;
+      setIsMicrophoneAvailable(false);
+      setVoiceState("listening");
+      setVoiceStatus("마이크 없음 · 채팅창에 입력해 음성 에이전트 테스트");
     }
   };
 
@@ -757,13 +837,15 @@ export function CourseAgentClient({
             </p>
             {isVoiceOpen ? (
               <div className="voice-controls">
-                <button
-                  className="voice-secondary"
-                  onClick={() => setIsMuted((muted) => !muted)}
-                  type="button"
-                >
-                  {isMuted ? "음소거 해제" : "음소거"}
-                </button>
+                {isMicrophoneAvailable ? (
+                  <button
+                    className="voice-secondary"
+                    onClick={() => setIsMuted((muted) => !muted)}
+                    type="button"
+                  >
+                    {isMuted ? "음소거 해제" : "음소거"}
+                  </button>
+                ) : null}
                 <button className="voice-secondary" onClick={stopVoice} type="button">
                   종료
                 </button>
@@ -772,6 +854,66 @@ export function CourseAgentClient({
           </div>
         </aside>
       </div>
+
+      {config?.can_manage === false ? (
+        <section aria-labelledby="weak-concepts-title" className="icampus-card weak-concepts-card">
+        <div className="icampus-card-head">
+          <div>
+            <h2 id="weak-concepts-title">내 취약 개념</h2>
+            <small>COURSE AGENT가 대화에서 발견한 현재 과목의 학습 포인트입니다.</small>
+          </div>
+          <button
+            className="voice-secondary"
+            disabled={isWeakConceptLoading}
+            onClick={() => void loadWeakConcepts()}
+            type="button"
+          >
+            {isWeakConceptLoading ? "불러오는 중" : "새로고침"}
+          </button>
+        </div>
+        <div className="icampus-card-body">
+          {weakConceptError ? (
+            <p className="admin-alert" role="alert">
+              {weakConceptError}
+            </p>
+          ) : null}
+          {!weakConceptError && isWeakConceptLoading && weakConcepts.length === 0 ? (
+            <p className="voice-empty">취약 개념을 불러오는 중입니다.</p>
+          ) : null}
+          {!weakConceptError && !isWeakConceptLoading && weakConcepts.length === 0 ? (
+            <p className="voice-empty">아직 저장된 취약 개념이 없습니다.</p>
+          ) : null}
+          {weakConcepts.length > 0 ? (
+            <div className="weak-concept-list">
+              {weakConcepts.map((item) => (
+                <article className="weak-concept-item" key={item.memory_id}>
+                  <div className="weak-concept-head">
+                    <h3>{item.concept}</h3>
+                    <span className="icampus-term-badge">
+                      {WEAK_CONCEPT_STATUS_LABELS[item.status]}
+                    </span>
+                  </div>
+                  <p>{item.difficulty_note}</p>
+                  <div className="weak-mastery-row">
+                    <div
+                      aria-label={`${item.concept} 이해도`}
+                      aria-valuemax={100}
+                      aria-valuemin={0}
+                      aria-valuenow={item.mastery_percent}
+                      className="weak-mastery-track"
+                      role="progressbar"
+                    >
+                      <span style={{ width: `${item.mastery_percent}%` }} />
+                    </div>
+                    <strong>{item.mastery_percent}%</strong>
+                  </div>
+                </article>
+              ))}
+            </div>
+          ) : null}
+        </div>
+        </section>
+      ) : null}
     </section>
   );
 }

@@ -89,6 +89,41 @@ def test_tool_schema_names_are_the_six_agent_tools() -> None:
     }
 
 
+def test_weak_concept_list_is_course_scoped_and_sorted_by_recent_activity() -> None:
+    memory = AsyncMock()
+    memory.all_memories.return_value = [
+        {
+            "id": "older",
+            "course": "인공지능개론",
+            "concept": "경사하강법",
+            "difficulty_note": "학습률을 혼동함",
+            "confidence": 0.34,
+            "last_seen_at": 10,
+        },
+        {
+            "id": "other-course",
+            "course": "소프트웨어공학",
+            "concept": "응집도",
+            "difficulty_note": "결합도와 혼동함",
+            "confidence": 0.9,
+            "last_seen_at": 30,
+        },
+        {
+            "id": "newer",
+            "course": "인공지능개론",
+            "concept": "역전파",
+            "difficulty_note": "연쇄법칙 적용을 어려워함",
+            "confidence": 0.666,
+            "last_seen_at": 20,
+        },
+    ]
+
+    concepts = asyncio.run(brain.list_weak_concepts(make_context(memory)))
+
+    assert [item["memory_id"] for item in concepts] == ["newer", "older"]
+    assert [item["mastery_percent"] for item in concepts] == [67, 34]
+
+
 def test_all_schemas_execute_through_dispatcher() -> None:
     fake_llm = FakeLLM()
     memory = AsyncMock()

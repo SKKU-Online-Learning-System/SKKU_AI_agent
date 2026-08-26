@@ -55,6 +55,18 @@ export type VoiceConfig = {
   trusted_sites: string[];
 };
 
+export type WeakConcept = {
+  memory_id: string;
+  concept: string;
+  difficulty_note: string;
+  status: "new" | "practicing" | "mastered";
+  mastery_percent: number;
+  success_count: number;
+  failure_count: number;
+  last_seen_at: number;
+  next_review_at: number;
+};
+
 function apiBaseUrl(): string {
   return (process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000").replace(/\/$/, "");
 }
@@ -65,6 +77,12 @@ export function getVoiceConfig(courseId: string): Promise<VoiceConfig> {
 
 export function resetVoiceConversation(courseId: string): Promise<{ ok: boolean }> {
   return apiRequest<{ ok: boolean }>(`/api/voice/courses/${courseId}/reset`, { method: "POST" });
+}
+
+export function listWeakConcepts(courseId: string): Promise<{ concepts: WeakConcept[] }> {
+  return apiRequest<{ concepts: WeakConcept[] }>(
+    `/api/voice/courses/${courseId}/weak-concepts`
+  );
 }
 
 export function listVoiceTrustedSites(courseId: string): Promise<{ sites: string[] }> {

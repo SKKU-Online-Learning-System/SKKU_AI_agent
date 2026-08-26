@@ -265,3 +265,43 @@ def test_reset_clears_the_conversation(chat_api) -> None:
 
     assert response.status_code == 200
     assert response.json() == {"ok": True}
+
+
+def test_student_lists_weak_concepts_for_an_accessible_course(
+    chat_api,
+    monkeypatch,
+) -> None:
+    async def fake_list(context):
+        assert context.user_id == chat_api.users["student"]
+        assert context.course_id == chat_api.courses["ai"]
+        return [
+            {
+                "memory_id": "memory-1",
+                "concept": "경사하강법의 학습률",
+                "difficulty_note": "큰 학습률이 발산을 일으키는 이유를 혼동함",
+                "status": "practicing",
+                "mastery_percent": 67,
+                "success_count": 2,
+                "failure_count": 1,
+                "last_seen_at": 1_777_000_000,
+                "next_review_at": 1_777_086_400,
+            }
+        ]
+
+    monkeypatch.setattr(brain, "list_weak_concepts", fake_list)
+    response = chat_api.get(
+        f"/api/voice/courses/{chat_api.courses['ai']}/weak-concepts",
+        "student",
+    )
+
+    assert response.status_code == 200
+    assert response.json()["concepts"][0]["mastery_percent"] == 67
+
+
+def test_weak_concept_list_denies_an_inaccessible_course(chat_api) -> None:
+    response = chat_api.get(
+        f"/api/voice/courses/{chat_api.courses['se']}/weak-concepts",
+        "student",
+    )
+
+    assert response.status_code == 403

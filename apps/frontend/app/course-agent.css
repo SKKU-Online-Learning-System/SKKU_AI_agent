@@ -759,6 +759,79 @@
   text-align: center;
 }
 
+.weak-concepts-card {
+  margin-top: 20px;
+}
+
+.weak-concepts-card .icampus-card-head {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+}
+
+.weak-concepts-card .icampus-card-head small {
+  color: var(--icampus-muted);
+  display: block;
+  margin-top: 5px;
+}
+
+.weak-concept-list {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+}
+
+.weak-concept-item {
+  border: 1px solid var(--icampus-border-soft);
+  border-radius: 8px;
+  padding: 16px;
+}
+
+.weak-concept-head {
+  align-items: center;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+}
+
+.weak-concept-head h3 {
+  font-size: 16px;
+  margin: 0;
+}
+
+.weak-concept-item p {
+  color: var(--icampus-muted);
+  line-height: 1.55;
+  margin: 10px 0 14px;
+}
+
+.weak-mastery-row {
+  align-items: center;
+  display: flex;
+  gap: 12px;
+}
+
+.weak-mastery-track {
+  background: #e8edf2;
+  border-radius: 999px;
+  flex: 1;
+  height: 10px;
+  overflow: hidden;
+}
+
+.weak-mastery-track span {
+  background: #14805f;
+  border-radius: inherit;
+  display: block;
+  height: 100%;
+}
+
+.weak-mastery-row strong {
+  color: #0f6b52;
+  min-width: 42px;
+  text-align: right;
+}
+
 @media (max-width: 1050px) {
   .voice-chat-layout,
   .voice-settings-grid {

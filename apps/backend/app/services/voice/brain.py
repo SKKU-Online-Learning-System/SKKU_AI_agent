@@ -997,3 +997,31 @@ async def next_review_prompt(context: VoiceContext) -> dict:
         "concept": memory["concept"],
         "question": question,
     }
+
+
+async def list_weak_concepts(context: VoiceContext) -> list[dict]:
+    """Return this learner's weak concepts for the current authorized course."""
+    memories = await context.memory.all_memories()
+    course_memories = [
+        memory for memory in memories if memory.get("course") == context.course_name
+    ]
+    return [
+        {
+            "memory_id": memory.get("id", ""),
+            "concept": memory.get("concept", ""),
+            "difficulty_note": memory.get("difficulty_note", ""),
+            "status": memory.get("status", "new"),
+            "mastery_percent": round(
+                min(max(float(memory.get("confidence", 0)), 0), 1) * 100
+            ),
+            "success_count": int(memory.get("success_count", 0)),
+            "failure_count": int(memory.get("failure_count", 0)),
+            "last_seen_at": float(memory.get("last_seen_at", 0)),
+            "next_review_at": float(memory.get("next_review_at", 0)),
+        }
+        for memory in sorted(
+            course_memories,
+            key=lambda item: float(item.get("last_seen_at", 0)),
+            reverse=True,
+        )
+    ]

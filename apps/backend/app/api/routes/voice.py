@@ -200,6 +200,19 @@ async def read_next_review(
     return await next_review_prompt(_session_context(current_user, course))
 
 
+@router.get("/courses/{course_id}/weak-concepts")
+async def read_weak_concepts(
+    course_id: str,
+    session: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user)],
+) -> dict:
+    """List the current learner's weak concepts for one authorized course."""
+    from app.services.voice.brain import list_weak_concepts
+
+    course = authorize_course_access(session, current_user, course_id)
+    return {"concepts": await list_weak_concepts(_session_context(current_user, course))}
+
+
 # --------------------------------------------------------------------------
 # Text answers
 # --------------------------------------------------------------------------

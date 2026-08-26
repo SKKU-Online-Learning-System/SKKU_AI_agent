@@ -210,6 +210,23 @@ async def read_material_processing_status(
     return _processing_status_response(session, settings, material)
 
 
+@router.get("/courses/{course_id}/materials/{material_id}/download")
+async def download_material(
+    course: Annotated[Course, Depends(require_course_access)],
+    material_id: str,
+    session: Annotated[Session, Depends(get_db)],
+) -> FileResponse:
+    material = _load_course_material(session, course.id, material_id)
+    path = Path(material.storage_path).resolve()
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail="Material file not found")
+    return FileResponse(
+        path,
+        media_type="application/octet-stream",
+        filename=material.original_file_name,
+    )
+
+
 @router.get("/courses/{course_id}/materials/{material_id}/content")
 async def read_material_content(
     course: Annotated[Course, Depends(require_course_access)],
