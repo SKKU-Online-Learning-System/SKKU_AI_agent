@@ -18,24 +18,27 @@
 - Frontend: Next.js, TypeScript
 - Backend: FastAPI, SQLAlchemy, Alembic
 - Database: PostgreSQL, pgvector
-- AI/RAG: 과목별 검색, local hash embedding, Claude 또는 mock LLM
-- Voice: 텍스트·tool 추론은 Claude, 실시간 음성만 xAI Grok, Moss 취약 개념 메모리 (선택)
+- AI/RAG: 과목별 검색, local hash embedding, provider-neutral `LLMService`
+- Default inference: 별도 `SKKU_AI_model_server`의 Qwen Text/Voice LLM + Qwen ASR/TTS
+- Voice orchestration: FastAPI WebSocket + application CPU Silero VAD + interruptible cascade
+- Trusted web: 교수자 allowlist + self-hosted SearXNG + application-side URL 재검증
+- Weak-concept memory: Moss 선택 사용, 미설정 시 local JSON fallback
 - Package management: npm workspace, uv workspace
+
+애플리케이션 저장소는 Qwen weight, vLLM, qwen-asr, qwen-tts 또는 CUDA runtime을 로드하지
+않습니다. GPU inference는 모두 별도 Model Server API가 담당합니다.
 
 ## COURSE AGENT
 
 [kingo-voice-agent](https://github.com/lyh030725/kingo-voice-agent)를 과목 에이전트에
 통합한 음성 조교입니다. 과목 메뉴의 `COURSE AGENT`에서 사용합니다.
 
-- 텍스트 스트리밍 답변과 핸즈프리 음성 대화(서버 VAD, barge-in, 동일 세션 텍스트 입력)
-- 매 turn 전에 취약 개념과 강의자료를 병렬 사전 로딩하고, 음성에는 강의자료 검색·신뢰 웹
-  검색·visualization의 3개 대화형 tool만 노출
-- 수식·단계 도식·좌표 그래프·강의 PDF 페이지 visualization 카드와 사전 visual gate
-- 음성 응답과 분리된 External Brain이 완료된 대화를 진단해 취약 개념 저장·복습 상태 갱신
-- tool 실행 전 음성 filler를 실시간 채팅 말풍선에도 즉시 표시
+- 텍스트 스트리밍 답변과 핸즈프리 음성 대화, barge-in, 동일 WebSocket 세션의 typed input
+- 매 turn 전에 취약 개념과 강의자료를 사전 로딩하고 기존 course-scoped RAG를 그대로 사용
+- 수식·단계 도식·좌표 그래프·강의 PDF 페이지 visualization 카드
+- 응답과 분리된 External Brain이 완료된 대화를 진단해 취약 개념 저장·복습 상태 갱신
 - 설명 모드와 소크라테스 모드
-- 강의자료 근거는 기존 과목 RAG(pgvector)를 그대로 사용하며 파일명·페이지를 출처로 표시
-- 강의자료 근거가 부족할 때만 교수자가 등록한 신뢰 도메인에서 보충 검색
+- 강의자료 근거가 부족할 때만 교수자가 등록한 신뢰 도메인에서 SearXNG 보충 검색
 - 모든 음성·텍스트 turn은 기존 질문 로그(`ChatLog`)에 저장되어 교수자·관리자 화면에 노출
 
 학생의 질문 창구는 과목 안의 COURSE AGENT 하나입니다. 별도의 "AI 질문" 메뉴와 탭은
@@ -44,11 +47,25 @@
 
 ### 모델 구성
 
-텍스트 답변, tool 호출, 신뢰 웹 검색은 모두 이 프로젝트의 `LLMService`(Claude 또는
-`USE_MOCK_LLM=true`의 모의 응답)를 사용합니다. 그래서 기본 설정 그대로, API 키 없이도
-COURSE AGENT가 동작합니다. 핸즈프리 음성만 xAI Grok realtime을 사용합니다. Claude에
-실시간 음성 API가 없기 때문이며, `XAI_API_KEY`가 비어 있으면 마이크 버튼만 비활성화되고
-텍스트 대화는 그대로 동작합니다.
+기본 개발 구성은 self-hosted Model Server입니다.
+
+```text
+Typed COURSE AGENT
+Frontend -> FastAPI -> RAG / Tools / SAFE -> LLMService
+         -> Qwen/Qwen3.8-27B (:8001/v1)
+
+Hands-free voice
+Browser microphone -> FastAPI WebSocket -> Silero VAD (CPU)
+ -> Qwen3-ASR (:8010)
+ -> existing COURSE AGENT Brain / RAG / Tools / SAFE / Memory / Visualization
+ -> Qwen/Qwen3.5-9B (:8002/v1, thinking disabled)
+ -> Qwen3-TTS Sohee/Korean (:8010)
+ -> PCM16 mono 24 kHz -> Browser speaker
+```
+
+`LLM_PROVIDER=local_qwen`, `VOICE_PROVIDER=local_cascade`에서는
+`ANTHROPIC_API_KEY`와 `XAI_API_KEY`가 필요하지 않습니다. Anthropic과 xAI Grok은
+회귀 비교를 위한 legacy provider로 남아 있습니다.
 
 Moss 자격 증명이 없으면 취약 개념은 `uploads/voice/weak-concepts.json`에 로컬 저장됩니다.
 
@@ -69,22 +86,68 @@ docs                제품·기술 문서
 ## 실행
 
 필수 도구는 [uv](https://docs.astral.sh/uv/), Python 3.12+, Node.js, Docker입니다.
-저장소 루트에서 다음 하나만 실행하면 됩니다.
+먼저 Model Server와 필요하면 SearXNG를 실행하고 `.env`에 endpoint를 설정합니다.
+
+```dotenv
+LLM_PROVIDER=local_qwen
+TEXT_LLM_BASE_URL=http://MODEL_SERVER:8001/v1
+TEXT_LLM_MODEL=Qwen/Qwen3.8-27B
+VOICE_LLM_BASE_URL=http://MODEL_SERVER:8002/v1
+VOICE_LLM_MODEL=Qwen/Qwen3.5-9B
+SPEECH_BASE_URL=http://MODEL_SERVER:8010
+MODEL_SERVER_API_KEY=
+VOICE_PROVIDER=local_cascade
+TTS_SPEAKER=Sohee
+TTS_LANGUAGE=Korean
+SEARXNG_URL=http://SEARXNG_SERVER:8080
+```
+
+그 뒤 저장소 루트에서 실행합니다.
 
 ```bash
 bash run.sh
 ```
 
 환경 파일 복사, 의존성 설치, 데이터베이스 기동, 마이그레이션, Seed, 백엔드와
-프론트엔드 실행까지 모두 처리합니다. `Ctrl+C`로 둘 다 종료합니다.
-
-기본 설정은 로컬 PostgreSQL과 mock LLM을 사용하므로 Claude API 키 없이 실행할 수
-있습니다. 실제 Claude를 사용하려면 `.env`에서 `USE_MOCK_LLM=false`로 변경하고
-`ANTHROPIC_API_KEY`를 설정하세요. 비밀키와 로컬 환경 파일은 커밋하지 않습니다.
+프론트엔드 실행까지 처리합니다. `Ctrl+C`로 둘 다 종료합니다.
 
 - 웹: <http://localhost:3000>
 - API 문서: <http://localhost:8000/docs>
-- 상태 확인: <http://localhost:8000/api/health>
+- 앱 상태: <http://localhost:8000/api/health>
+- Model Server 상태: <http://localhost:8000/api/health/model-server>
+
+### Model Server endpoint contract
+
+Application이 사용하는 endpoint는 다음뿐입니다.
+
+```text
+GET  TEXT_LLM_BASE_URL/models
+POST TEXT_LLM_BASE_URL/chat/completions
+GET  VOICE_LLM_BASE_URL/models
+POST VOICE_LLM_BASE_URL/chat/completions
+GET  SPEECH_BASE_URL/health
+POST SPEECH_BASE_URL/v1/audio/transcriptions
+POST SPEECH_BASE_URL/v1/audio/speech
+```
+
+Model Server 인증을 사용하면 모든 요청에 `Authorization: Bearer ${MODEL_SERVER_API_KEY}`가
+추가됩니다.
+
+### 검증
+
+전체 unit/regression/frontend 검증:
+
+```bash
+bash test.sh
+```
+
+실제 Model Server가 접근 가능한 환경의 optional smoke test:
+
+```bash
+uv run --all-packages --extra dev --extra voice python scripts/test_model_server_integration.py
+```
+
+한국어 독립 WAV를 함께 검사하려면 스크립트의 `--wav` 옵션을 사용합니다.
 
 ### Seed 계정
 
@@ -107,11 +170,17 @@ bash run.sh
 | `BACKEND_CORS_ORIGINS` | 허용할 프론트엔드 Origin |
 | `UPLOAD_DIR` | 업로드 파일 저장 위치 |
 | `MAX_UPLOAD_SIZE_BYTES` | 파일당 업로드 제한 |
-| `USE_MOCK_LLM` | `true`이면 API 키 없이 mock 답변 사용 |
-| `ANTHROPIC_API_KEY` | Claude API 키 |
-| `CLAUDE_MODEL` | 답변 생성 모델 |
-| `XAI_API_KEY` | COURSE AGENT의 핸즈프리 음성용 xAI 키. 비우면 마이크 버튼만 비활성 |
-| `GROK_VOICE_MODEL` / `GROK_VOICE` | 실시간 음성 모델과 보이스 |
+| `LLM_PROVIDER` | `local_qwen`(기본), `mock`, `anthropic` |
+| `TEXT_LLM_BASE_URL` / `TEXT_LLM_MODEL` | typed/External Brain Qwen endpoint와 model |
+| `VOICE_LLM_BASE_URL` / `VOICE_LLM_MODEL` | realtime cascade의 Voice Qwen endpoint와 model |
+| `SPEECH_BASE_URL` | Qwen ASR/TTS Speech Server |
+| `MODEL_SERVER_API_KEY` | optional Model Server bearer key |
+| `VOICE_PROVIDER` | `local_cascade`(기본) 또는 legacy `grok` |
+| `TTS_SPEAKER` / `TTS_LANGUAGE` | 기본 `Sohee` / `Korean` |
+| `VAD_THRESHOLD` / `SILENCE_MS` / `PREFIX_MS` | application-side Silero endpointing 설정 |
+| `SEARXNG_URL` | self-hosted trusted-web search endpoint |
+| `ANTHROPIC_API_KEY` / `CLAUDE_MODEL` | legacy Anthropic provider 전용 |
+| `XAI_API_KEY` / `GROK_VOICE_MODEL` | legacy Grok voice provider 전용 |
 | `MOSS_PROJECT_ID` / `MOSS_PROJECT_KEY` | 취약 개념 클라우드 메모리. 비우면 로컬 파일 사용 |
 
 전체 기본값과 설명은 [.env.example](.env.example)에 있습니다. 환경변수를 바꾼 뒤에는
