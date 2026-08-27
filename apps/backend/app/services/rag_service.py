@@ -66,7 +66,6 @@ class RagService:
 
     def retrieve(self, course_id: str, question: str, top_k: Optional[int] = None) -> RetrievalOutcome:
         resolved_top_k = self.resolve_top_k(top_k)
-        stats = self.vector_store.count_course_chunks(course_id)
         searchable_count = self.vector_store.count_searchable_chunks(course_id)
         threshold = self.settings.rag_score_threshold
 
