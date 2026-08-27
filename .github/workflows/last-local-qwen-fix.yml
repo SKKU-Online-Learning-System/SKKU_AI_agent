@@ -1,0 +1,98 @@
+name: Apply final local Qwen fixes
+
+on:
+  push:
+    branches:
+      - feature/local-qwen-model-server
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  finish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/local-qwen-model-server
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@v6
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - run: npm ci
+      - name: Apply source and documentation fixes
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          changed: list[str] = []
+
+          def replace(path: str, old: str, new: str) -> None:
+              file = Path(path)
+              text = file.read_text(encoding="utf-8")
+              if new in text and old not in text:
+                  return
+              if old not in text:
+                  raise RuntimeError(f"missing final patch anchor in {path}: {old[:120]!r}")
+              updated = text.replace(old, new, 1)
+              file.write_text(updated, encoding="utf-8")
+              changed.append(path)
+
+          # SQLite test environments do not always enable FK ON DELETE CASCADE.
+          # Delete child logs explicitly so behavior is identical to PostgreSQL.
+          replace(
+              "apps/backend/app/api/routes/chat.py",
+              "from sqlalchemy import func, select\n",
+              "from sqlalchemy import delete, func, select\n",
+          )
+          replace(
+              "apps/backend/app/api/routes/chat.py",
+              '''    # DELETE intentionally does not reveal whether another learner owns the id.\n    chat_session = get_owned_chat_session(session, current_user, session_id)\n    session.delete(chat_session)\n    session.commit()\n''',
+              '''    # DELETE intentionally does not reveal whether another learner owns the id.\n    chat_session = get_owned_chat_session(session, current_user, session_id)\n    # Keep deletion semantics deterministic even when a test/dev SQLite engine\n    # does not enable foreign-key cascades. PostgreSQL still has ON DELETE CASCADE.\n    session.execute(delete(ChatLog).where(ChatLog.session_id == chat_session.id))\n    session.delete(chat_session)\n    session.commit()\n''',
+          )
+
+          # The prior compatibility pass accidentally changed the inaccessible-course
+          # student expectation. RBAC must remain 403; debug on an accessible course
+          # remains 200 to preserve the current frontend protocol.
+          replace(
+              "apps/backend/tests/test_rag_search_api.py",
+              '''def test_search_enforces_role_course_access_and_validation(rag_api: RAGApiContext) -> None:\n    payload = {"course_id": rag_api.courses["other"], "question": "other secret"}\n\n    assert rag_api.client.post("/api/rag/search", json=payload).status_code == 401\n    assert (\n        rag_api.client.post(\n            "/api/rag/search", headers=rag_api.headers("student"), json=payload\n        ).status_code\n        == 200\n    )\n''',
+              '''def test_search_enforces_role_course_access_and_validation(rag_api: RAGApiContext) -> None:\n    payload = {"course_id": rag_api.courses["other"], "question": "other secret"}\n\n    assert rag_api.client.post("/api/rag/search", json=payload).status_code == 401\n    assert (\n        rag_api.client.post(\n            "/api/rag/search", headers=rag_api.headers("student"), json=payload\n        ).status_code\n        == 403\n    )\n''',
+          )
+
+          # Bring the technical source-of-truth up to the implemented Stage-4 runtime.
+          replace(
+              "docs/TEC_SPEC.md",
+              '''2026-07-28 기준으로 검색 가능한 지식베이스까지 구현되어 있다.\n\n- TXT, PDF, DOCX, PPTX 텍스트 추출\n- 1,000자 청크와 150자 중첩\n- deterministic local hash embedding\n- PostgreSQL JSON embedding 저장과 애플리케이션 cosine 검색\n- 과목 권한 및 `course_id` 범위가 강제되는 검색 API\n- 교수자 자료 처리 UI와 RAG 검색 디버그 UI\n\nLLM 답변 생성, citation 조립, SAFE 정책과 ChatLog 영속화는 4단계 범위다. pgvector 확장은 활성화되어 있지만 현재 vector 컬럼과 DB 거리 연산은 사용하지 않는다.\n''',
+              '''2026-08-27 기준으로 Stage 4 COURSE AGENT와 self-hosted Qwen 연동까지 구현되어 있다.\n\n- TXT, PDF, DOCX, PPTX 텍스트 추출\n- 1,000자 청크와 150자 중첩\n- deterministic local hash embedding\n- PostgreSQL JSON embedding 저장과 애플리케이션 cosine 검색\n- 과목 권한 및 `course_id` 범위가 강제되는 RAG 검색\n- 완료(`completed`)된 강의자료만 실제 retrieval 후보로 사용\n- `LLMService` 기반 provider-neutral 답변 생성과 citation/SAFE/ChatLog 영속화\n- 기본 Text LLM: 외부 Model Server의 `Qwen/Qwen3.8-27B` OpenAI-compatible API\n- 기본 Voice LLM: 외부 Model Server의 `Qwen/Qwen3.5-9B` (`enable_thinking=false`)\n- COURSE AGENT 음성 경로: 브라우저 PCM → CPU Silero VAD → Qwen ASR → 기존 Brain/RAG/Tools/SAFE/Memory → Voice Qwen → Qwen TTS → 브라우저\n- 교수자 trusted-domain allowlist와 self-hosted SearXNG 보충 검색\n- 음성/텍스트 turn 모두 기존 RBAC, course scope, SAFE, ChatLog 정책 공유\n\n애플리케이션 저장소는 Qwen weight, vLLM, qwen-asr, qwen-tts 또는 CUDA runtime을 로드하지 않는다. GPU inference는 별도 `SKKU_AI_model_server`가 담당하며, 애플리케이션은 endpointing을 위한 CPU-only Silero VAD만 실행한다. pgvector 확장은 활성화되어 있지만 현재 vector 컬럼과 DB 거리 연산은 사용하지 않는다.\n''',
+          )
+          replace(
+              "docs/TEC_SPEC.md",
+              '''Frontend: Next.js\nBackend: FastAPI 또는 Node.js API Server\nDatabase: PostgreSQL\nVector DB: pgvector 우선 검토\nFile Storage: Local Storage\nAI Provider: Anthropic Claude API\nAuth: JWT 기반 인증\nDeployment: Docker / Docker Compose\n```\n\n향후 운영 단계에서는 다음으로 확장 가능하다.\n''',
+              '''Frontend: Next.js\nBackend: FastAPI\nDatabase: PostgreSQL\nVector Search: PostgreSQL 저장 + application cosine (pgvector 교체 가능)\nFile Storage: Local Storage\nAI Provider: SKKU Model Server (Qwen Text / Voice / ASR / TTS)\nTrusted Web: self-hosted SearXNG + professor allowlist\nAuth: JWT 기반 인증\nDeployment: Docker / Docker Compose\n```\n\n### 3.3 External Model Server 및 COURSE AGENT 런타임\n\n기본 inference endpoint는 애플리케이션 프로세스와 분리한다.\n\n```text\nTyped COURSE AGENT\nFrontend → FastAPI → RBAC / SAFE / course-scoped RAG / Tools\n         → LLMService(text) → TEXT_LLM_BASE_URL/chat/completions\n         → Qwen/Qwen3.8-27B\n\nHands-free Voice\nBrowser PCM16 mono 16 kHz (20 ms frames)\n → FastAPI WebSocket\n → Silero VAD (application CPU)\n → SPEECH_BASE_URL/v1/audio/transcriptions\n → existing COURSE AGENT Brain / RAG / Tools / SAFE / Memory / Visualization\n → LLMService(voice) → VOICE_LLM_BASE_URL/chat/completions\n → Qwen/Qwen3.5-9B (chat_template_kwargs.enable_thinking=false)\n → SPEECH_BASE_URL/v1/audio/speech (Sohee / Korean)\n → PCM16 mono 24 kHz\n → Browser speaker\n```\n\nModel Server health는 Text/Voice LLM의 `/models`와 Speech Server의 `/health`로 확인한다. local cascade voice는 Voice LLM과 Speech Server가 모두 준비된 경우에만 available로 노출한다. 모델 서버 장애는 FastAPI startup을 중단시키지 않고 해당 요청/음성 기능을 명시적으로 unavailable 처리한다.\n\nRealtime API route는 provider 구현을 직접 생성하지 않고 `Transport` factory를 사용한다. 기본값은 `local_cascade`이며 legacy xAI Grok transport는 비교/회귀 용도로만 유지한다. Barge-in 시 generation id를 증가시키고 실행 중 task를 취소하며, 이미 event queue에 들어간 이전 generation의 audio/text도 dequeue 단계에서 폐기한다.\n\nTrusted web search는 `SEARXNG_URL/search?format=json`을 사용하고, 검색 결과 URL은 모델에 전달하기 전에 애플리케이션에서 교수자 allowlist의 exact host 또는 subdomain인지 다시 검증한다. 모델 제공자의 server-side web search에는 의존하지 않는다.\n\nModel Server 인증이 설정된 경우 `Authorization: Bearer ${MODEL_SERVER_API_KEY}`를 공통 적용한다. 실제 서버 연결 smoke test는 `scripts/test_model_server_integration.py`로 수행하며, 16 kHz mono WAV를 주면 ASR → Voice Qwen → TTS 전체 경로를 검증한다.\n\n향후 운영 단계에서는 다음으로 확장 가능하다.\n''',
+          )
+          replace(
+              "docs/TEC_SPEC.md",
+              "| AI API       | Anthropic Claude API          | LLM 답변 생성                       |\n",
+              "| AI API       | SKKU Model Server / Qwen      | Text·Voice LLM, ASR, TTS 외부 추론  |\n",
+          )
+
+          print("final patched files:")
+          for path in dict.fromkeys(changed):
+              print(f"- {path}")
+          PY
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add apps/backend/app/api/routes/chat.py apps/backend/tests/test_rag_search_api.py docs/TEC_SPEC.md
+          if ! git diff --cached --quiet; then
+            git commit -m "Complete local Qwen migration"
+            git push origin HEAD:feature/local-qwen-model-server
+          fi
+      - name: Run full verification
+        run: bash test.sh
