@@ -47,8 +47,6 @@ jobs:
                   file.write_text(updated, encoding="utf-8")
                   changed.append(path)
 
-          # Chat history: preserve current `sources` while also exposing the raw
-          # referencedDocuments field expected by older audit/history clients.
           replace(
               "apps/backend/app/schemas/domain.py",
               '''class ChatHistoryLogRead(CamelModel):\n    id: str\n    question: str\n    answer: str\n    sources: list[AnswerSourceRead] = Field(default_factory=list)\n    is_grounded: bool\n''',
@@ -65,8 +63,6 @@ jobs:
               '''async def delete_my_chat_session(\n    session_id: str,\n    session: Annotated[Session, Depends(get_db)],\n    settings: Annotated[Settings, Depends(get_settings)],\n    current_user: Annotated[User, Depends(get_current_user)],\n) -> None:\n    # DELETE intentionally does not reveal whether another learner owns the id.\n    chat_session = get_owned_chat_session(session, current_user, session_id)\n    session.delete(chat_session)\n''',
           )
 
-          # Keep stable material error codes at the HTTP and persisted boundaries,
-          # and retain the parser injection seam used to verify the processing claim.
           replace(
               "apps/backend/app/services/material_processing_service.py",
               "from sqlalchemy import update\n",
@@ -103,8 +99,6 @@ jobs:
               '''        raise HTTPException(\n            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,\n            detail=f"{exc.code}: {exc}",\n        ) from exc\n''',
           )
 
-          # Production retrieval only searches chunks from completed materials;
-          # status counts still include failed/pending rows for diagnostics.
           replace(
               "apps/backend/app/services/vector_store_service.py",
               "from app.models import CourseMaterial, DocumentChunk\n",
@@ -141,7 +135,6 @@ jobs:
               "            is_search_ready=completed > 0 and searchable_count > 0,\n",
           )
 
-          # Stable retrieval failure shape and professor/admin-only debug metadata.
           replace(
               "apps/backend/app/api/routes/rag.py",
               "from __future__ import annotations\n\nfrom typing import Annotated\n",
@@ -163,8 +156,6 @@ jobs:
               '''    except EmbeddingError as exc:\n        raise HTTPException(\n            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,\n            detail={"code": "RAG_SEARCH_FAILED", "message": "Embedding unavailable"},\n        ) from exc\n    except Exception as exc:\n        logger.exception("RAG search failed")\n        raise HTTPException(\n            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,\n            detail={"code": "RAG_SEARCH_FAILED", "message": "RAG search failed"},\n        ) from exc\n\n    return RagSearchResponse(\n''',
           )
 
-          # The large material regression suite predates the current embedding
-          # defaults. Keep its 128-d fixture explicit instead of changing production.
           replace(
               "apps/backend/tests/test_materials_api.py",
               "    settings = Settings(upload_dir=str(upload_dir), max_upload_size_bytes=4)\n",
@@ -187,8 +178,6 @@ jobs:
               "        assert [chunk.page_number for chunk in first_chunks] == [1, 1, 1]\n",
           )
 
-          # Align the older RAG endpoint suite with the canonical camelCase API
-          # and the production EmbeddingService/VectorStoreService path.
           replace(
               "apps/backend/tests/test_rag_search_api.py",
               "from app.services.embedding_service import LocalHashEmbeddingService\nfrom app.services.vector_store_service import SQLAlchemyLocalVectorStoreService\n",
@@ -221,8 +210,8 @@ jobs:
           )
           replace(
               "apps/backend/tests/test_rag_search_api.py",
-              '["is_search_ready"]',
-              '["isSearchReady"]',
+              '"is_search_ready"',
+              '"isSearchReady"',
               all_occurrences=True,
           )
           replace(
