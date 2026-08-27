@@ -71,6 +71,7 @@ class ToolCalled:
 @dataclass(frozen=True)
 class Failed:
     message: str
+    fatal: bool = True
 
 
 Event = (
