@@ -23,6 +23,10 @@ class DocumentChunkInput:
     page_number: Optional[int]
     section_title: Optional[str]
     char_count: int
+    # Compatibility metadata used by the older service-oriented tests. The
+    # current material pipeline passes course/material separately to storage.
+    course_id: Optional[str] = None
+    material_id: Optional[str] = None
 
 
 def create_chunks(
@@ -34,8 +38,12 @@ def create_chunks(
 ) -> list[DocumentChunkInput]:
     """Return ordered chunks for one material, numbered from zero."""
 
-    if chunk_overlap >= chunk_size:
-        raise ValueError("chunk_overlap must be smaller than chunk_size")
+    if chunk_size <= 0:
+        raise ValueError("chunk_size must be positive")
+    if chunk_overlap < 0 or chunk_overlap >= chunk_size:
+        raise ValueError("chunk_overlap must be non-negative and smaller than chunk_size")
+    if min_chunk_chars < 0 or min_chunk_chars > chunk_size:
+        raise ValueError("min_chunk_chars must be between zero and chunk_size")
 
     chunks: list[DocumentChunkInput] = []
     for page in document.pages:
@@ -51,6 +59,66 @@ def create_chunks(
             )
 
     return _reindex(_merge_short_chunks(chunks, min_chunk_chars))
+
+
+class ParagraphChunkingService:
+    """Backward-compatible object API used by the original Stage-2 tests.
+
+    Production code uses :func:`create_chunks`; this wrapper preserves the old
+    constructor and metadata contract without creating a second chunking policy.
+    """
+
+    def __init__(
+        self,
+        *,
+        chunk_size: int = 1000,
+        chunk_overlap: int = 150,
+        min_chunk_size: int = 40,
+    ) -> None:
+        if chunk_size <= 0:
+            raise ValueError("chunk_size must be positive")
+        if chunk_overlap < 0 or chunk_overlap >= chunk_size:
+            raise ValueError("chunk_overlap must be non-negative and smaller than chunk_size")
+        if min_chunk_size < 0 or min_chunk_size > chunk_size:
+            raise ValueError("min_chunk_size must be between zero and chunk_size")
+        self.chunk_size = chunk_size
+        self.chunk_overlap = chunk_overlap
+        self.min_chunk_size = min_chunk_size
+
+    def create_chunks(self, document) -> list[DocumentChunkInput]:
+        output: list[DocumentChunkInput] = []
+        for page in document.pages:
+            page_chunks = _split_page(page.text, self.chunk_size, self.chunk_overlap)
+            page_chunks = _ensure_boundary_overlap(page_chunks, self.chunk_overlap, self.chunk_size)
+            for text in page_chunks:
+                output.append(
+                    DocumentChunkInput(
+                        chunk_index=len(output),
+                        chunk_text=text,
+                        page_number=page.page_number,
+                        section_title=None,
+                        char_count=len(text),
+                        course_id=getattr(document, "course_id", None),
+                        material_id=getattr(document, "material_id", None),
+                    )
+                )
+        return output
+
+
+def _ensure_boundary_overlap(pieces: list[str], overlap: int, chunk_size: int) -> list[str]:
+    if overlap <= 0 or len(pieces) < 2:
+        return pieces
+    result = [pieces[0]]
+    for piece in pieces[1:]:
+        previous = result[-1]
+        suffix = previous[-overlap:]
+        # Character-window splits already contain the configured overlap.
+        if suffix and not piece.startswith(suffix):
+            candidate = f"{suffix}{piece}"
+            if len(candidate) <= chunk_size:
+                piece = candidate
+        result.append(piece)
+    return result
 
 
 def _split_page(text: str, chunk_size: int, chunk_overlap: int) -> list[str]:
@@ -123,12 +191,13 @@ def _merge_short_chunks(
                 page_number=previous.page_number,
                 section_title=previous.section_title,
                 char_count=len(combined),
+                course_id=previous.course_id,
+                material_id=previous.material_id,
             )
             continue
 
         merged.append(chunk)
 
-    # A lone undersized chunk is still worth keeping; drop only empty leftovers.
     return [chunk for chunk in merged if chunk.chunk_text.strip()]
 
 
@@ -140,6 +209,8 @@ def _reindex(chunks: list[DocumentChunkInput]) -> list[DocumentChunkInput]:
             page_number=chunk.page_number,
             section_title=chunk.section_title,
             char_count=chunk.char_count,
+            course_id=chunk.course_id,
+            material_id=chunk.material_id,
         )
         for index, chunk in enumerate(chunks)
     ]
