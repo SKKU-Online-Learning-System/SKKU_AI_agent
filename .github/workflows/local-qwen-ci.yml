@@ -1,0 +1,43 @@
+name: Local Qwen migration CI
+
+on:
+  push:
+    branches:
+      - feature/local-qwen-model-server
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/local-qwen-model-server
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "latest"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - name: Install frontend dependencies
+        run: npm ci
+      - name: Refresh uv lock
+        run: uv lock
+      - name: Commit refreshed lock
+        run: |
+          if ! git diff --quiet -- uv.lock; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add uv.lock
+            git commit -m "Refresh uv lock for local voice"
+            git push origin HEAD:feature/local-qwen-model-server
+          fi
+      - name: Run full verification
+        run: bash test.sh
