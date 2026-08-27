@@ -1,7 +1,8 @@
-"""Answer generation.
+"""Provider-neutral answer generation for the SKKU Course Agent.
 
-All provider calls live here so the model can be swapped from configuration, and
-a deterministic mock keeps the chat flow testable without an API key.
+The application owns prompts, history and tool execution. This module is the
+only LLM provider boundary: local Qwen calls the external Model Server through
+its OpenAI-compatible API, while Anthropic remains a legacy regression adapter.
 """
 
 from __future__ import annotations
@@ -10,13 +11,17 @@ import json
 import logging
 from dataclasses import dataclass, field
 from typing import Awaitable, Callable, Literal, Optional, Sequence, cast
-from urllib.parse import urlparse
+
+import httpx
 
 from app.core.config import Settings
+from app.services.model_server.client import async_client, sync_client
 
 logger = logging.getLogger(__name__)
 
 MOCK_MODEL_NAME = "mock-llm"
+Profile = Literal["text", "voice"]
+Provider = Literal["mock", "anthropic", "local_qwen"]
 
 
 class LLMError(Exception):
@@ -49,6 +54,8 @@ class ToolTurn:
 
 @dataclass(frozen=True)
 class WebSearchAnswer:
+    """Legacy response shape retained for compatibility with old callers."""
+
     answer: str
     sources: list[str]
     model_name: str
@@ -69,39 +76,91 @@ class LLMResponse:
 
 
 class LLMService:
-    def __init__(self, settings: Settings) -> None:
+    def __init__(self, settings: Settings, profile: Profile = "text") -> None:
         self.settings = settings
+        self.profile = profile
+
+    @property
+    def provider(self) -> Provider:
+        provider = self.settings.effective_llm_provider
+        # A local cascade must never route its realtime answer generation to
+        # Claude merely because the text regression provider was changed.
+        if self.profile == "voice" and self.settings.voice_provider == "local_cascade":
+            return "mock" if self.settings.use_mock_llm else "local_qwen"
+        return provider
 
     @property
     def model_name(self) -> str:
-        return MOCK_MODEL_NAME if self.settings.use_mock_llm else self.settings.claude_model
+        if self.provider == "mock":
+            return MOCK_MODEL_NAME
+        if self.provider == "anthropic":
+            return self.settings.claude_model
+        return (
+            self.settings.voice_llm_model
+            if self.profile == "voice"
+            else self.settings.text_llm_model
+        )
+
+    @property
+    def base_url(self) -> str:
+        return (
+            self.settings.voice_llm_base_url
+            if self.profile == "voice"
+            else self.settings.text_llm_base_url
+        )
 
     def generate_answer(self, messages: Sequence[ChatMessage]) -> LLMResponse:
         if not messages:
             raise LLMError("생성할 메시지가 없습니다.")
 
         logger.info(
-            "Generating an answer with %s from %d message(s), %d prompt chars",
+            "Generating an answer provider=%s model=%s profile=%s messages=%d prompt_chars=%d",
+            self.provider,
             self.model_name,
+            self.profile,
             len(messages),
             sum(len(message.content) for message in messages),
         )
 
-        if self.settings.use_mock_llm:
+        if self.provider == "mock":
             return LLMResponse(
                 answer=_mock_answer(messages),
                 model_name=MOCK_MODEL_NAME,
                 usage=LLMUsage(),
             )
+        if self.provider == "anthropic":
+            return self._anthropic_answer(messages)
+        return self._qwen_answer(messages)
 
-        return self._claude_answer(messages)
-
-    def _claude_answer(self, messages: Sequence[ChatMessage]) -> LLMResponse:
-        if not self.settings.anthropic_api_key:
-            raise LLMError(
-                "ANTHROPIC_API_KEY가 설정되지 않았습니다. "
-                "USE_MOCK_LLM=true로 두거나 키를 설정하세요."
+    def _qwen_answer(self, messages: Sequence[ChatMessage]) -> LLMResponse:
+        request = self._qwen_request(
+            messages=[{"role": message.role, "content": message.content} for message in messages],
+            stream=False,
+        )
+        try:
+            client = sync_client(
+                self.base_url,
+                self.settings.model_server_api_key,
+                self.settings.model_request_timeout_seconds,
             )
+            response = client.post("chat/completions", json=request)
+            response.raise_for_status()
+            payload = response.json()
+            choice = payload["choices"][0]["message"]
+            answer = str(choice.get("content") or "").strip()
+        except (httpx.HTTPError, ValueError, KeyError, IndexError, TypeError) as error:
+            raise self._model_server_error() from error
+        if not answer:
+            raise LLMError(f"{self._profile_label()}이 빈 답변을 반환했습니다.")
+        return LLMResponse(
+            answer=answer,
+            model_name=str(payload.get("model") or self.model_name),
+            usage=_openai_usage(payload.get("usage")),
+        )
+
+    def _anthropic_answer(self, messages: Sequence[ChatMessage]) -> LLMResponse:
+        if not self.settings.anthropic_api_key:
+            raise LLMError("ANTHROPIC_API_KEY가 설정되지 않았습니다.")
 
         try:
             from anthropic import Anthropic
@@ -132,7 +191,6 @@ class LLMService:
         answer = "".join(block.text for block in response.content if block.type == "text").strip()
         if not answer:
             raise LLMError("Claude가 빈 답변을 반환했습니다.")
-
         prompt_tokens = getattr(response.usage, "input_tokens", None)
         completion_tokens = getattr(response.usage, "output_tokens", None)
         return LLMResponse(
@@ -149,18 +207,9 @@ class LLMService:
             ),
         )
 
-    # ----------------------------------------------------------------- tools
-    #
-    # The voice teaching assistant needs a tool-using, streaming turn. It runs
-    # on the same provider and the same mock as the text chatbot so the whole
-    # product keeps one answer-generation boundary.
-
-    def _require_client(self):
+    def _require_anthropic_client(self):
         if not self.settings.anthropic_api_key:
-            raise LLMError(
-                "ANTHROPIC_API_KEY가 설정되지 않았습니다. "
-                "USE_MOCK_LLM=true로 두거나 키를 설정하세요."
-            )
+            raise LLMError("ANTHROPIC_API_KEY가 설정되지 않았습니다.")
         from anthropic import AsyncAnthropic
 
         return AsyncAnthropic(api_key=self.settings.anthropic_api_key)
@@ -175,36 +224,134 @@ class LLMService:
         on_token: Optional[Callable[[str], Awaitable[None]]] = None,
         max_tokens: Optional[int] = None,
     ) -> ToolTurn:
-        """Run one Claude turn that may call tools, streaming any text it writes.
+        """Run one provider-neutral OpenAI-shaped tool turn.
 
-        Args:
-            system: System prompt for the turn.
-            messages: Anthropic-shaped conversation, newest last.
-            tools: Anthropic-shaped tool schemas.
-            force_tools: Tool names the caller needs before an answer; a
-                non-empty value forbids Claude from replying without a tool.
-            on_token: Optional async callback receiving streamed text deltas.
-            max_tokens: Overrides the configured answer budget.
-
-        Returns:
-            The assistant text and any tool calls it requested.
+        ``messages`` and ``tools`` are canonical OpenAI function-call shapes.
+        Provider-specific conversion is confined to this class.
         """
-        if self.settings.use_mock_llm:
+        if self.provider == "mock":
             turn = _mock_tool_turn(messages, tools, force_tools, system=system)
             if on_token and turn.text:
                 await on_token(turn.text)
             return turn
+        if self.provider == "anthropic":
+            return await self._anthropic_tool_turn(
+                system=system,
+                messages=messages,
+                tools=tools,
+                force_tools=force_tools,
+                on_token=on_token,
+                max_tokens=max_tokens,
+            )
+        return await self._qwen_tool_turn(
+            system=system,
+            messages=messages,
+            tools=tools,
+            force_tools=force_tools,
+            on_token=on_token,
+            max_tokens=max_tokens,
+        )
 
-        client = self._require_client()
+    async def _qwen_tool_turn(
+        self,
+        *,
+        system: str,
+        messages: Sequence[dict],
+        tools: Sequence[dict],
+        force_tools: Sequence[str],
+        on_token: Optional[Callable[[str], Awaitable[None]]],
+        max_tokens: Optional[int],
+    ) -> ToolTurn:
+        request = self._qwen_request(
+            messages=[{"role": "system", "content": system}, *list(messages)],
+            stream=True,
+            max_tokens=max_tokens,
+        )
+        if tools:
+            request["tools"] = list(tools)
+            request["tool_choice"] = "required" if force_tools else "auto"
+
+        text_parts: list[str] = []
+        tool_parts: dict[int, dict[str, str]] = {}
+        returned_model = self.model_name
+        try:
+            client = async_client(
+                self.base_url,
+                self.settings.model_server_api_key,
+                self.settings.model_request_timeout_seconds,
+            )
+            async with client.stream("POST", "chat/completions", json=request) as response:
+                response.raise_for_status()
+                async for line in response.aiter_lines():
+                    line = line.strip()
+                    if not line.startswith("data:"):
+                        continue
+                    raw = line[5:].strip()
+                    if raw == "[DONE]":
+                        break
+                    if not raw:
+                        continue
+                    chunk = json.loads(raw)
+                    returned_model = str(chunk.get("model") or returned_model)
+                    choices = chunk.get("choices") or []
+                    if not choices:
+                        continue
+                    delta = choices[0].get("delta") or {}
+                    text = delta.get("content")
+                    if text:
+                        text = str(text)
+                        text_parts.append(text)
+                        if on_token:
+                            await on_token(text)
+                    for item in delta.get("tool_calls") or []:
+                        index = int(item.get("index", 0))
+                        current = tool_parts.setdefault(
+                            index, {"id": "", "name": "", "arguments": ""}
+                        )
+                        if item.get("id"):
+                            current["id"] += str(item["id"])
+                        function = item.get("function") or {}
+                        if function.get("name"):
+                            current["name"] += str(function["name"])
+                        if function.get("arguments"):
+                            current["arguments"] += str(function["arguments"])
+        except (httpx.HTTPError, ValueError, KeyError, TypeError, json.JSONDecodeError) as error:
+            raise self._model_server_error() from error
+
+        tool_calls = [
+            ToolCallRequest(
+                id=value["id"] or f"tool-{index}",
+                name=value["name"],
+                arguments=_parse_tool_arguments(value["arguments"]),
+            )
+            for index, value in sorted(tool_parts.items())
+            if value["name"]
+        ]
+        return ToolTurn(
+            text="".join(text_parts),
+            tool_calls=tool_calls,
+            model_name=returned_model,
+        )
+
+    async def _anthropic_tool_turn(
+        self,
+        *,
+        system: str,
+        messages: Sequence[dict],
+        tools: Sequence[dict],
+        force_tools: Sequence[str],
+        on_token: Optional[Callable[[str], Awaitable[None]]],
+        max_tokens: Optional[int],
+    ) -> ToolTurn:
+        client = self._require_anthropic_client()
         request = {
             "model": self.settings.claude_model,
             "max_tokens": max_tokens or self.settings.llm_max_tokens,
             "system": system,
-            "messages": list(messages),
-            "tools": list(tools),
+            "messages": _openai_messages_to_anthropic(messages),
+            "tools": _openai_tools_to_anthropic(tools),
             "tool_choice": {"type": "any"} if force_tools else {"type": "auto"},
         }
-
         try:
             if on_token is None:
                 message = await client.messages.create(**request)
@@ -214,8 +361,6 @@ class LLMService:
                         if event.type == "text" and event.text:
                             await on_token(event.text)
                     message = await stream.get_final_message()
-        except LLMError:
-            raise
         except Exception as error:
             raise LLMError("Claude 답변 생성에 실패했습니다.") from error
 
@@ -227,7 +372,6 @@ class LLMService:
             elif block.type == "tool_use":
                 arguments = block.input if isinstance(block.input, dict) else {}
                 tool_calls.append(ToolCallRequest(block.id, block.name, arguments))
-
         return ToolTurn(
             text="".join(text_parts),
             tool_calls=tool_calls,
@@ -235,10 +379,52 @@ class LLMService:
         )
 
     async def generate_json(self, *, system: str, payload: dict, max_tokens: int = 900) -> dict:
-        """Generate one JSON object through the configured provider boundary."""
-        if self.settings.use_mock_llm:
+        """Generate one JSON object through the configured text/profile provider."""
+        if self.provider == "mock":
             return {"save": None, "reviews": []}
-        client = self._require_client()
+        if self.provider == "anthropic":
+            return await self._anthropic_generate_json(system, payload, max_tokens)
+
+        messages = [
+            {"role": "system", "content": system},
+            {
+                "role": "user",
+                "content": json.dumps(payload, ensure_ascii=False),
+            },
+        ]
+        last_error: Exception | None = None
+        # First use the Model Server's structured-output support. A single
+        # bounded fallback without response_format keeps compatibility if a
+        # future serving configuration temporarily disables JSON mode.
+        for structured in (True, False):
+            request = self._qwen_request(messages=messages, stream=False, max_tokens=max_tokens)
+            if structured:
+                request["response_format"] = {"type": "json_object"}
+            else:
+                request["messages"] = [
+                    *messages,
+                    {
+                        "role": "user",
+                        "content": "Return exactly one valid JSON object and no markdown fence.",
+                    },
+                ]
+            try:
+                client = async_client(
+                    self.base_url,
+                    self.settings.model_server_api_key,
+                    self.settings.model_request_timeout_seconds,
+                )
+                response = await client.post("chat/completions", json=request)
+                response.raise_for_status()
+                raw = str(response.json()["choices"][0]["message"].get("content") or "")
+                result = _parse_json_object(raw)
+                return result
+            except (httpx.HTTPError, ValueError, KeyError, IndexError, TypeError) as error:
+                last_error = error
+        raise LLMError("구조화 JSON 생성에 실패했습니다.") from last_error
+
+    async def _anthropic_generate_json(self, system: str, payload: dict, max_tokens: int) -> dict:
+        client = self._require_anthropic_client()
         try:
             message = await client.messages.create(
                 model=self.settings.claude_model,
@@ -247,81 +433,143 @@ class LLMService:
                 messages=[{"role": "user", "content": json.dumps(payload, ensure_ascii=False)}],
             )
             raw = "".join(block.text for block in message.content if block.type == "text").strip()
-            if raw.startswith("```"):
-                raw = raw.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
-            result = json.loads(raw)
+            return _parse_json_object(raw)
         except Exception as error:
             raise LLMError("구조화 JSON 생성에 실패했습니다.") from error
-        if not isinstance(result, dict):
-            raise LLMError("구조화 응답이 JSON 객체가 아닙니다.")
-        return result
 
-    async def search_web(
+    async def search_web(self, **_: object) -> WebSearchAnswer:
+        """Removed provider-side web search: SearXNG is application-owned now."""
+        raise LLMError("신뢰 웹 검색은 TrustedWebSearchService(SearXNG)를 통해 실행해야 합니다.")
+
+    def _qwen_request(
         self,
         *,
-        query: str,
-        system: str,
-        allowed_domains: Sequence[str],
-        max_uses: int = 3,
-    ) -> WebSearchAnswer:
-        """Answer from Claude's server-side web search, limited to an allowlist.
+        messages: Sequence[dict],
+        stream: bool,
+        max_tokens: int | None = None,
+    ) -> dict:
+        request = {
+            "model": self.model_name,
+            "messages": list(messages),
+            "stream": stream,
+            "max_tokens": max_tokens or self.settings.llm_max_tokens,
+            "temperature": self.settings.llm_temperature,
+        }
+        if self.profile == "voice":
+            # This is part of the SKKU Model Server contract (Qwen chat template),
+            # not a guessed model-specific sampling parameter.
+            request["chat_template_kwargs"] = {"enable_thinking": False}
+        return request
 
-        Args:
-            query: Focused search query.
-            system: System prompt describing how to answer.
-            allowed_domains: Only these hosts may be searched or cited.
-            max_uses: Upper bound on searches for this call.
+    def _profile_label(self) -> str:
+        return "Voice LLM" if self.profile == "voice" else "Text LLM"
 
-        Returns:
-            The cited answer and the trusted source URLs backing it.
-        """
-        if self.settings.use_mock_llm:
-            raise LLMError("모의 LLM 모드에서는 신뢰 웹 검색을 사용할 수 없습니다.")
-        if not allowed_domains:
-            raise LLMError("신뢰 사이트가 비어 있어 웹 검색을 실행할 수 없습니다.")
+    def _model_server_error(self) -> LLMError:
+        return LLMError(f"{self._profile_label()} Model Server를 사용할 수 없습니다.")
 
-        client = self._require_client()
-        try:
-            message = await client.messages.create(
-                model=self.settings.claude_model,
-                max_tokens=self.settings.llm_max_tokens,
-                system=system,
-                messages=[{"role": "user", "content": query}],
-                tools=[
-                    {
-                        "type": "web_search_20250305",
-                        "name": "web_search",
-                        "max_uses": max_uses,
-                        "allowed_domains": list(allowed_domains),
-                    }
-                ],
-            )
-        except Exception as error:
-            raise LLMError("신뢰 웹 검색에 실패했습니다.") from error
 
-        text_parts: list[str] = []
-        urls: list[str] = []
-        for block in message.content:
-            if block.type == "text":
-                text_parts.append(block.text)
-            elif block.type == "web_search_tool_result":
-                for result in getattr(block, "content", None) or []:
-                    url = getattr(result, "url", None)
-                    if url:
-                        urls.append(url)
+def _openai_usage(raw: object) -> LLMUsage:
+    if not isinstance(raw, dict):
+        return LLMUsage()
+    prompt = raw.get("prompt_tokens")
+    completion = raw.get("completion_tokens")
+    total = raw.get("total_tokens")
+    return LLMUsage(
+        prompt_tokens=int(prompt) if isinstance(prompt, int) else None,
+        completion_tokens=int(completion) if isinstance(completion, int) else None,
+        total_tokens=int(total) if isinstance(total, int) else None,
+    )
 
-        return WebSearchAnswer(
-            answer="".join(text_parts).strip(),
-            # Re-check the allowlist locally: never trust the provider to have
-            # honoured the filter before we show a link to a student.
-            sources=[url for url in dict.fromkeys(urls) if _host_allowed(url, allowed_domains)],
-            model_name=message.model,
+
+def _parse_tool_arguments(raw: str) -> dict:
+    if not raw.strip():
+        return {}
+    try:
+        value = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise LLMError("도구 호출 arguments가 올바른 JSON이 아닙니다.") from exc
+    if not isinstance(value, dict):
+        raise LLMError("도구 호출 arguments는 JSON 객체여야 합니다.")
+    return value
+
+
+def _parse_json_object(raw: str) -> dict:
+    text = raw.strip()
+    if text.startswith("```"):
+        text = text.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
+    value = json.loads(text)
+    if not isinstance(value, dict):
+        raise ValueError("structured response is not a JSON object")
+    return value
+
+
+def _openai_tools_to_anthropic(tools: Sequence[dict]) -> list[dict]:
+    converted: list[dict] = []
+    for tool in tools:
+        function = tool.get("function") or {}
+        if tool.get("type") != "function" or not function.get("name"):
+            continue
+        converted.append(
+            {
+                "name": function["name"],
+                "description": function.get("description", ""),
+                "input_schema": function.get("parameters", {"type": "object"}),
+            }
         )
+    return converted
 
 
-def _host_allowed(url: str, allowed_domains: Sequence[str]) -> bool:
-    host = (urlparse(url).hostname or "").lower()
-    return any(host == domain or host.endswith(f".{domain}") for domain in allowed_domains)
+def _openai_messages_to_anthropic(messages: Sequence[dict]) -> list[dict]:
+    """Translate canonical OpenAI tool turns only inside the Anthropic adapter."""
+    converted: list[dict] = []
+    for message in messages:
+        role = message.get("role")
+        if role == "tool":
+            block = {
+                "type": "tool_result",
+                "tool_use_id": str(message.get("tool_call_id", "")),
+                "content": str(message.get("content", "")),
+            }
+            if (
+                converted
+                and converted[-1].get("role") == "user"
+                and isinstance(converted[-1].get("content"), list)
+                and all(
+                    isinstance(item, dict) and item.get("type") == "tool_result"
+                    for item in converted[-1]["content"]
+                )
+            ):
+                converted[-1]["content"].append(block)
+            else:
+                converted.append({"role": "user", "content": [block]})
+            continue
+
+        if role == "assistant" and message.get("tool_calls"):
+            blocks: list[dict] = []
+            content = message.get("content")
+            if isinstance(content, str) and content:
+                blocks.append({"type": "text", "text": content})
+            for call in message.get("tool_calls") or []:
+                function = call.get("function") or {}
+                arguments = function.get("arguments", "{}")
+                try:
+                    parsed = json.loads(arguments) if isinstance(arguments, str) else arguments
+                except json.JSONDecodeError:
+                    parsed = {}
+                blocks.append(
+                    {
+                        "type": "tool_use",
+                        "id": str(call.get("id", "")),
+                        "name": str(function.get("name", "")),
+                        "input": parsed if isinstance(parsed, dict) else {},
+                    }
+                )
+            converted.append({"role": "assistant", "content": blocks})
+            continue
+
+        if role in {"user", "assistant"}:
+            converted.append({"role": role, "content": message.get("content", "")})
+    return converted
 
 
 def _mock_tool_turn(
@@ -331,9 +579,12 @@ def _mock_tool_turn(
     *,
     system: str = "",
 ) -> ToolTurn:
-    """Deterministic tool-using turn so the voice assistant runs without a key."""
-
-    known = {tool["name"] for tool in tools}
+    """Deterministic tool-using turn so the app runs without a model server."""
+    known = {
+        str((tool.get("function") or {}).get("name"))
+        for tool in tools
+        if tool.get("type") == "function"
+    }
     if force_tools:
         topic = _last_user_text(messages)
         return ToolTurn(
@@ -395,10 +646,24 @@ def _last_user_text(messages: Sequence[dict]) -> str:
 
 def _mock_grounded_answer(messages: Sequence[dict]) -> str:
     """Summarise the newest course-material tool result, or say it is missing."""
-
     question = _last_user_text(messages)
     for message in reversed(messages):
-        for block in message.get("content") or []:
+        if message.get("role") == "tool":
+            try:
+                payload = json.loads(str(message.get("content") or "{}"))
+            except json.JSONDecodeError:
+                continue
+            results = payload.get("results") if isinstance(payload, dict) else None
+            if results:
+                first = results[0]
+                preview = " ".join(str(first.get("excerpt", "")).split())[:200]
+                return (
+                    f"[모의 답변] '{question}'은(는) "
+                    f"{first.get('source', '강의자료')}에서 확인할 수 있어요. {preview}"
+                )
+
+        # Backwards-compatible reading of old Anthropic-shaped mock history.
+        for block in message.get("content") or [] if isinstance(message.get("content"), list) else []:
             if not isinstance(block, dict) or block.get("type") != "tool_result":
                 continue
             try:
@@ -406,21 +671,18 @@ def _mock_grounded_answer(messages: Sequence[dict]) -> str:
             except json.JSONDecodeError:
                 continue
             results = payload.get("results") if isinstance(payload, dict) else None
-            if not results:
-                continue
-            first = results[0]
-            preview = " ".join(str(first.get("excerpt", "")).split())[:200]
-            return (
-                f"[모의 답변] '{question}'은(는) {first.get('source', '강의자료')}에서 확인할 수 있어요. "
-                f"{preview}"
-            )
-
+            if results:
+                first = results[0]
+                preview = " ".join(str(first.get("excerpt", "")).split())[:200]
+                return (
+                    f"[모의 답변] '{question}'은(는) "
+                    f"{first.get('source', '강의자료')}에서 확인할 수 있어요. {preview}"
+                )
     return f"[모의 답변] '{question}'에 대한 강의자료 근거를 찾지 못했어요."
 
 
 def _mock_answer(messages: Sequence[ChatMessage]) -> str:
     """Echo the question and a short context preview so the RAG flow stays verifiable."""
-
     user_message = next(
         (message.content for message in reversed(messages) if message.role == "user"),
         "",
@@ -428,23 +690,19 @@ def _mock_answer(messages: Sequence[ChatMessage]) -> str:
     question = _extract_block(user_message, "[질문]")
     context = _extract_block(user_message, "[강의자료 컨텍스트]")
     preview = " ".join(context.split())[:200]
-
     if preview:
         return (
             f"[모의 답변] '{question}'에 대해 강의자료를 근거로 정리하면 다음과 같습니다.\n"
             f"{preview}"
         )
-
     return f"[모의 답변] '{question}'에 대한 일반적인 개념 설명입니다."
 
 
 def _extract_block(text: str, header: str) -> str:
     if header not in text:
         return text.strip()
-
     body = text.split(header, 1)[1]
     for next_header in ("[질문]", "[강의자료 컨텍스트]", "[답변 지침]"):
-        if next_header in body:
+        if next_header != header and next_header in body:
             body = body.split(next_header, 1)[0]
-
     return body.strip()
