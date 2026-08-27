@@ -22,16 +22,20 @@ def create_voice_transport(
     schedule_assessment: Callable[[list[dict]], object] | None = None,
     settings: Settings | None = None,
 ) -> Transport:
-    """Select the configured provider without exposing it to the API route."""
+    """Select the configured provider without exposing implementation in the API route."""
     settings = settings or get_settings()
     if settings.voice_provider == "grok":
-        return GrokTransport(
+        transport = GrokTransport(
             instructions=instructions,
             tools=tools,
             run_tool=run_tool,
             refresh_instructions=refresh_instructions,
             schedule_assessment=schedule_assessment,
         )
+        # Metadata is consumed generically by route-side ChatLog persistence.
+        transport.provider_name = "xai"  # type: ignore[attr-defined]
+        transport.model_name = settings.grok_voice_model  # type: ignore[attr-defined]
+        return transport
     return LocalCascadeTransport(
         context=context,
         mode=mode,
