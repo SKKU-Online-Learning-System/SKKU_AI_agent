@@ -29,6 +29,8 @@ def test_claude_uses_top_level_system_and_text_blocks(monkeypatch) -> None:
     monkeypatch.setattr(anthropic, "Anthropic", lambda **kwargs: FakeClient())
     service = LLMService(
         Settings(
+            _env_file=None,
+            llm_provider="anthropic",
             anthropic_api_key="test-key",
             claude_model="claude-test",
             use_mock_llm=False,
@@ -48,7 +50,9 @@ def test_claude_uses_top_level_system_and_text_blocks(monkeypatch) -> None:
 
 
 def test_claude_requires_api_key() -> None:
-    service = LLMService(Settings(use_mock_llm=False, anthropic_api_key=None))
+    service = LLMService(
+        Settings(_env_file=None, llm_provider="anthropic", use_mock_llm=False, anthropic_api_key=None)
+    )
 
     with pytest.raises(LLMError, match="ANTHROPIC_API_KEY"):
         service.generate_answer([ChatMessage("user", "질문")])
