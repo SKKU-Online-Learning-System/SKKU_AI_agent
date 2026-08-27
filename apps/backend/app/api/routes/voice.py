@@ -29,17 +29,13 @@ from app.core.config import Settings, get_settings
 from app.core.security import InvalidAccessTokenError, JWTService
 from app.db.session import SessionLocal, get_db
 from app.models import Course, User
+from app.services.llm_service import LLMService
 from app.services.rag_service import RagService
-from app.services.safety_service import NORMAL_RESULT, SafetyGuardService
+from app.services.safety_service import NORMAL_RESULT, SafetyGuardService, SafetyResult
 from app.services.voice import agent_spec, voice_log
 from app.services.voice.brain import StageTimer, VoiceContext, prefetch_memory_context, think
-from app.services.voice.grok_live import GrokConnectionError, GrokTransport
-from app.services.voice.session_store import (
-    external_brain_for,
-    get_context,
-    is_voice_configured,
-    reset_context,
-)
+from app.services.voice.factory import create_voice_transport, get_voice_availability
+from app.services.voice.session_store import external_brain_for, get_context, reset_context
 from app.services.voice.turn_detector import FRAME_BYTES
 from app.services.voice.transport import (
     AgentAudio,
@@ -65,6 +61,7 @@ log = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/voice", tags=["voice"])
 TEXT_FILLER_MESSAGE = "질문을 살펴보고 있어요. 잠시만 기다려 주세요."
+VOICE_UNAVAILABLE_MESSAGE = "음성 모델 서비스를 사용할 수 없습니다. 잠시 후 다시 시도해 주세요."
 
 VALID_MODES = {"explain", "socratic"}
 
@@ -117,11 +114,14 @@ def read_voice_config(
     course = authorize_course_access(session, current_user, course_id)
     status_ = RagService(session, settings).course_status(course.id)
     can_manage = current_user.role.value in {"professor", "admin"}
+    availability = get_voice_availability(settings)
     return {
         "course_id": course.id,
         "course_name": course.name,
         "term": course.semester,
-        "voice_enabled": is_voice_configured(),
+        "voice_enabled": availability.enabled,
+        "voice_provider": availability.provider,
+        "voice_status": availability.as_dict(),
         "material_count": status_.material_count,
         "is_search_ready": status_.is_search_ready,
         "can_manage": can_manage,
@@ -274,6 +274,8 @@ def _persist(
         db, user, course, chat_session_id or context.chat_session_id
     )
     context.chat_session_id = chat_session.id
+    llm = LLMService(get_settings())
+    blocked = payload["safety"].blocked
     log_id = voice_log.log_turn(
         db,
         chat_session=chat_session,
@@ -285,9 +287,10 @@ def _persist(
         web_sources=payload["sources"],
         tools_used=payload["tools"],
         mode=mode,
-        model_name="course-agent",
+        model_name=None if blocked else llm.model_name,
         response_time_ms=elapsed_ms,
         safety=payload["safety"],
+        provider_name=None if blocked else llm.provider,
     )
     return {"session_id": chat_session.id, "log_id": log_id}
 
@@ -328,7 +331,10 @@ async def answer_text(
             payload = await _answer(context, question, timer)
     except Exception as exc:
         log.exception("voice text answer failed")
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
+        raise HTTPException(
+            status_code=503,
+            detail="답변 생성 서비스를 사용할 수 없습니다.",
+        ) from exc
 
     elapsed_ms = round((time.perf_counter() - started) * 1000)
     persisted = _persist(
@@ -390,9 +396,11 @@ async def answer_text_stream(
                         elapsed_ms,
                     )
                 await queue.put({"type": "done", **_wire(payload, context, persisted)})
-            except Exception as exc:
+            except Exception:
                 log.exception("streaming voice answer failed")
-                await queue.put({"type": "error", "message": str(exc)})
+                await queue.put(
+                    {"type": "error", "message": "답변 생성 서비스를 사용할 수 없습니다."}
+                )
 
         await queue.put({"type": "status", "text": TEXT_FILLER_MESSAGE})
         task = asyncio.create_task(generate())
@@ -436,7 +444,7 @@ def _authenticate_socket(token: str, course_id: str) -> tuple[User, Course]:
 
 @router.websocket("/courses/{course_id}/stream")
 async def voice_stream(websocket: WebSocket, course_id: str) -> None:
-    """Relay 20 ms PCM frames between the browser and the realtime model."""
+    """Relay 20 ms PCM frames through the configured provider-neutral transport."""
     await websocket.accept()
     token = websocket.query_params.get("token", "")
     try:
@@ -446,6 +454,18 @@ async def voice_stream(websocket: WebSocket, course_id: str) -> None:
         return
     except HTTPException as exc:
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION, reason=str(exc.detail))
+        return
+
+    settings = get_settings()
+    availability = await asyncio.to_thread(get_voice_availability, settings)
+    if not availability.enabled:
+        log.warning(
+            "voice provider unavailable provider=%s detail=%s",
+            availability.provider,
+            availability.detail,
+        )
+        await _try_send(websocket, {"type": "error", "message": VOICE_UNAVAILABLE_MESSAGE})
+        await websocket.close(code=status.WS_1013_TRY_AGAIN_LATER)
         return
 
     mode = _normalized_mode(websocket.query_params.get("mode"))
@@ -460,7 +480,9 @@ async def voice_stream(websocket: WebSocket, course_id: str) -> None:
         return agent_spec.persona(course.name, mode, memory)
 
     external_brain = external_brain_for(user.id, course.id, course.name)
-    transport = GrokTransport(
+    transport = create_voice_transport(
+        context=context,
+        mode=mode,
         instructions=agent_spec.persona(course.name, mode, memory_context),
         tools=agent_spec.json_schemas(),
         run_tool=agent_spec.tool_runner(context),
@@ -469,25 +491,25 @@ async def voice_stream(websocket: WebSocket, course_id: str) -> None:
             conversation,
             source="realtime",
         ),
+        settings=settings,
     )
-    reader = asyncio.create_task(
-        _pump_provider_events(websocket, transport, context, user, course, mode)
-    )
+    reader: asyncio.Task[None] | None = None
     try:
         await transport.start()
+        reader = asyncio.create_task(
+            _pump_provider_events(websocket, transport, context, user, course, mode)
+        )
         await websocket.send_json({"type": "ready", "provider": transport.name})
         await _pump_caller_audio(websocket, transport)
     except WebSocketDisconnect:
         log.info("voice stream closed")
-    except GrokConnectionError as exc:
-        log.warning("realtime voice connection unavailable: %s", exc)
-        await _try_send(websocket, {"type": "error", "message": str(exc)})
-    except Exception as exc:
-        log.exception("realtime voice failed")
-        await _try_send(websocket, {"type": "error", "message": str(exc)})
+    except Exception:
+        log.exception("realtime voice failed provider=%s", transport.name)
+        await _try_send(websocket, {"type": "error", "message": VOICE_UNAVAILABLE_MESSAGE})
     finally:
-        reader.cancel()
-        await asyncio.gather(reader, return_exceptions=True)
+        if reader is not None:
+            reader.cancel()
+            await asyncio.gather(reader, return_exceptions=True)
         await transport.close()
 
 
@@ -530,14 +552,24 @@ async def _pump_provider_events(
     completed_log_id: Optional[str] = None
     turn_started_at = time.perf_counter()
     turn_tools: list[str] = []
+    turn_web_sources: list[str] = []
+    turn_safety: SafetyResult = NORMAL_RESULT
     try:
         async for event in transport.events():
             match event:
                 case SessionReady():
-                    log.info("realtime session configured")
+                    log.info("realtime session configured provider=%s", transport.name)
                 case UserStartedSpeaking():
                     await websocket.send_json({"type": "state", "value": "hearing"})
                     speaking = False
+                    # Interruption starts a new generation. Do not attach any
+                    # unfinished previous response to the next user transcript.
+                    pending_question = ""
+                    pending_question_id = ""
+                    pending_answer = ""
+                    turn_tools = []
+                    turn_web_sources = []
+                    turn_safety = NORMAL_RESULT
                     await websocket.send_json({"type": "flush"})
                 case UserStoppedSpeaking():
                     turn_ended_at = time.perf_counter()
@@ -589,6 +621,7 @@ async def _pump_provider_events(
                     if who == "user":
                         if replace and item_id and item_id == pending_question_id:
                             pending_question = text
+                            turn_safety = SafetyGuardService().check_question(text)
                             _replace_latest_history(context, "user", text)
                         elif replace and item_id and item_id == completed_question_id:
                             _replace_latest_history(context, "user", text)
@@ -598,9 +631,11 @@ async def _pump_provider_events(
                             context.append_history({"role": "user", "content": text})
                             pending_question = text
                             pending_question_id = item_id
+                            turn_safety = SafetyGuardService().check_question(text)
                             if not pending_answer:
                                 turn_started_at = time.perf_counter()
                                 turn_tools = []
+                                turn_web_sources = []
                         if pending_answer:
                             context.append_history({"role": "assistant", "content": pending_answer})
                             completed_log_id = _log_voice_turn(
@@ -610,6 +645,9 @@ async def _pump_provider_events(
                                 pending_question,
                                 pending_answer,
                                 turn_tools,
+                                turn_web_sources,
+                                turn_safety,
+                                transport,
                                 mode,
                                 round((time.perf_counter() - turn_started_at) * 1000),
                             )
@@ -626,6 +664,9 @@ async def _pump_provider_events(
                             pending_question,
                             text,
                             turn_tools,
+                            turn_web_sources,
+                            turn_safety,
+                            transport,
                             mode,
                             round((time.perf_counter() - turn_started_at) * 1000),
                         )
@@ -635,7 +676,12 @@ async def _pump_provider_events(
                     else:
                         pending_answer = text
                 case ToolCalled(name=name, result=result):
-                    turn_tools.append(name)
+                    if name not in turn_tools:
+                        turn_tools.append(name)
+                    if name == "search_trusted_web" and isinstance(result, dict):
+                        sources = result.get("sources")
+                        if isinstance(sources, list):
+                            turn_web_sources = [str(source) for source in sources[:3]]
                     await websocket.send_json({"type": "tool", "name": name})
                     if name == "show_visualization" and isinstance(result, dict):
                         if "error" in result:
@@ -652,14 +698,20 @@ async def _pump_provider_events(
                                     "visualization": result,
                                 }
                             )
-                case Failed(message=message):
+                case Failed(message=message, fatal=fatal):
                     await websocket.send_json({"type": "error", "message": message})
-                    return
+                    if fatal:
+                        return
+                    speaking = False
+                    await websocket.send_json({"type": "state", "value": "listening"})
     except asyncio.CancelledError:
         raise
-    except Exception as exc:
+    except Exception:
         log.exception("provider event pump failed")
-        await _try_send(websocket, {"type": "error", "message": str(exc)})
+        await _try_send(
+            websocket,
+            {"type": "error", "message": "음성 이벤트 처리 중 오류가 발생했습니다."},
+        )
 
 
 def _log_voice_turn(
@@ -669,6 +721,9 @@ def _log_voice_turn(
     question: str,
     answer: str,
     tools_used: list[str],
+    web_sources: list[str],
+    safety: SafetyResult,
+    transport: Transport,
     mode: str,
     elapsed_ms: int,
 ) -> Optional[str]:
@@ -681,6 +736,16 @@ def _log_voice_turn(
                 db, db_user, db_course, context.chat_session_id
             )
             context.chat_session_id = chat_session.id
+            model_name = str(getattr(transport, "model_name", transport.name) or transport.name)
+            provider_name = str(
+                getattr(transport, "provider_name", transport.name) or transport.name
+            )
+            provider_sources = getattr(transport, "last_web_sources", [])
+            if not web_sources and isinstance(provider_sources, list):
+                web_sources = [str(source) for source in provider_sources[:3]]
+            provider_safety = getattr(transport, "last_safety", safety)
+            if isinstance(provider_safety, SafetyResult):
+                safety = provider_safety
             return voice_log.log_turn(
                 db,
                 chat_session=chat_session,
@@ -689,12 +754,13 @@ def _log_voice_turn(
                 question=question,
                 answer=answer,
                 material_sources=context.last_material_sources,
-                web_sources=[],
+                web_sources=web_sources,
                 tools_used=tools_used,
                 mode=mode,
-                model_name="grok-voice-latest",
+                model_name=model_name,
                 response_time_ms=elapsed_ms,
-                safety=NORMAL_RESULT,
+                safety=safety,
+                provider_name=provider_name,
             )
     except Exception:
         log.exception("failed to persist a voice turn")
