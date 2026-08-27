@@ -12,11 +12,10 @@ import asyncio
 import logging
 import time
 from collections.abc import AsyncIterator, Awaitable, Callable
-from typing import Any
 
 from app.core.config import Settings, get_settings
 from app.services.model_server.speech_client import SpeechClient, SpeechError
-from app.services.safety_service import SafetyGuardService
+from app.services.safety_service import NORMAL_RESULT, SafetyGuardService, SafetyResult
 from app.services.voice.brain import StageTimer, VoiceContext
 from app.services.voice.local_brain import VoiceBrainResult, clone_context, think_voice
 from app.services.voice.transport import (
@@ -32,17 +31,19 @@ from app.services.voice.transport import (
     UserStartedSpeaking,
     UserStoppedSpeaking,
 )
-from app.services.voice.turn_detector import FRAME_MS, SAMPLE_RATE, TurnDetector
+from app.services.voice.turn_detector import SAMPLE_RATE, TurnDetector
 
 log = logging.getLogger("voice.local-cascade")
 _SENTINEL = object()
 BrainRunner = Callable[..., Awaitable[VoiceBrainResult]]
+QueuedEvent = tuple[int | None, Event]
 
 
 class LocalCascadeTransport(Transport):
     """ASR -> existing COURSE AGENT brain -> TTS with generation cancellation."""
 
     name = "local_cascade"
+    provider_name = "local_qwen"
 
     def __init__(
         self,
@@ -66,9 +67,10 @@ class LocalCascadeTransport(Transport):
         self.brain_runner = brain_runner
         self.safety = safety_service or SafetyGuardService()
         self.model_name = self.settings.voice_llm_model
-        self.provider_name = "local_qwen"
+        self.last_web_sources: list[str] = []
+        self.last_safety: SafetyResult = NORMAL_RESULT
 
-        self._events: asyncio.Queue[Event | object] = asyncio.Queue()
+        self._events: asyncio.Queue[QueuedEvent | object] = asyncio.Queue()
         self._generation = 0
         self._active_task: asyncio.Task[None] | None = None
         self._closed = False
@@ -76,7 +78,7 @@ class LocalCascadeTransport(Transport):
     async def start(self) -> None:
         if self._closed:
             raise RuntimeError("voice transport is closed")
-        await self._events.put(SessionReady())
+        await self._events.put((None, SessionReady()))
 
     async def send_audio(self, pcm: bytes) -> None:
         if self._closed:
@@ -117,6 +119,8 @@ class LocalCascadeTransport(Transport):
         if task is not None and not task.done():
             task.cancel()
             await asyncio.gather(task, return_exceptions=True)
+        self.last_web_sources = []
+        self.last_safety = NORMAL_RESULT
         return self._generation
 
     async def _run_audio_turn(
@@ -132,6 +136,17 @@ class LocalCascadeTransport(Transport):
         except asyncio.CancelledError:
             raise
         except SpeechError:
+            asr_ms = round((time.perf_counter() - asr_started) * 1000)
+            self._log_metrics(
+                vad_speech_ms=vad_speech_ms,
+                asr_ms=asr_ms,
+                llm_ttft_ms=0,
+                llm_total_ms=0,
+                tts_ms=0,
+                speech_end_to_first_audio_ms=0,
+                total_turn_ms=asr_ms,
+                status="asr_failed",
+            )
             await self._fail("음성 인식 서버를 사용할 수 없습니다.", generation)
             return
         asr_ms = round((time.perf_counter() - asr_started) * 1000)
@@ -160,6 +175,7 @@ class LocalCascadeTransport(Transport):
         # Snapshot before emitting the transcript so route-side history updates
         # cannot race with the model-side turn.
         safety = self.safety.check_question(transcript)
+        self.last_safety = safety
         await self._emit(
             Transcript("user", transcript, item_id=f"local-{generation}-user"),
             generation,
@@ -193,12 +209,23 @@ class LocalCascadeTransport(Transport):
             raise
         except Exception:
             log.exception("local voice LLM turn failed")
+            self._log_metrics(
+                vad_speech_ms=vad_speech_ms,
+                asr_ms=asr_ms,
+                llm_ttft_ms=timer.timings_ms.get("llm_ttft", 0),
+                llm_total_ms=timer.timings_ms.get("llm", 0),
+                tts_ms=0,
+                speech_end_to_first_audio_ms=0,
+                total_turn_ms=round((time.perf_counter() - turn_started) * 1000),
+                status="llm_failed",
+            )
             await self._fail("Voice LLM 서버가 응답을 생성하지 못했습니다.", generation)
             return
 
         if not self._current(generation):
             return
         self.context.last_material_sources = list(self._brain_context.last_material_sources)
+        self.last_web_sources = list(brain_result.sources[:3])
         await self._emit(
             Transcript("agent", reply, item_id=f"local-{generation}-agent"),
             generation,
@@ -206,7 +233,8 @@ class LocalCascadeTransport(Transport):
         for name in brain_result.tools:
             if name == "show_visualization":
                 continue
-            await self._emit(ToolCalled(name=name), generation)
+            result = {"sources": self.last_web_sources} if name == "search_trusted_web" else None
+            await self._emit(ToolCalled(name=name, result=result), generation)
         for visualization in brain_result.visualizations:
             await self._emit(
                 ToolCalled(name="show_visualization", result=visualization),
@@ -224,6 +252,17 @@ class LocalCascadeTransport(Transport):
             raise
         except SpeechError:
             # Text has already been emitted and stays visible even when audio fails.
+            tts_ms = round((time.perf_counter() - tts_started) * 1000)
+            self._log_metrics(
+                vad_speech_ms=vad_speech_ms,
+                asr_ms=asr_ms,
+                llm_ttft_ms=timer.timings_ms.get("llm_ttft", 0),
+                llm_total_ms=timer.timings_ms.get("llm", 0),
+                tts_ms=tts_ms,
+                speech_end_to_first_audio_ms=0,
+                total_turn_ms=round((time.perf_counter() - turn_started) * 1000),
+                status="tts_failed",
+            )
             await self._fail("음성 합성 서버가 응답 오디오를 생성하지 못했습니다.", generation)
             return
         tts_ms = round((time.perf_counter() - tts_started) * 1000)
@@ -234,35 +273,65 @@ class LocalCascadeTransport(Transport):
         await self._emit(AgentAudio(synthesized.pcm, rate=synthesized.sample_rate), generation)
         await self._emit(AgentTurnDone(), generation)
 
-        metrics = {
-            "vad_speech_ms": vad_speech_ms,
-            "asr_ms": asr_ms,
-            "llm_ttft_ms": timer.timings_ms.get("llm_ttft", 0),
-            "llm_total_ms": timer.timings_ms.get("llm", 0),
-            "tts_ms": tts_ms,
-            "speech_end_to_first_audio_ms": round((first_audio_at - speech_end) * 1000),
-            "total_turn_ms": round((time.perf_counter() - turn_started) * 1000),
-        }
+        self._log_metrics(
+            vad_speech_ms=vad_speech_ms,
+            asr_ms=asr_ms,
+            llm_ttft_ms=timer.timings_ms.get("llm_ttft", 0),
+            llm_total_ms=timer.timings_ms.get("llm", 0),
+            tts_ms=tts_ms,
+            speech_end_to_first_audio_ms=round((first_audio_at - speech_end) * 1000),
+            total_turn_ms=round((time.perf_counter() - turn_started) * 1000),
+            status="ok",
+        )
+
+    def _log_metrics(
+        self,
+        *,
+        vad_speech_ms: int,
+        asr_ms: int,
+        llm_ttft_ms: int,
+        llm_total_ms: int,
+        tts_ms: int,
+        speech_end_to_first_audio_ms: int,
+        total_turn_ms: int,
+        status: str,
+    ) -> None:
         # Do not log the student's transcript by default.
-        log.info("local voice turn metrics=%s", metrics)
+        log.info(
+            "local voice turn status=%s metrics=%s",
+            status,
+            {
+                "vad_speech_ms": vad_speech_ms,
+                "asr_ms": asr_ms,
+                "llm_ttft_ms": llm_ttft_ms,
+                "llm_total_ms": llm_total_ms,
+                "tts_ms": tts_ms,
+                "speech_end_to_first_audio_ms": speech_end_to_first_audio_ms,
+                "total_turn_ms": total_turn_ms,
+            },
+        )
 
     async def _fail(self, message: str, generation: int) -> None:
-        if self._current(generation):
-            await self._events.put(Failed(message))
+        await self._emit(Failed(message, fatal=False), generation)
 
     async def _emit(self, event: Event, generation: int) -> None:
         if self._current(generation):
-            await self._events.put(event)
+            await self._events.put((generation, event))
 
     def _current(self, generation: int) -> bool:
         return not self._closed and generation == self._generation
 
     async def events(self) -> AsyncIterator[Event]:
         while True:
-            event = await self._events.get()
-            if event is _SENTINEL:
+            item = await self._events.get()
+            if item is _SENTINEL:
                 break
-            yield event  # type: ignore[misc]
+            generation, event = item  # type: ignore[misc]
+            # Barge-in may happen after old audio/text was queued but before the
+            # event pump consumed it. Drop those stale queue entries here too.
+            if generation is not None and not self._current(generation):
+                continue
+            yield event
 
     async def close(self) -> None:
         if self._closed:
