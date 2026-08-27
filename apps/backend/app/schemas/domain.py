@@ -350,6 +350,7 @@ class ChatHistoryLogRead(CamelModel):
     question: str
     answer: str
     sources: list[AnswerSourceRead] = Field(default_factory=list)
+    referenced_documents: list[dict[str, object]] = Field(default_factory=list)
     is_grounded: bool
     answer_source_type: AnswerSourceType
     created_at: datetime

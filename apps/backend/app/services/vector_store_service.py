@@ -15,7 +15,7 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
 from app.core.config import Settings
-from app.models import CourseMaterial, DocumentChunk
+from app.models import CourseMaterial, CourseMaterialStatus, DocumentChunk
 from app.services.chunking_service import DocumentChunkInput
 from app.services.embedding_service import cosine_similarity
 
@@ -110,6 +110,7 @@ class VectorStoreService:
             .where(
                 DocumentChunk.course_id == course_id,
                 CourseMaterial.course_id == course_id,
+                CourseMaterial.processing_status == CourseMaterialStatus.completed,
                 DocumentChunk.embedding.is_not(None),
             )
         ).all()
@@ -134,6 +135,20 @@ class VectorStoreService:
 
         results.sort(key=lambda result: result.score, reverse=True)
         return results[:bounded_top_k]
+
+    def count_searchable_chunks(self, course_id: str) -> int:
+        total = self.session.scalar(
+            select(func.count())
+            .select_from(DocumentChunk)
+            .join(CourseMaterial, CourseMaterial.id == DocumentChunk.material_id)
+            .where(
+                DocumentChunk.course_id == course_id,
+                CourseMaterial.course_id == course_id,
+                CourseMaterial.processing_status == CourseMaterialStatus.completed,
+                DocumentChunk.embedding.is_not(None),
+            )
+        )
+        return int(total or 0)
 
     def count_course_chunks(self, course_id: str) -> CourseChunkStats:
         chunk_count = self.session.scalar(

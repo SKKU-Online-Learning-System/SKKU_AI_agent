@@ -149,7 +149,7 @@ def _run_processing(
         session.refresh(material)
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=str(exc),
+            detail=f"{exc.code}: {exc}",
         ) from exc
 
     session.refresh(material)

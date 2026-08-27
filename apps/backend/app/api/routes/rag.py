@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -23,6 +24,7 @@ from app.services.embedding_service import EmbeddingError
 from app.services.rag_service import RagService
 
 router = APIRouter(tags=["rag"])
+logger = logging.getLogger(__name__)
 
 
 @router.post("/rag/search", response_model=RagSearchResponse)
@@ -40,6 +42,8 @@ async def search_course_documents(
         )
 
     course = authorize_course_access(session, current_user, payload.course_id)
+    if payload.debug and current_user.role.value not in {"professor", "admin"}:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Debug access denied")
     service = RagService(session, settings)
     try:
         # Embedding the question can call an external API, so keep it off the event loop.
@@ -47,7 +51,13 @@ async def search_course_documents(
     except EmbeddingError as exc:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=f"RAG_SEARCH_FAILED: {exc}",
+            detail={"code": "RAG_SEARCH_FAILED", "message": "Embedding unavailable"},
+        ) from exc
+    except Exception as exc:
+        logger.exception("RAG search failed")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={"code": "RAG_SEARCH_FAILED", "message": "RAG search failed"},
         ) from exc
 
     return RagSearchResponse(

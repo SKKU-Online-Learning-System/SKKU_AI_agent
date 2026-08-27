@@ -168,7 +168,8 @@ async def delete_my_chat_session(
     settings: Annotated[Settings, Depends(get_settings)],
     current_user: Annotated[User, Depends(get_current_user)],
 ) -> None:
-    chat_session = _load_owned_session(session, settings, current_user, session_id)
+    # DELETE intentionally does not reveal whether another learner owns the id.
+    chat_session = get_owned_chat_session(session, current_user, session_id)
     session.delete(chat_session)
     session.commit()
 
@@ -238,6 +239,7 @@ def _read_session_detail(
                     AnswerSourceRead.model_validate(source)
                     for source in (log.referenced_documents or [])
                 ],
+                referenced_documents=list(log.referenced_documents or []),
                 is_grounded=log.is_grounded,
                 answer_source_type=getattr(
                     log.answer_source_type,
