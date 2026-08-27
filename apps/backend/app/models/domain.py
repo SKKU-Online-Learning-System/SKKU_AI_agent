@@ -360,6 +360,7 @@ class ChatSession(Base):
     course: Mapped[Course] = relationship(back_populates="chat_sessions")
     logs: Mapped[list[ChatLog]] = relationship(
         back_populates="session",
+        cascade="all, delete-orphan",
         passive_deletes=True,
         order_by="ChatLog.created_at",
     )
