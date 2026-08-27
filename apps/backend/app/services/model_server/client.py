@@ -63,6 +63,22 @@ class ServiceHealth:
 
 
 @dataclass(frozen=True)
+class VoiceModelServerHealth:
+    voice_llm: ServiceHealth
+    speech: ServiceHealth
+
+    @property
+    def available(self) -> bool:
+        return self.voice_llm.available and self.speech.available
+
+    def as_dict(self) -> dict[str, dict[str, Any]]:
+        return {
+            "voice_llm": self.voice_llm.as_dict(),
+            "speech": self.speech.as_dict(),
+        }
+
+
+@dataclass(frozen=True)
 class ModelServerHealth:
     text_llm: ServiceHealth
     voice_llm: ServiceHealth
@@ -71,6 +87,10 @@ class ModelServerHealth:
     @property
     def voice_available(self) -> bool:
         return self.voice_llm.available and self.speech.available
+
+    @property
+    def all_available(self) -> bool:
+        return self.text_llm.available and self.voice_available
 
     def as_dict(self) -> dict[str, dict[str, Any]]:
         return {
@@ -117,6 +137,14 @@ def _speech_health(settings: Settings) -> ServiceHealth:
         return ServiceHealth(True, "ok")
     except (httpx.HTTPError, ValueError, TypeError) as exc:
         return ServiceHealth(False, type(exc).__name__)
+
+
+def check_voice_model_server_health(settings: Settings) -> VoiceModelServerHealth:
+    """Check only services required by local cascade voice."""
+    return VoiceModelServerHealth(
+        voice_llm=_models_health(settings.voice_llm_base_url, settings.voice_llm_model, settings),
+        speech=_speech_health(settings),
+    )
 
 
 def check_model_server_health(settings: Settings) -> ModelServerHealth:
