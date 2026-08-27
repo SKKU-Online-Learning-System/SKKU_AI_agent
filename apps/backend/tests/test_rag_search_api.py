@@ -259,7 +259,7 @@ def test_search_enforces_role_course_access_and_validation(rag_api: RAGApiContex
         rag_api.client.post(
             "/api/rag/search", headers=rag_api.headers("student"), json=payload
         ).status_code
-        == 200
+        == 403
     )
     assert (
         rag_api.client.post(

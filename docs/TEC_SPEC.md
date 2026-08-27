@@ -14,16 +14,22 @@
 
 ### 1.1 현재 구현 기준
 
-2026-07-28 기준으로 검색 가능한 지식베이스까지 구현되어 있다.
+2026-08-27 기준으로 Stage 4 COURSE AGENT와 self-hosted Qwen 연동까지 구현되어 있다.
 
 - TXT, PDF, DOCX, PPTX 텍스트 추출
 - 1,000자 청크와 150자 중첩
 - deterministic local hash embedding
 - PostgreSQL JSON embedding 저장과 애플리케이션 cosine 검색
-- 과목 권한 및 `course_id` 범위가 강제되는 검색 API
-- 교수자 자료 처리 UI와 RAG 검색 디버그 UI
+- 과목 권한 및 `course_id` 범위가 강제되는 RAG 검색
+- 완료(`completed`)된 강의자료만 실제 retrieval 후보로 사용
+- `LLMService` 기반 provider-neutral 답변 생성과 citation/SAFE/ChatLog 영속화
+- 기본 Text LLM: 외부 Model Server의 `Qwen/Qwen3.8-27B` OpenAI-compatible API
+- 기본 Voice LLM: 외부 Model Server의 `Qwen/Qwen3.5-9B` (`enable_thinking=false`)
+- COURSE AGENT 음성 경로: 브라우저 PCM → CPU Silero VAD → Qwen ASR → 기존 Brain/RAG/Tools/SAFE/Memory → Voice Qwen → Qwen TTS → 브라우저
+- 교수자 trusted-domain allowlist와 self-hosted SearXNG 보충 검색
+- 음성/텍스트 turn 모두 기존 RBAC, course scope, SAFE, ChatLog 정책 공유
 
-LLM 답변 생성, citation 조립, SAFE 정책과 ChatLog 영속화는 4단계 범위다. pgvector 확장은 활성화되어 있지만 현재 vector 컬럼과 DB 거리 연산은 사용하지 않는다.
+애플리케이션 저장소는 Qwen weight, vLLM, qwen-asr, qwen-tts 또는 CUDA runtime을 로드하지 않는다. GPU inference는 별도 `SKKU_AI_model_server`가 담당하며, 애플리케이션은 endpointing을 위한 CPU-only Silero VAD만 실행한다. pgvector 확장은 활성화되어 있지만 현재 vector 컬럼과 DB 거리 연산은 사용하지 않는다.
 
 ---
 
@@ -93,14 +99,46 @@ MVP에서는 관리 복잡도를 줄이기 위해 다음과 같이 구성한다.
 
 ```text id="qr411x"
 Frontend: Next.js
-Backend: FastAPI 또는 Node.js API Server
+Backend: FastAPI
 Database: PostgreSQL
-Vector DB: pgvector 우선 검토
+Vector Search: PostgreSQL 저장 + application cosine (pgvector 교체 가능)
 File Storage: Local Storage
-AI Provider: Anthropic Claude API
+AI Provider: SKKU Model Server (Qwen Text / Voice / ASR / TTS)
+Trusted Web: self-hosted SearXNG + professor allowlist
 Auth: JWT 기반 인증
 Deployment: Docker / Docker Compose
 ```
+
+### 3.3 External Model Server 및 COURSE AGENT 런타임
+
+기본 inference endpoint는 애플리케이션 프로세스와 분리한다.
+
+```text
+Typed COURSE AGENT
+Frontend → FastAPI → RBAC / SAFE / course-scoped RAG / Tools
+         → LLMService(text) → TEXT_LLM_BASE_URL/chat/completions
+         → Qwen/Qwen3.8-27B
+
+Hands-free Voice
+Browser PCM16 mono 16 kHz (20 ms frames)
+ → FastAPI WebSocket
+ → Silero VAD (application CPU)
+ → SPEECH_BASE_URL/v1/audio/transcriptions
+ → existing COURSE AGENT Brain / RAG / Tools / SAFE / Memory / Visualization
+ → LLMService(voice) → VOICE_LLM_BASE_URL/chat/completions
+ → Qwen/Qwen3.5-9B (chat_template_kwargs.enable_thinking=false)
+ → SPEECH_BASE_URL/v1/audio/speech (Sohee / Korean)
+ → PCM16 mono 24 kHz
+ → Browser speaker
+```
+
+Model Server health는 Text/Voice LLM의 `/models`와 Speech Server의 `/health`로 확인한다. local cascade voice는 Voice LLM과 Speech Server가 모두 준비된 경우에만 available로 노출한다. 모델 서버 장애는 FastAPI startup을 중단시키지 않고 해당 요청/음성 기능을 명시적으로 unavailable 처리한다.
+
+Realtime API route는 provider 구현을 직접 생성하지 않고 `Transport` factory를 사용한다. 기본값은 `local_cascade`이며 legacy xAI Grok transport는 비교/회귀 용도로만 유지한다. Barge-in 시 generation id를 증가시키고 실행 중 task를 취소하며, 이미 event queue에 들어간 이전 generation의 audio/text도 dequeue 단계에서 폐기한다.
+
+Trusted web search는 `SEARXNG_URL/search?format=json`을 사용하고, 검색 결과 URL은 모델에 전달하기 전에 애플리케이션에서 교수자 allowlist의 exact host 또는 subdomain인지 다시 검증한다. 모델 제공자의 server-side web search에는 의존하지 않는다.
+
+Model Server 인증이 설정된 경우 `Authorization: Bearer ${MODEL_SERVER_API_KEY}`를 공통 적용한다. 실제 서버 연결 smoke test는 `scripts/test_model_server_integration.py`로 수행하며, 16 kHz mono WAV를 주면 ASR → Voice Qwen → TTS 전체 경로를 검증한다.
 
 향후 운영 단계에서는 다음으로 확장 가능하다.
 
@@ -123,7 +161,7 @@ Backend: 단일 API 서버 → API 서버 + RAG Worker 분리
 | DB           | PostgreSQL                    | 사용자, 과목, 로그, 메타데이터 저장 |
 | ORM          | Prisma / SQLAlchemy           | 선택한 백엔드에 맞춰 사용           |
 | Vector DB    | pgvector                      | PostgreSQL 기반 벡터 검색           |
-| AI API       | Anthropic Claude API          | LLM 답변 생성                       |
+| AI API       | SKKU Model Server / Qwen      | Text·Voice LLM, ASR, TTS 외부 추론  |
 | Auth         | JWT                           | MVP 인증                            |
 | File Storage | Local Storage                 | 업로드 파일 저장                    |
 | Deployment   | Docker Compose                | 로컬 및 서버 배포                   |

@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Annotated, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 from starlette.concurrency import run_in_threadpool
 
@@ -170,6 +170,9 @@ async def delete_my_chat_session(
 ) -> None:
     # DELETE intentionally does not reveal whether another learner owns the id.
     chat_session = get_owned_chat_session(session, current_user, session_id)
+    # Keep deletion semantics deterministic even when a test/dev SQLite engine
+    # does not enable foreign-key cascades. PostgreSQL still has ON DELETE CASCADE.
+    session.execute(delete(ChatLog).where(ChatLog.session_id == chat_session.id))
     session.delete(chat_session)
     session.commit()
 
