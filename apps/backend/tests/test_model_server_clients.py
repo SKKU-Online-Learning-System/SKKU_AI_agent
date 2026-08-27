@@ -1,0 +1,151 @@
+import httpx
+import pytest
+
+from app.core.config import Settings
+from app.services.model_server import speech_client
+from app.services.model_server.speech_client import SpeechClient, SpeechError
+from app.services.trusted_web_search import TrustedWebSearchService
+
+
+class FakeResponse:
+    def __init__(
+        self,
+        *,
+        payload: dict | None = None,
+        content: bytes = b"",
+        headers: dict[str, str] | None = None,
+        status_code: int = 200,
+    ) -> None:
+        self._payload = payload or {}
+        self.content = content
+        self.headers = headers or {}
+        self.status_code = status_code
+
+    def raise_for_status(self) -> None:
+        if self.status_code >= 400:
+            request = httpx.Request("GET", "http://service/test")
+            response = httpx.Response(self.status_code, request=request)
+            raise httpx.HTTPStatusError("failed", request=request, response=response)
+
+    def json(self) -> dict:
+        return self._payload
+
+
+class FakeSpeechHttpClient:
+    def __init__(self) -> None:
+        self.calls: list[dict] = []
+
+    async def post(self, path: str, **kwargs) -> FakeResponse:
+        self.calls.append({"path": path, **kwargs})
+        if path == "v1/audio/transcriptions":
+            return FakeResponse(
+                payload={
+                    "text": "가상 메모리가 뭐야?",
+                    "language": "Korean",
+                    "audio_duration_ms": 1000,
+                    "inference_ms": 120,
+                }
+            )
+        return FakeResponse(
+            content=b"\x01\x02" * 100,
+            headers={
+                "X-Audio-Sample-Rate": "24000",
+                "X-Inference-Ms": "90",
+                "X-Audio-Duration-Ms": "400",
+            },
+        )
+
+
+class FakeSearchHttpClient:
+    async def get(self, path: str, **kwargs) -> FakeResponse:
+        assert path == "search"
+        return FakeResponse(
+            payload={
+                "results": [
+                    {
+                        "title": "Allowed root",
+                        "url": "https://cs.skku.edu/page",
+                        "content": "trusted root snippet",
+                    },
+                    {
+                        "title": "Allowed subdomain",
+                        "url": "https://docs.cs.skku.edu/reference",
+                        "content": "trusted subdomain snippet",
+                    },
+                    {
+                        "title": "Attacker",
+                        "url": "https://cs.skku.edu.evil.example/phish",
+                        "content": "must be removed",
+                    },
+                    {
+                        "title": "Wrong scheme",
+                        "url": "javascript:alert(1)",
+                        "content": "must be removed",
+                    },
+                ]
+            }
+        )
+
+
+def settings(**overrides) -> Settings:
+    values = {
+        "speech_base_url": "http://speech:8010",
+        "searxng_url": "http://search:8080",
+        "tts_speaker": "Sohee",
+        "tts_language": "Korean",
+    }
+    values.update(overrides)
+    return Settings(_env_file=None, **values)
+
+
+@pytest.mark.asyncio
+async def test_speech_client_asr_and_tts_contract(monkeypatch) -> None:
+    fake = FakeSpeechHttpClient()
+    monkeypatch.setattr(speech_client, "async_client", lambda *args: fake)
+    client = SpeechClient(settings())
+
+    transcription = await client.transcribe(b"\x00\x00" * 16000, sample_rate=16000)
+    synthesized = await client.synthesize("안녕하세요.")
+
+    assert transcription.text == "가상 메모리가 뭐야?"
+    asr_call = fake.calls[0]
+    assert asr_call["path"] == "v1/audio/transcriptions"
+    assert asr_call["files"]["file"][2] == "audio/wav"
+    assert asr_call["files"]["file"][1][:4] == b"RIFF"
+
+    tts_call = fake.calls[1]
+    assert tts_call["path"] == "v1/audio/speech"
+    assert tts_call["json"] == {
+        "input": "안녕하세요.",
+        "voice": "Sohee",
+        "language": "Korean",
+        "response_format": "pcm",
+    }
+    assert synthesized.sample_rate == 24000
+    assert synthesized.inference_ms == 90
+
+
+@pytest.mark.asyncio
+async def test_speech_client_rejects_wrong_tts_sample_rate(monkeypatch) -> None:
+    class WrongRate(FakeSpeechHttpClient):
+        async def post(self, path: str, **kwargs) -> FakeResponse:
+            return FakeResponse(content=b"x", headers={"X-Audio-Sample-Rate": "16000"})
+
+    monkeypatch.setattr(speech_client, "async_client", lambda *args: WrongRate())
+
+    with pytest.raises(SpeechError, match="sample rate"):
+        await SpeechClient(settings()).synthesize("테스트")
+
+
+@pytest.mark.asyncio
+async def test_searxng_results_are_revalidated_against_allowlist() -> None:
+    service = TrustedWebSearchService(settings())
+    service.client = FakeSearchHttpClient()
+
+    results = await service.search("가상 메모리", ["cs.skku.edu"])
+
+    assert [result.url for result in results] == [
+        "https://cs.skku.edu/page",
+        "https://docs.cs.skku.edu/reference",
+    ]
+    assert all("evil.example" not in result.url for result in results)
