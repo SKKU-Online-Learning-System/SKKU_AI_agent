@@ -226,10 +226,9 @@ class LocalCascadeTransport(Transport):
             return
         self.context.last_material_sources = list(self._brain_context.last_material_sources)
         self.last_web_sources = list(brain_result.sources[:3])
-        await self._emit(
-            Transcript("agent", reply, item_id=f"local-{generation}-agent"),
-            generation,
-        )
+
+        # Tool/source metadata must reach the route before the final transcript,
+        # because the route persists the turn when Transcript(agent) arrives.
         for name in brain_result.tools:
             if name == "show_visualization":
                 continue
@@ -240,6 +239,10 @@ class LocalCascadeTransport(Transport):
                 ToolCalled(name="show_visualization", result=visualization),
                 generation,
             )
+        await self._emit(
+            Transcript("agent", reply, item_id=f"local-{generation}-agent"),
+            generation,
+        )
 
         tts_started = time.perf_counter()
         try:
