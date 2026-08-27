@@ -21,8 +21,8 @@ from app.models import (
     User,
     UserRole,
 )
-from app.services.embedding_service import LocalHashEmbeddingService
-from app.services.vector_store_service import SQLAlchemyLocalVectorStoreService
+from app.services.embedding_service import EmbeddingService
+from app.services.vector_store_service import VectorStoreService
 
 
 @dataclass(frozen=True)
@@ -56,7 +56,12 @@ def rag_api() -> Generator[RAGApiContext, None, None]:
     )
     testing_session = sessionmaker(bind=engine, autocommit=False, autoflush=False)
     Base.metadata.create_all(engine)
-    settings = Settings(vector_db_embedding_dim=16, _env_file=None)
+    settings = Settings(
+        vector_db_embedding_dim=16,
+        mock_embedding_dim=128,
+        rag_score_threshold=0.3,
+        _env_file=None,
+    )
 
     with testing_session() as session:
         users = {
@@ -146,7 +151,7 @@ def rag_api() -> Generator[RAGApiContext, None, None]:
         session.add_all(materials.values())
         session.flush()
         texts = ["gradient descent basics", "neural networks", "failed gradient", "other secret"]
-        embedder = LocalHashEmbeddingService()
+        embedder = EmbeddingService(settings)
         embeddings = embedder.embed_texts(texts)
         session.add_all(
             [
@@ -228,17 +233,17 @@ def test_search_returns_top_k_only_from_accessible_course(rag_api: RAGApiContext
 
     assert response.status_code == 200
     assert response.json() == {
-        "course_id": rag_api.courses["owned"],
+        "courseId": rag_api.courses["owned"],
         "question": "gradient descent",
-        "top_k": 1,
+        "topK": 1,
         "results": [
             {
-                "chunk_id": response.json()["results"][0]["chunk_id"],
-                "material_id": response.json()["results"][0]["material_id"],
-                "document_name": "lecture1.pdf",
-                "page_number": 12,
-                "chunk_index": 0,
-                "chunk_text": "gradient descent basics",
+                "chunkId": response.json()["results"][0]["chunkId"],
+                "materialId": response.json()["results"][0]["materialId"],
+                "documentName": "lecture1.pdf",
+                "pageNumber": 12,
+                "chunkIndex": 0,
+                "chunkText": "gradient descent basics",
                 "score": response.json()["results"][0]["score"],
             }
         ],
@@ -312,12 +317,12 @@ def test_debug_search_is_professor_only_and_reports_filtered_candidates(
 
     assert response.status_code == 200
     assert response.json()["debug"] == {
-        "embedding_model": "local-hash-128",
-        "search_mode": "local",
-        "score_threshold": 0.3,
-        "total_candidate_chunks": 2,
+        "embeddingModel": "mock-hash-128",
+        "searchMode": "local",
+        "scoreThreshold": 0.3,
+        "totalCandidateChunks": 2,
     }
-    assert all(result["document_name"] == "lecture1.pdf" for result in response.json()["results"])
+    assert all(result["documentName"] == "lecture1.pdf" for result in response.json()["results"])
     assert (
         rag_api.client.post(
             "/api/rag/search", headers=rag_api.headers("student"), json=payload
@@ -332,17 +337,18 @@ def test_rag_status_counts_chunks_and_requires_access(rag_api: RAGApiContext) ->
 
     assert response.status_code == 200
     assert response.json() == {
-        "course_id": rag_api.courses["owned"],
-        "material_count": 3,
-        "completed_material_count": 1,
-        "failed_material_count": 1,
-        "chunk_count": 4,
-        "embedded_chunk_count": 3,
-        "is_search_ready": True,
+        "courseId": rag_api.courses["owned"],
+        "materialCount": 3,
+        "completedMaterialCount": 1,
+        "failedMaterialCount": 1,
+        "pendingMaterialCount": 1,
+        "chunkCount": 4,
+        "embeddedChunkCount": 3,
+        "isSearchReady": True,
     }
     empty_url = f"/api/courses/{rag_api.courses['empty']}/rag/status"
     assert rag_api.client.get(empty_url, headers=rag_api.headers("professor")).json()[
-        "is_search_ready"
+        "isSearchReady"
     ] is False
     empty_search = rag_api.client.post(
         "/api/rag/search",
@@ -362,7 +368,7 @@ def test_search_failures_return_stable_error_code(
         raise RuntimeError("vector store unavailable")
 
     monkeypatch.setattr(
-        SQLAlchemyLocalVectorStoreService,
+        VectorStoreService,
         "search_similar_chunks",
         fail_search,
     )
@@ -383,7 +389,7 @@ def test_embedding_failures_return_stable_error_code(
     def fail_embedding(*args: object, **kwargs: object) -> list[float]:
         raise RuntimeError("embedding unavailable")
 
-    monkeypatch.setattr(LocalHashEmbeddingService, "embed_text", fail_embedding)
+    monkeypatch.setattr(EmbeddingService, "embed_text", fail_embedding)
     response = rag_api.client.post(
         "/api/rag/search",
         headers=rag_api.headers("student"),

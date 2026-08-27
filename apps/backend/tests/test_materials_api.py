@@ -125,7 +125,9 @@ def material_api(tmp_path: Path) -> Generator[MaterialApiContext, None, None]:
             yield session
 
     upload_dir = tmp_path / "uploads"
-    settings = Settings(upload_dir=str(upload_dir), max_upload_size_bytes=4)
+    settings = Settings(
+        upload_dir=str(upload_dir), max_upload_size_bytes=4, mock_embedding_dim=128
+    )
     token_service = JWTService(
         settings.jwt_secret,
         settings.jwt_algorithm,
@@ -535,17 +537,17 @@ def test_processing_failure_is_persisted_and_can_be_retried(
 
     assert failed.status_code == 422
     assert failed.json() == {
-        "detail": "MATERIAL_FILE_NOT_FOUND: Material file not found"
+        "detail": "MATERIAL_FILE_NOT_FOUND: 자료 파일을 찾을 수 없습니다."
     }
     assert status_response.status_code == 200
     assert status_response.json()["processingStatus"] == "failed"
     assert status_response.json()["processingError"] == (
-        "MATERIAL_FILE_NOT_FOUND: Material file not found"
+        "MATERIAL_FILE_NOT_FOUND: 자료 파일을 찾을 수 없습니다."
     )
     assert status_response.json()["chunkCount"] == 0
     assert retried.status_code == 422
     assert retried.json() == {
-        "detail": "MATERIAL_FILE_NOT_FOUND: Material file not found"
+        "detail": "MATERIAL_FILE_NOT_FOUND: 자료 파일을 찾을 수 없습니다."
     }
 
 
@@ -648,7 +650,7 @@ def test_processing_claim_is_visible_and_rejects_concurrent_request(
 @pytest.mark.parametrize(
     ("file_type", "content", "expected_error"),
     [
-        ("txt", b"", "DOCUMENT_TEXT_EMPTY"),
+        ("txt", b"", "DOCUMENT_TEXT_NOT_FOUND"),
         ("hwp", b"hwp", "DOCUMENT_UNSUPPORTED_TYPE"),
     ],
 )
@@ -733,7 +735,7 @@ def test_process_splits_long_text_and_reprocess_replaces_chunks(
         ).all()
         first_ids = {chunk.id for chunk in first_chunks}
         assert [chunk.chunk_index for chunk in first_chunks] == [0, 1, 2]
-        assert [chunk.page_number for chunk in first_chunks] == [None, None, None]
+        assert [chunk.page_number for chunk in first_chunks] == [1, 1, 1]
         assert [chunk.char_count for chunk in first_chunks] == [1000, 1000, 500]
         assert all(chunk.course_id == material_api.courses["owned"] for chunk in first_chunks)
 

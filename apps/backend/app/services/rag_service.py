@@ -67,9 +67,10 @@ class RagService:
     def retrieve(self, course_id: str, question: str, top_k: Optional[int] = None) -> RetrievalOutcome:
         resolved_top_k = self.resolve_top_k(top_k)
         stats = self.vector_store.count_course_chunks(course_id)
+        searchable_count = self.vector_store.count_searchable_chunks(course_id)
         threshold = self.settings.rag_score_threshold
 
-        if stats.embedded_chunk_count == 0:
+        if searchable_count == 0:
             return RetrievalOutcome(
                 results=[],
                 summary=RetrievalSummary(
@@ -102,7 +103,7 @@ class RagService:
                 top_k=resolved_top_k,
                 search_mode=self.settings.vector_search_mode,
                 embedding_model=self.embedding_service.model_name,
-                total_candidate_chunks=stats.embedded_chunk_count,
+                total_candidate_chunks=searchable_count,
                 reason=None if results else "NO_RELEVANT_CONTEXT",
             ),
         )
@@ -121,6 +122,7 @@ class RagService:
             return int(counts.get(status, counts.get(status.value, 0)) or 0)
 
         completed = count_for(CourseMaterialStatus.completed)
+        searchable_count = self.vector_store.count_searchable_chunks(course_id)
         return CourseRagStatus(
             course_id=course_id,
             material_count=sum(int(value or 0) for value in counts.values()),
@@ -129,5 +131,5 @@ class RagService:
             pending_material_count=count_for(CourseMaterialStatus.pending),
             chunk_count=stats.chunk_count,
             embedded_chunk_count=stats.embedded_chunk_count,
-            is_search_ready=completed > 0 and stats.embedded_chunk_count > 0,
+            is_search_ready=completed > 0 and searchable_count > 0,
         )

@@ -10,13 +10,14 @@ import logging
 from dataclasses import dataclass
 from typing import Optional
 
-from sqlalchemy import update
+from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
-from app.core.config import Settings
+from app.core.config import Settings, get_settings
 from app.models import CourseMaterial, CourseMaterialStatus
 from app.services.chunking_service import create_chunks
 from app.services.document_parser import DocumentParseError, parse_material
+from app.services.document_parser_service import DocumentParserService
 from app.services.embedding_service import EmbeddingError, EmbeddingService
 from app.services.vector_store_service import VectorStoreService
 
@@ -57,17 +58,33 @@ class MaterialProcessingService:
     def __init__(
         self,
         session: Session,
-        settings: Settings,
+        settings: Settings | None = None,
         embedding_service: Optional[EmbeddingService] = None,
         vector_store: Optional[VectorStoreService] = None,
+        parser: Optional[DocumentParserService] = None,
     ) -> None:
         self.session = session
-        self.settings = settings
-        self.embedding_service = embedding_service or EmbeddingService(settings)
-        self.vector_store = vector_store or VectorStoreService(session, settings)
+        self.settings = settings or get_settings()
+        self.embedding_service = embedding_service or EmbeddingService(self.settings)
+        self.vector_store = vector_store or VectorStoreService(session, self.settings)
+        self.parser = parser
 
-    def process_material(self, material_id: str, *, reprocess: bool = False) -> ProcessingOutcome:
-        material = self.session.get(CourseMaterial, material_id)
+    def process_material(
+        self,
+        material_or_course_id: str,
+        material_id: Optional[str] = None,
+        *,
+        reprocess: bool = False,
+    ) -> ProcessingOutcome:
+        if material_id is None:
+            material = self.session.get(CourseMaterial, material_or_course_id)
+        else:
+            material = self.session.scalar(
+                select(CourseMaterial).where(
+                    CourseMaterial.id == material_id,
+                    CourseMaterial.course_id == material_or_course_id,
+                )
+            )
         if material is None:
             raise MaterialNotFoundError("자료를 찾을 수 없습니다.")
 
@@ -111,12 +128,15 @@ class MaterialProcessingService:
         self.session.refresh(material)
 
     def _run_pipeline(self, material: CourseMaterial) -> ProcessingOutcome:
-        document = parse_material(
-            material_id=material.id,
-            course_id=material.course_id,
-            title=material.original_file_name,
-            storage_path=material.storage_path,
-        )
+        if self.parser is not None:
+            document = self.parser.parse(material)
+        else:
+            document = parse_material(
+                material_id=material.id,
+                course_id=material.course_id,
+                title=material.original_file_name,
+                storage_path=material.storage_path,
+            )
         chunks = create_chunks(
             document,
             chunk_size=self.settings.chunk_size,
@@ -165,7 +185,7 @@ class MaterialProcessingService:
             .where(CourseMaterial.id == material.id)
             .values(
                 processing_status=CourseMaterialStatus.failed,
-                processing_error=f"[{code}] {error}"[:2000],
+                processing_error=f"{code}: {error}"[:2000],
             )
         )
         self.session.commit()
