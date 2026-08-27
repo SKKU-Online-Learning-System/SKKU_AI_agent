@@ -102,6 +102,7 @@ def log_turn(
     model_name: Optional[str],
     response_time_ms: int,
     safety: SafetyResult,
+    provider_name: Optional[str] = None,
 ) -> str:
     """Write one voice turn to the chat log and return its id."""
     is_grounded = bool(material_sources)
@@ -113,6 +114,16 @@ def log_turn(
         source_type = ChatAnswerSourceType.general_llm
     else:
         source_type = ChatAnswerSourceType.no_material
+
+    retrieval_result = {
+        "channel": "voice",
+        "mode": mode,
+        "tools_used": list(tools_used),
+        "web_sources": list(web_sources),
+        "result_count": len(material_sources),
+    }
+    if provider_name:
+        retrieval_result["provider"] = provider_name
 
     log = ChatLog(
         session_id=chat_session.id,
@@ -126,13 +137,7 @@ def log_turn(
         is_grounded=is_grounded,
         answer_source_type=source_type,
         safety_result=safety.as_dict(),
-        retrieval_result={
-            "channel": "voice",
-            "mode": mode,
-            "tools_used": list(tools_used),
-            "web_sources": list(web_sources),
-            "result_count": len(material_sources),
-        },
+        retrieval_result=retrieval_result,
     )
     db.add(log)
 
