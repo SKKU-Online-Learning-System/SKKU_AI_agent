@@ -34,10 +34,13 @@ parsers = [
   "python-pptx>=0.6"
 ]
 # COURSE AGENT extra: optional Moss memory plus application-side CPU Silero VAD.
-# The Qwen ASR/TTS/LLM weights and GPU runtimes remain exclusively on Model Server.
+# Pin torch and torchaudio directly so uv applies the explicit CPU-only source
+# even though Silero also declares them transitively. No CUDA packages belong here.
 voice = [
   "moss>=1.7.1,<2",
-  "silero-vad[onnx-cpu]==6.2.1"
+  "silero-vad[onnx-cpu]==6.2.1",
+  "torch==2.9.1",
+  "torchaudio==2.9.1"
 ]
 # Legacy deterministic endpointing tests/comparison only; local_cascade uses Silero.
 vad = [
@@ -50,8 +53,6 @@ dev = [
   "types-python-jose>=3.5,<4"
 ]
 
-# Silero declares torch/torchaudio. Pin both package families to PyTorch's CPU-only
-# index so the application image never resolves CUDA wheels.
 [tool.uv.sources]
 torch = { index = "pytorch-cpu" }
 torchaudio = { index = "pytorch-cpu" }
