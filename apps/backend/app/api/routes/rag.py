@@ -42,8 +42,6 @@ async def search_course_documents(
         )
 
     course = authorize_course_access(session, current_user, payload.course_id)
-    if payload.debug and current_user.role.value not in {"professor", "admin"}:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Debug access denied")
     service = RagService(session, settings)
     try:
         # Embedding the question can call an external API, so keep it off the event loop.

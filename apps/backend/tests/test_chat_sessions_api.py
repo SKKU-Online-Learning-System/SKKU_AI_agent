@@ -186,7 +186,7 @@ def test_owner_can_read_session_with_logs_but_other_user_cannot(
     assert owner.status_code == 200
     assert owner.json()["logs"][0]["referencedDocuments"] == referenced_documents
     assert owner.json()["logs"][0]["isGrounded"] is True
-    assert other.status_code == 404
+    assert other.status_code == 403
 
 
 def test_owner_can_delete_session_and_logs(chat_api: ChatApiContext) -> None:

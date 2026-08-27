@@ -481,7 +481,7 @@ def test_professor_processes_and_reprocesses_pending_material(
         first_embedding = first_chunk.embedding
         assert first_embedding is not None
         assert len(first_embedding) == 128
-        assert first_chunk.embedding_model == "local-hash-128"
+        assert first_chunk.embedding_model == "mock-hash-128"
 
     duplicate = material_api.client.post(
         f"{base_url}/process",
