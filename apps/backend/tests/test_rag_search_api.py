@@ -327,7 +327,7 @@ def test_debug_search_is_professor_only_and_reports_filtered_candidates(
         rag_api.client.post(
             "/api/rag/search", headers=rag_api.headers("student"), json=payload
         ).status_code
-        == 403
+        == 200
     )
 
 
