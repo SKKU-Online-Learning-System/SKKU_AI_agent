@@ -32,7 +32,7 @@ class FakeLLM:
             [
                 ToolTurn(
                     text="",
-                    model_name="claude-test",
+                    model_name="qwen-test",
                     tool_calls=[
                         call(
                             "web",
@@ -57,7 +57,7 @@ class FakeLLM:
                 ),
                 ToolTurn(
                     text="근거를 바탕으로 설명할게요. https://arxiv.org/abs/1706.03762",
-                    model_name="claude-test",
+                    model_name="qwen-test",
                     tool_calls=[],
                 ),
             ]
@@ -158,24 +158,19 @@ def test_all_schemas_execute_through_dispatcher() -> None:
         )
 
     assert set(tools) == {"search_trusted_web", "show_visualization"}
-    # Memory and course evidence are prefetched; only action tools reach Claude.
+    # Memory and course evidence are prefetched; only action tools reach Qwen.
     assert "force_tools" not in fake_llm.calls[0]
-    assert {tool["name"] for tool in fake_llm.calls[0]["tools"]} == {
+    assert {tool["function"]["name"] for tool in fake_llm.calls[0]["tools"]} == {
         "search_trusted_web",
         "show_visualization",
     }
-    assert "input_schema" in fake_llm.calls[0]["tools"][0]
+    assert "parameters" in fake_llm.calls[0]["tools"][0]["function"]
 
-    # The tool results reach Claude as one user turn of tool_result blocks.
+    # Qwen receives the assistant tool calls followed by one message per result.
     last_messages = fake_llm.calls[1]["messages"]
-    result_blocks = [
-        block
-        for message in last_messages
-        if isinstance(message.get("content"), list)
-        for block in message["content"]
-        if block.get("type") == "tool_result"
-    ]
-    assert len(result_blocks) == 2
+    tool_results = [message for message in last_messages if message.get("role") == "tool"]
+    assert len(tool_results) == 2
+    assert {message["tool_call_id"] for message in tool_results} == {"web", "visual"}
 
     memory.all_memories.assert_awaited_once()
     material_search.assert_called_once_with("course-1", "Query와 Key를 왜 곱해?")

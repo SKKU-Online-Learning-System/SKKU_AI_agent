@@ -160,7 +160,7 @@ def test_owner_can_read_session_with_logs_but_other_user_cannot(
                 question="경사하강법이 뭐야?",
                 answer="손실을 줄이는 최적화 방법입니다.",
                 referenced_documents=referenced_documents,
-                model_name="claude-sonnet-5",
+                model_name="qwen3.8-27b",
                 response_time_ms=120,
                 is_grounded=True,
                 safety_result={"blocked": False, "category": "normal", "reason": None},

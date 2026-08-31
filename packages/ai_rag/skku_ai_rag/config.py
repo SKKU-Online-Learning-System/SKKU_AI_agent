@@ -7,8 +7,10 @@ from typing import Optional
 
 @dataclass(frozen=True)
 class RagConfig:
-    anthropic_api_key: Optional[str] = None
-    claude_model: str = "claude-sonnet-5"
+    qwen_api_key: Optional[str] = None
+    qwen_model: str = "qwen3.8-27b"
+    qwen_base_url: str = "https://dashscope-intl.aliyuncs.com/compatible-mode/v1"
+    qwen_enable_thinking: bool = False
     use_mock_llm: bool = True
     llm_temperature: float = 0.2
     llm_max_tokens: int = 1024
@@ -29,8 +31,13 @@ class RagConfig:
     @classmethod
     def from_env(cls) -> "RagConfig":
         return cls(
-            anthropic_api_key=os.getenv("ANTHROPIC_API_KEY") or None,
-            claude_model=os.getenv("CLAUDE_MODEL", "claude-sonnet-5"),
+            qwen_api_key=os.getenv("QWEN_API_KEY") or None,
+            qwen_model=os.getenv("QWEN_MODEL", "qwen3.8-27b"),
+            qwen_base_url=os.getenv(
+                "QWEN_BASE_URL",
+                "https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
+            ),
+            qwen_enable_thinking=os.getenv("QWEN_ENABLE_THINKING", "false").lower() == "true",
             use_mock_llm=os.getenv("USE_MOCK_LLM", "true").lower() == "true",
             llm_temperature=float(os.getenv("LLM_TEMPERATURE", "0.2")),
             llm_max_tokens=int(os.getenv("LLM_MAX_TOKENS", "1024")),

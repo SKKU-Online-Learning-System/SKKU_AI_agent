@@ -72,37 +72,37 @@ def test_mock_generator_is_deterministic_and_includes_retrieved_source() -> None
     )
 
     assert first == second
-    assert first.model_name == "mock:claude-sonnet-5"
+    assert first.model_name == "mock:qwen3.8-27b"
     assert "경사하강법은 손실 함수를 줄이는 최적화 방법입니다." in first.answer
     assert "lecture1.pdf, page=12, chunk=3" in first.answer
     assert first.usage.total_tokens > 0
 
 
-def test_anthropic_service_uses_top_level_system_and_text_blocks(monkeypatch) -> None:
+def test_qwen_service_uses_openai_compatible_messages(monkeypatch) -> None:
     calls: list[dict[str, object]] = []
 
-    class FakeMessages:
+    class FakeCompletions:
         async def create(self, **kwargs: object) -> SimpleNamespace:
             calls.append(kwargs)
             return SimpleNamespace(
-                model="claude-test",
-                usage=SimpleNamespace(input_tokens=1000, output_tokens=300),
-                content=[
-                    SimpleNamespace(type="text", text="강의자료 "),
-                    SimpleNamespace(type="tool_use"),
-                    SimpleNamespace(type="text", text="기반 답변"),
+                model="qwen-test",
+                usage=SimpleNamespace(prompt_tokens=1000, completion_tokens=300),
+                choices=[
+                    SimpleNamespace(message=SimpleNamespace(content="강의자료 기반 답변"))
                 ],
             )
 
     class FakeClient:
-        messages = FakeMessages()
+        def __init__(self, **_: object) -> None:
+            self.chat = SimpleNamespace(completions=FakeCompletions())
 
-    monkeypatch.setattr(generator_module, "AsyncAnthropic", lambda **kwargs: FakeClient())
+    monkeypatch.setattr(generator_module, "AsyncOpenAI", FakeClient)
     generator = AnswerGenerator(
         RagConfig(
-            anthropic_api_key="test-key",
+            qwen_api_key="test-key",
             use_mock_llm=False,
-            claude_model="claude-test",
+            qwen_model="qwen-test",
+            qwen_base_url="https://qwen.test/compatible-mode/v1",
             llm_temperature=0.4,
             llm_max_tokens=777,
         )
@@ -111,13 +111,13 @@ def test_anthropic_service_uses_top_level_system_and_text_blocks(monkeypatch) ->
     response = asyncio.run(generator.generate_response("질문", []))
 
     assert response.answer == "강의자료 기반 답변"
-    assert response.model_name == "claude-test"
+    assert response.model_name == "qwen-test"
     assert response.usage.total_tokens == 1300
-    assert calls[0]["model"] == "claude-test"
-    assert calls[0]["max_tokens"] == 777
-    assert "temperature" not in calls[0]
-    assert "성균관대학교" in calls[0]["system"]
-    assert all(message["role"] != "system" for message in calls[0]["messages"])
+    assert calls[0]["model"] == "qwen-test"
+    assert calls[0]["max_completion_tokens"] == 777
+    assert calls[0]["temperature"] == 0.4
+    assert calls[0]["messages"][0]["role"] == "system"
+    assert "성균관대학교" in calls[0]["messages"][0]["content"]
 
 
 def test_real_service_requires_api_key() -> None:
@@ -128,44 +128,49 @@ def test_real_service_requires_api_key() -> None:
         retrieved_chunks=[],
     )
 
-    with pytest.raises(LLMConfigurationError, match="ANTHROPIC_API_KEY"):
+    with pytest.raises(LLMConfigurationError, match="QWEN_API_KEY"):
         asyncio.run(
             service.generate_answer(
                 prompt,
-                generator_module.LLMOptions("claude-sonnet-5", 0.2, 1024),
+                generator_module.LLMOptions("qwen3.8-27b", 0.2, 1024),
             )
         )
 
 
-def test_anthropic_failure_uses_stable_error_without_prompt(monkeypatch) -> None:
-    class FailingMessages:
+def test_qwen_failure_uses_stable_error_without_prompt(monkeypatch) -> None:
+    class FailingCompletions:
         async def create(self, **kwargs: object) -> None:
             raise RuntimeError("provider leaked details")
 
     class FakeClient:
-        messages = FailingMessages()
+        def __init__(self, **_: object) -> None:
+            self.chat = SimpleNamespace(completions=FailingCompletions())
 
-    monkeypatch.setattr(generator_module, "AsyncAnthropic", lambda **kwargs: FakeClient())
-    generator = AnswerGenerator(RagConfig(anthropic_api_key="key", use_mock_llm=False))
+    monkeypatch.setattr(generator_module, "AsyncOpenAI", FakeClient)
+    generator = AnswerGenerator(RagConfig(qwen_api_key="key", use_mock_llm=False))
 
     with pytest.raises(LLMGenerationError) as exc_info:
         asyncio.run(generator.generate("private question", []))
 
-    assert str(exc_info.value) == "LLM_GENERATION_FAILED: Claude request failed"
+    assert str(exc_info.value) == "LLM_GENERATION_FAILED: Qwen request failed"
     assert "private question" not in str(exc_info.value)
 
 
 def test_rag_config_reads_llm_environment(monkeypatch) -> None:
-    monkeypatch.setenv("ANTHROPIC_API_KEY", "env-key")
-    monkeypatch.setenv("CLAUDE_MODEL", "claude-env")
+    monkeypatch.setenv("QWEN_API_KEY", "env-key")
+    monkeypatch.setenv("QWEN_MODEL", "qwen-env")
+    monkeypatch.setenv("QWEN_BASE_URL", "https://qwen.example/v1")
+    monkeypatch.setenv("QWEN_ENABLE_THINKING", "true")
     monkeypatch.setenv("USE_MOCK_LLM", "false")
     monkeypatch.setenv("LLM_TEMPERATURE", "0.5")
     monkeypatch.setenv("LLM_MAX_TOKENS", "2048")
 
     config = RagConfig.from_env()
 
-    assert config.anthropic_api_key == "env-key"
-    assert config.claude_model == "claude-env"
+    assert config.qwen_api_key == "env-key"
+    assert config.qwen_model == "qwen-env"
+    assert config.qwen_base_url == "https://qwen.example/v1"
+    assert config.qwen_enable_thinking is True
     assert config.use_mock_llm is False
     assert config.llm_temperature == 0.5
     assert config.llm_max_tokens == 2048

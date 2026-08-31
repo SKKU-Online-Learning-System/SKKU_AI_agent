@@ -67,8 +67,7 @@ There are two chat surfaces and they must not diverge:
 Both go through `SafetyGuardService` for guardrails, `RagService` for retrieval, `LLMService` for
 generation, and both persist to `ChatSession`/`ChatLog`. **All model provider calls live in
 `app/services/llm_service.py`** — `brain.py` must never import a model SDK. The one exception is
-`app/services/voice/grok_live.py`, the realtime speech-to-speech transport, which needs xAI Grok
-because Claude has no realtime voice API.
+`app/services/voice/grok_live.py`, the existing xAI Grok realtime speech-to-speech transport.
 
 `LLMService` has two modes throughout. With `USE_MOCK_LLM=true` (the default) a deterministic mock
 answers, including a scripted tool-use turn, so the whole product runs with no API key. That is why
@@ -100,16 +99,15 @@ are exactly what the pre-existing collection failures are. Fix the live module, 
 
 Ported from `github.com/lyh030725/kingo-voice-agent`, rewired to this project:
 
-- `brain.py` — six-tool agent loop. `TOOLS` stays in OpenAI/realtime schema shape because
-  `grok_live.py` feeds it to xAI directly; `anthropic_tools()` converts it for Claude. Tool results
-  travel as Anthropic `tool_use`/`tool_result` blocks. The two context tools
-  (`recall_weak_concepts`, `search_course_materials`) are forced via `tool_choice: any` until both
-  have run.
+- `brain.py` — six-tool agent loop. `TOOLS` stays in OpenAI-compatible schema shape for both Qwen
+  text generation and the Grok realtime path. Tool results travel as assistant `tool_calls` followed
+  by `role=tool` messages. The two context operations (`recall_weak_concepts`,
+  `search_course_materials`) are prefetched server-side before the model call.
 - `search_course_materials` calls `RagService` (course-scoped pgvector), not a private PDF index, so
   citations keep the `filename p.page` shape professors see elsewhere. It opens its own
   `SessionLocal` because it runs inside tool dispatch, off the request session.
-- `search_trusted_web` uses Claude's server-side web search restricted to the professor-managed
-  allowlist, then **re-checks the allowlist locally** before any URL reaches a student.
+- `search_trusted_web` uses Qwen's DashScope native web search with the professor-managed allowlist,
+  then **re-checks every returned host locally** before any URL reaches a student.
 - `session_store.py` keeps one `VoiceContext` per `(user, course)` in process. Its lock is an
   `RLock` on purpose: `get_context()` calls `memory_store()` while holding it.
 - `moss_memory.py` — weak-concept memory keyed by user id. Falls back to
@@ -147,7 +145,7 @@ places that talk to the backend.
 Copy `.env.example` to `.env`. Notable behaviour:
 
 - `USE_MOCK_LLM=true` and the local hash embedding mean the whole app runs with no API key.
-- `ANTHROPIC_API_KEY` + `CLAUDE_MODEL` drive both `/api/chat` and COURSE AGENT's text answers.
+- `QWEN_API_KEY` + `QWEN_MODEL` drive both `/api/chat` and COURSE AGENT's text answers.
 - `XAI_API_KEY` is only for hands-free voice. Blank leaves the mic button disabled while text chat
   keeps working; do not gate text answers on it.
 - `MOSS_PROJECT_ID`/`MOSS_PROJECT_KEY` are optional; without them weak concepts go to a local file.

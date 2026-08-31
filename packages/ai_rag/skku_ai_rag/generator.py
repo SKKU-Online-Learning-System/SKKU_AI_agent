@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal, Optional, Protocol, Sequence
 
-from anthropic import AsyncAnthropic
+from openai import AsyncOpenAI
 
 from skku_ai_rag.config import RagConfig
 from skku_ai_rag.vector_store import SearchHit
@@ -163,9 +163,11 @@ class MockLLMService:
         return max(1, (len(text) + 3) // 4)
 
 
-class AnthropicLLMService:
-    def __init__(self, api_key: Optional[str]) -> None:
+class QwenLLMService:
+    def __init__(self, api_key: Optional[str], base_url: str, enable_thinking: bool) -> None:
         self.api_key = api_key
+        self.base_url = base_url
+        self.enable_thinking = enable_thinking
 
     async def generate_answer(
         self,
@@ -174,41 +176,50 @@ class AnthropicLLMService:
     ) -> LLMResponse:
         if not self.api_key:
             raise LLMConfigurationError(
-                "LLM_API_KEY_MISSING: ANTHROPIC_API_KEY is required when USE_MOCK_LLM=false"
+                "LLM_API_KEY_MISSING: QWEN_API_KEY is required when USE_MOCK_LLM=false"
             )
         try:
-            response = await AsyncAnthropic(api_key=self.api_key).messages.create(
+            response = await AsyncOpenAI(
+                api_key=self.api_key,
+                base_url=self.base_url,
+            ).chat.completions.create(
                 model=options.model_name,
-                max_tokens=options.max_tokens,
-                system=prompt.system,
+                max_completion_tokens=options.max_tokens,
+                temperature=options.temperature,
+                extra_body={"enable_thinking": self.enable_thinking},
                 messages=[
-                    {"role": message.role, "content": message.content}
-                    for message in prompt.messages
+                    {"role": "system", "content": prompt.system},
+                    *[
+                        {"role": message.role, "content": message.content}
+                        for message in prompt.messages
+                    ],
                 ],
             )
-            answer = "".join(
-                block.text for block in response.content if block.type == "text"
-            ).strip()
+            answer = (response.choices[0].message.content or "").strip()
             if not answer:
-                raise LLMGenerationError("LLM_RESPONSE_EMPTY: Claude returned no text")
+                raise LLMGenerationError("LLM_RESPONSE_EMPTY: Qwen returned no text")
             return LLMResponse(
                 answer=answer,
                 model_name=response.model,
                 usage=LLMUsage(
-                    prompt_tokens=response.usage.input_tokens,
-                    completion_tokens=response.usage.output_tokens,
+                    prompt_tokens=response.usage.prompt_tokens,
+                    completion_tokens=response.usage.completion_tokens,
                 ),
             )
         except LLMGenerationError:
             raise
         except Exception as exc:
-            raise LLMGenerationError("LLM_GENERATION_FAILED: Claude request failed") from exc
+            raise LLMGenerationError("LLM_GENERATION_FAILED: Qwen request failed") from exc
 
 
 def create_llm_service(config: RagConfig) -> LLMService:
     if config.use_mock_llm:
         return MockLLMService()
-    return AnthropicLLMService(config.anthropic_api_key)
+    return QwenLLMService(
+        config.qwen_api_key,
+        config.qwen_base_url,
+        config.qwen_enable_thinking,
+    )
 
 
 class AnswerGenerator:
@@ -247,7 +258,7 @@ class AnswerGenerator:
         return await self.llm_service.generate_answer(
             prompt,
             LLMOptions(
-                model_name=self.config.claude_model,
+                model_name=self.config.qwen_model,
                 temperature=self.config.llm_temperature,
                 max_tokens=self.config.llm_max_tokens,
             ),

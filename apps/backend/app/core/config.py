@@ -23,7 +23,7 @@ class Settings(BaseSettings):
 
     app_env: str = "local"
     database_url: str = "postgresql+psycopg://course_agent:course_agent@localhost:5432/course_agent"
-    anthropic_api_key: Optional[str] = None
+    qwen_api_key: Optional[str] = None
     jwt_secret: str = "local-dev-change-me"
     jwt_algorithm: str = "HS256"
     jwt_expires_in: int = Field(default=3600, gt=0)
@@ -51,7 +51,13 @@ class Settings(BaseSettings):
     rag_score_threshold: float = Field(default=0.1, ge=0.0, le=1.0)
 
     # Answer generation.
-    claude_model: str = "claude-sonnet-5"
+    qwen_model: str = "qwen3.8-27b"
+    qwen_base_url: str = "https://dashscope-intl.aliyuncs.com/compatible-mode/v1"
+    qwen_enable_thinking: bool = False
+    # Kept separately configurable for deployments that route search traffic,
+    # but defaults to the same Qwen3.8 model as all other text-agent calls.
+    qwen_web_search_model: str = "qwen3.8-27b"
+    qwen_dashscope_base_url: str = "https://dashscope-intl.aliyuncs.com/api/v1"
     use_mock_llm: bool = True
     llm_temperature: float = Field(default=0.2, ge=0.0, le=1.0)
     llm_max_tokens: int = Field(default=1024, gt=0)
@@ -59,7 +65,7 @@ class Settings(BaseSettings):
     max_context_chars: int = Field(default=12000, gt=0)
     seed_password: Optional[str] = None
 
-    # COURSE AGENT. Text answers use claude_model/use_mock_llm above; only the
+    # COURSE AGENT. Text answers use qwen_model/use_mock_llm above; only the
     # realtime speech-to-speech leg needs xAI, and without xai_api_key the voice
     # button renders in "not configured" mode while text chat keeps working.
     xai_api_key: Optional[str] = None

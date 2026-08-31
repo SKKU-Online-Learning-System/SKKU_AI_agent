@@ -12,7 +12,7 @@
    │     차단 → 안전 답변 반환, 로그 저장, 모델 호출 없음
    │     힌트 전환 → 정답 대신 개념·단계 힌트로 유도
    │
-   ├─ COURSE AGENT 툴 루프 (Claude tool use)
+   ├─ COURSE AGENT 툴 루프 (Qwen function calling)
    │     ├─ 취약 개념 회상  (Moss / 로컬 JSON)
    │     ├─ 강의자료 검색   (pgvector, course_id 한정)
    │     ├─ 신뢰 웹 검색    (근거 부족할 때만, 허용 도메인 한정)
@@ -39,29 +39,28 @@ for _ in range(MAX_TOOL_ROUNDS):          # 최대 6라운드
     missing = [필수 툴 중 아직 안 부른 것]
     turn = await llm.stream_tool_turn(
         system=SYSTEM_PROMPT + 과목 컨텍스트 + 모드 프롬프트,
-        messages=[대화 이력, ...이번 턴 tool_use/tool_result 블록],
-        tools=anthropic_tools(),
-        force_tools=missing,               # 비어있지 않으면 tool_choice=any
+        messages=[대화 이력, ...이번 턴 assistant/tool 메시지],
+        tools=text_agent_tools(),
         on_token=on_token,                 # 텍스트 델타 스트리밍
     )
     if not turn.tool_calls:
         return 답변, 사용툴, 출처, 시각자료
-    # tool_use 블록 → assistant 턴, tool_result 블록 → user 턴으로 누적
+    # tool_calls → assistant 턴, tool 결과 → role=tool 메시지로 누적
 ```
 
-**강제 컨텍스트**: `recall_weak_concepts` + `search_course_materials` 두 개가 실행되기
-전에는 `tool_choice: any`로 묶어 모델이 답변을 못 씁니다. 즉 근거 없이 먼저 말하는
-경로가 구조적으로 막혀 있습니다.
+**강제 컨텍스트**: 취약 개념과 강의자료 검색은 모델 호출 전에 서버가 미리 실행해 시스템
+컨텍스트에 넣습니다. 모델은 이 근거를 받은 뒤 액션 tool만 선택하므로 근거 검색을 건너뛸
+수 없습니다.
 
 **병렬 실행**: 한 턴에 여러 tool_use가 오면 `asyncio.gather`로 동시 실행.
 
 **스트리밍**: 토큰이 생성되는 즉시 NDJSON으로 프론트에 흘려보냄 → 화면에 타이핑되듯 출력.
 
-### 두 개의 스키마 형식
+### 공통 스키마 형식
 
-`TOOLS`는 OpenAI/realtime 형식으로 두고, `anthropic_tools()`가 Claude용 `input_schema`로
-변환합니다. 실시간 음성(Grok)이 원본 형식을 그대로 먹기 때문에 하나의 정의로 두
-프로바이더를 동시에 먹입니다.
+`TOOLS`는 OpenAI 호환 형식이며 Qwen 텍스트 에이전트와 실시간 음성(Grok)이 같은 정의를
+사용합니다. Qwen tool call과 결과도 각각 assistant `tool_calls`, `role=tool` 형식으로
+누적합니다.
 
 ### 답변 모드
 
@@ -87,10 +86,9 @@ for _ in range(MAX_TOOL_ROUNDS):          # 최대 6라운드
 출처가 `파일명 p.페이지` 형태로 교수자 화면과 동일. 툴 디스패치는 요청 세션 밖에서
 돌기 때문에 자체 `SessionLocal`을 엽니다.
 
-**`search_trusted_web`** — 교수자가 등록한 도메인만 Claude 웹 검색에 넘기고, 응답을 받은
-뒤 허용 목록으로 다시 한 번 걸러냅니다. 프로바이더 필터를 믿고 학생에게 링크를
-노출하지 않습니다. 근거 URL이 하나도 없으면 에러를 반환하고, 모델은 자료가 부족하다고
-말하게 됩니다.
+**`search_trusted_web`** — 교수자가 등록한 도메인을 Qwen 검색 쿼리에 강제하고, DashScope
+native API가 반환한 출처를 허용 목록으로 다시 검증합니다. 허용 목록 밖 URL이 하나라도
+있거나 근거 URL이 없으면 결과 전체를 거부하고, 모델은 자료가 부족하다고 말합니다.
 
 **`show_visualization`** — 시스템 프롬프트가 수식·좌표를 대화문에 넣는 것을 금지합니다.
 대신 이 툴로 카드를 만들고 "제가 보여드린 그림처럼"으로 참조합니다. 음성 답변에서
@@ -249,8 +247,8 @@ uploads/voice/web-search.jsonl                 외부 검색 감사 로그 (질�
 
 | 용도 | 모델 | 키 없으면 |
 | --- | --- | --- |
-| 텍스트 답변 · tool 호출 | Claude (`CLAUDE_MODEL`) | 모의 응답으로 동작 |
-| 신뢰 웹 검색 | Claude web search | 비활성 (자료 근거만 사용) |
+| 텍스트 답변 · tool 호출 | Qwen3.8-27B (`QWEN_MODEL`) | 모의 응답으로 동작 |
+| 신뢰 웹 검색 | Qwen3.8-27B native web search | 비활성 (자료 근거만 사용) |
 | 임베딩 | local hash (기본) | 항상 동작 |
 | 실시간 음성 | xAI Grok realtime | 마이크 버튼만 비활성 |
 | 취약 개념 메모리 | Moss | 로컬 JSON 폴백 |
@@ -258,5 +256,5 @@ uploads/voice/web-search.jsonl                 외부 검색 감사 로그 (질�
 `USE_MOCK_LLM=true`(기본)에서 모의 LLM이 tool 호출 턴까지 흉내냅니다. 그래서 API 키
 하나 없이 전체 플로우가 돌고, 테스트도 end-to-end로 검증됩니다.
 
-실시간 음성만 xAI인 이유는 Claude에 realtime voice API가 없기 때문입니다. 이 한
-곳(`grok_live.py`)이 `LLMService` 경계의 유일한 예외입니다.
+실시간 음성은 기존 xAI Grok realtime 경로를 유지합니다. 이 한 곳(`grok_live.py`)이
+`LLMService` 경계의 유일한 예외입니다.

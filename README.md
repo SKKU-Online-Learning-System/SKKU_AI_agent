@@ -18,8 +18,8 @@
 - Frontend: Next.js, TypeScript
 - Backend: FastAPI, SQLAlchemy, Alembic
 - Database: PostgreSQL, pgvector
-- AI/RAG: 과목별 검색, local hash embedding, Claude 또는 mock LLM
-- Voice: 텍스트·tool 추론은 Claude, 실시간 음성만 xAI Grok, Moss 취약 개념 메모리 (선택)
+- AI/RAG: 과목별 검색, local hash embedding, Qwen3.8-27B 또는 mock LLM
+- Voice: 텍스트·tool 추론은 Qwen, 실시간 음성만 xAI Grok, Moss 취약 개념 메모리 (선택)
 - Package management: npm workspace, uv workspace
 
 ## COURSE AGENT
@@ -44,10 +44,10 @@
 
 ### 모델 구성
 
-텍스트 답변, tool 호출, 신뢰 웹 검색은 모두 이 프로젝트의 `LLMService`(Claude 또는
+텍스트 답변, tool 호출, 신뢰 웹 검색은 모두 이 프로젝트의 `LLMService`(Qwen 또는
 `USE_MOCK_LLM=true`의 모의 응답)를 사용합니다. 그래서 기본 설정 그대로, API 키 없이도
-COURSE AGENT가 동작합니다. 핸즈프리 음성만 xAI Grok realtime을 사용합니다. Claude에
-실시간 음성 API가 없기 때문이며, `XAI_API_KEY`가 비어 있으면 마이크 버튼만 비활성화되고
+COURSE AGENT가 동작합니다. 핸즈프리 음성은 기존 xAI Grok realtime 경로를 유지합니다.
+`XAI_API_KEY`가 비어 있으면 마이크 버튼만 비활성화되고
 텍스트 대화는 그대로 동작합니다.
 
 Moss 자격 증명이 없으면 취약 개념은 `uploads/voice/weak-concepts.json`에 로컬 저장됩니다.
@@ -78,9 +78,9 @@ bash run.sh
 환경 파일 복사, 의존성 설치, 데이터베이스 기동, 마이그레이션, Seed, 백엔드와
 프론트엔드 실행까지 모두 처리합니다. `Ctrl+C`로 둘 다 종료합니다.
 
-기본 설정은 로컬 PostgreSQL과 mock LLM을 사용하므로 Claude API 키 없이 실행할 수
-있습니다. 실제 Claude를 사용하려면 `.env`에서 `USE_MOCK_LLM=false`로 변경하고
-`ANTHROPIC_API_KEY`를 설정하세요. 비밀키와 로컬 환경 파일은 커밋하지 않습니다.
+기본 설정은 로컬 PostgreSQL과 mock LLM을 사용하므로 Qwen API 키 없이 실행할 수
+있습니다. 실제 Qwen3.8-27B를 사용하려면 `.env`에서 `USE_MOCK_LLM=false`로 변경하고
+`QWEN_API_KEY`를 설정하세요. 비밀키와 로컬 환경 파일은 커밋하지 않습니다.
 
 - 웹: <http://localhost:3000>
 - API 문서: <http://localhost:8000/docs>
@@ -108,8 +108,10 @@ bash run.sh
 | `UPLOAD_DIR` | 업로드 파일 저장 위치 |
 | `MAX_UPLOAD_SIZE_BYTES` | 파일당 업로드 제한 |
 | `USE_MOCK_LLM` | `true`이면 API 키 없이 mock 답변 사용 |
-| `ANTHROPIC_API_KEY` | Claude API 키 |
-| `CLAUDE_MODEL` | 답변 생성 모델 |
+| `QWEN_API_KEY` | Alibaba Cloud Model Studio API 키 |
+| `QWEN_MODEL` | 답변 생성 모델 (기본 `qwen3.8-27b`) |
+| `QWEN_BASE_URL` | 리전별 OpenAI 호환 API 주소 |
+| `QWEN_ENABLE_THINKING` | Qwen 사고 모드. 기본 `false`로 tool/JSON 응답을 예측 가능하게 유지 |
 | `XAI_API_KEY` | COURSE AGENT의 핸즈프리 음성용 xAI 키. 비우면 마이크 버튼만 비활성 |
 | `GROK_VOICE_MODEL` / `GROK_VOICE` | 실시간 음성 모델과 보이스 |
 | `MOSS_PROJECT_ID` / `MOSS_PROJECT_KEY` | 취약 개념 클라우드 메모리. 비우면 로컬 파일 사용 |

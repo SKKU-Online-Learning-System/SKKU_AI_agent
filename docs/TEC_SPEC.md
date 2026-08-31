@@ -97,7 +97,7 @@ Backend: FastAPI 또는 Node.js API Server
 Database: PostgreSQL
 Vector DB: pgvector 우선 검토
 File Storage: Local Storage
-AI Provider: Anthropic Claude API
+AI Provider: Alibaba Cloud Model Studio Qwen API
 Auth: JWT 기반 인증
 Deployment: Docker / Docker Compose
 ```
@@ -123,7 +123,7 @@ Backend: 단일 API 서버 → API 서버 + RAG Worker 분리
 | DB           | PostgreSQL                    | 사용자, 과목, 로그, 메타데이터 저장 |
 | ORM          | Prisma / SQLAlchemy           | 선택한 백엔드에 맞춰 사용           |
 | Vector DB    | pgvector                      | PostgreSQL 기반 벡터 검색           |
-| AI API       | Anthropic Claude API          | LLM 답변 생성                       |
+| AI API       | Alibaba Cloud Model Studio    | Qwen LLM 답변 생성                  |
 | Auth         | JWT                           | MVP 인증                            |
 | File Storage | Local Storage                 | 업로드 파일 저장                    |
 | Deployment   | Docker Compose                | 로컬 및 서버 배포                   |
@@ -1061,7 +1061,7 @@ MVP 기본값:
 
 ## 9.4 임베딩 정책
 
-임베딩은 외부 API 키가 필요 없는 deterministic local hash provider를 사용한다. Anthropic은 임베딩 모델을 제공하지 않으므로 Claude API는 답변 생성에만 사용한다.
+임베딩은 외부 API 키가 필요 없는 deterministic local hash provider를 사용한다. Qwen API는 답변 생성에만 사용하며 현재 임베딩 경로와 분리한다.
 
 예시 모델:
 
@@ -1115,11 +1115,13 @@ DocumentChunk.course_id = selected_course_id
 
 ## 9.6 답변 생성 프롬프트 정책 (4단계 Roadmap)
 
-답변 생성 provider는 Anthropic Claude Messages API를 사용하며 기본 모델은 `claude-sonnet-5`다. API 인증은 `ANTHROPIC_API_KEY`, 모델 설정은 `CLAUDE_MODEL`을 사용한다.
+답변 생성 provider는 Alibaba Cloud Model Studio의 OpenAI 호환 Chat Completions API를 사용하며 기본 모델은 `qwen3.8-27b`이다. API 인증은 `QWEN_API_KEY`, 모델 설정은 `QWEN_MODEL`, 리전별 호환 API 주소는 `QWEN_BASE_URL`을 사용한다.
 
-Anthropic Messages API에서 시스템 프롬프트는 message의 `system` role이 아니라 최상위 `system` 파라미터로 전달한다. 응답은 `content` 배열의 `text` 블록만 순서대로 조합한다.
+시스템 프롬프트와 대화 이력은 OpenAI 호환 `messages` 배열로 전달한다. COURSE AGENT의 도구 정의, assistant tool call, tool result도 같은 호환 형식을 사용한다. 스트리밍 응답에서는 text delta와 tool-call argument delta를 각각 누적한다.
 
-현재 기본 모델인 `claude-sonnet-5` 요청에는 지원 중단된 `temperature` 파라미터를 전달하지 않는다.
+일반 답변에는 `LLM_TEMPERATURE`와 `LLM_MAX_TOKENS`를 적용하고, 구조화 판정은 Qwen의 JSON object 응답 형식을 사용한다.
+
+`qwen3.8-27b`은 function calling, structured output, 내장 웹 검색을 모두 지원한다. 주 답변과 에이전트 추론은 `QWEN_MODEL`을 사용하고, 신뢰 웹 검색도 기본적으로 같은 모델을 `QWEN_WEB_SEARCH_MODEL`에 지정해 DashScope native API로 호출한다. 검색 쿼리는 교수자 허용 도메인으로 제한하고, 반환된 모든 출처 URL의 호스트를 서버에서 다시 검증한다. 허용 목록 밖 출처가 하나라도 포함되면 결과 전체를 거부한다.
 
 LLM에는 다음 정보를 전달한다.
 
@@ -1298,8 +1300,12 @@ bcrypt 또는 argon2 기반 password_hash 저장
 
 ```text id="2b5pg4"
 DATABASE_URL=
-ANTHROPIC_API_KEY=
-CLAUDE_MODEL=claude-sonnet-5
+QWEN_API_KEY=
+QWEN_MODEL=qwen3.8-27b
+QWEN_BASE_URL=https://dashscope-intl.aliyuncs.com/compatible-mode/v1
+QWEN_ENABLE_THINKING=false
+QWEN_DASHSCOPE_BASE_URL=https://dashscope-intl.aliyuncs.com/api/v1
+QWEN_WEB_SEARCH_MODEL=qwen3.8-27b
 JWT_SECRET=
 JWT_EXPIRES_IN=
 UPLOAD_DIR=

@@ -9,8 +9,10 @@ from __future__ import annotations
 import json
 import logging
 from dataclasses import dataclass, field
-from typing import Awaitable, Callable, Literal, Optional, Sequence, cast
+from typing import Awaitable, Callable, Optional, Sequence
 from urllib.parse import urlparse
+
+import httpx
 
 from app.core.config import Settings
 
@@ -74,7 +76,7 @@ class LLMService:
 
     @property
     def model_name(self) -> str:
-        return MOCK_MODEL_NAME if self.settings.use_mock_llm else self.settings.claude_model
+        return MOCK_MODEL_NAME if self.settings.use_mock_llm else self.settings.qwen_model
 
     def generate_answer(self, messages: Sequence[ChatMessage]) -> LLMResponse:
         if not messages:
@@ -94,58 +96,37 @@ class LLMService:
                 usage=LLMUsage(),
             )
 
-        return self._claude_answer(messages)
+        return self._qwen_answer(messages)
 
-    def _claude_answer(self, messages: Sequence[ChatMessage]) -> LLMResponse:
-        if not self.settings.anthropic_api_key:
-            raise LLMError(
-                "ANTHROPIC_API_KEY가 설정되지 않았습니다. "
-                "USE_MOCK_LLM=true로 두거나 키를 설정하세요."
-            )
-
+    def _qwen_answer(self, messages: Sequence[ChatMessage]) -> LLMResponse:
         try:
-            from anthropic import Anthropic
-            from anthropic.types import MessageParam
-
-            system = "\n\n".join(
-                message.content for message in messages if message.role == "system"
-            )
-            provider_messages: list[MessageParam] = [
-                {
-                    "role": cast(Literal["user", "assistant"], message.role),
-                    "content": message.content,
-                }
-                for message in messages
-                if message.role != "system"
-            ]
-            response = Anthropic(api_key=self.settings.anthropic_api_key).messages.create(
-                model=self.settings.claude_model,
-                max_tokens=self.settings.llm_max_tokens,
-                messages=provider_messages,
-                system=system,
+            response = self._sync_client().chat.completions.create(
+                model=self.settings.qwen_model,
+                max_completion_tokens=self.settings.llm_max_tokens,
+                temperature=self.settings.llm_temperature,
+                extra_body={"enable_thinking": self.settings.qwen_enable_thinking},
+                messages=[
+                    {"role": message.role, "content": message.content} for message in messages
+                ],
             )
         except LLMError:
             raise
         except Exception as error:
-            raise LLMError("Claude 답변 생성에 실패했습니다.") from error
+            raise LLMError("Qwen 답변 생성에 실패했습니다.") from error
 
-        answer = "".join(block.text for block in response.content if block.type == "text").strip()
+        answer = _text_content(response.choices[0].message.content).strip()
         if not answer:
-            raise LLMError("Claude가 빈 답변을 반환했습니다.")
+            raise LLMError("Qwen이 빈 답변을 반환했습니다.")
 
-        prompt_tokens = getattr(response.usage, "input_tokens", None)
-        completion_tokens = getattr(response.usage, "output_tokens", None)
+        prompt_tokens = getattr(response.usage, "prompt_tokens", None)
+        completion_tokens = getattr(response.usage, "completion_tokens", None)
         return LLMResponse(
             answer=answer,
             model_name=response.model,
             usage=LLMUsage(
                 prompt_tokens=prompt_tokens,
                 completion_tokens=completion_tokens,
-                total_tokens=(
-                    prompt_tokens + completion_tokens
-                    if prompt_tokens is not None and completion_tokens is not None
-                    else None
-                ),
+                total_tokens=getattr(response.usage, "total_tokens", None),
             ),
         )
 
@@ -155,15 +136,30 @@ class LLMService:
     # on the same provider and the same mock as the text chatbot so the whole
     # product keeps one answer-generation boundary.
 
-    def _require_client(self):
-        if not self.settings.anthropic_api_key:
+    def _require_api_key(self) -> str:
+        key = (self.settings.qwen_api_key or "").strip()
+        if not key:
             raise LLMError(
-                "ANTHROPIC_API_KEY가 설정되지 않았습니다. "
+                "QWEN_API_KEY가 설정되지 않았습니다. "
                 "USE_MOCK_LLM=true로 두거나 키를 설정하세요."
             )
-        from anthropic import AsyncAnthropic
+        return key
 
-        return AsyncAnthropic(api_key=self.settings.anthropic_api_key)
+    def _sync_client(self):
+        from openai import OpenAI
+
+        return OpenAI(
+            api_key=self._require_api_key(),
+            base_url=self.settings.qwen_base_url,
+        )
+
+    def _async_client(self):
+        from openai import AsyncOpenAI
+
+        return AsyncOpenAI(
+            api_key=self._require_api_key(),
+            base_url=self.settings.qwen_base_url,
+        )
 
     async def stream_tool_turn(
         self,
@@ -175,14 +171,14 @@ class LLMService:
         on_token: Optional[Callable[[str], Awaitable[None]]] = None,
         max_tokens: Optional[int] = None,
     ) -> ToolTurn:
-        """Run one Claude turn that may call tools, streaming any text it writes.
+        """Run one Qwen turn that may call tools, streaming any text it writes.
 
         Args:
             system: System prompt for the turn.
-            messages: Anthropic-shaped conversation, newest last.
-            tools: Anthropic-shaped tool schemas.
+            messages: OpenAI-shaped conversation, newest last.
+            tools: OpenAI-shaped function tool schemas.
             force_tools: Tool names the caller needs before an answer; a
-                non-empty value forbids Claude from replying without a tool.
+                single value forces Qwen to call that tool.
             on_token: Optional async callback receiving streamed text deltas.
             max_tokens: Overrides the configured answer budget.
 
@@ -195,58 +191,88 @@ class LLMService:
                 await on_token(turn.text)
             return turn
 
-        client = self._require_client()
+        client = self._async_client()
+        provider_messages = [{"role": "system", "content": system}, *messages]
         request = {
-            "model": self.settings.claude_model,
-            "max_tokens": max_tokens or self.settings.llm_max_tokens,
-            "system": system,
-            "messages": list(messages),
+            "model": self.settings.qwen_model,
+            "max_completion_tokens": max_tokens or self.settings.llm_max_tokens,
+            "temperature": self.settings.llm_temperature,
+            "extra_body": {"enable_thinking": self.settings.qwen_enable_thinking},
+            "messages": provider_messages,
             "tools": list(tools),
-            "tool_choice": {"type": "any"} if force_tools else {"type": "auto"},
+            "tool_choice": _qwen_tool_choice(force_tools),
+            "parallel_tool_calls": True,
         }
 
         try:
             if on_token is None:
-                message = await client.messages.create(**request)
+                response = await client.chat.completions.create(**request)
+                message = response.choices[0].message
+                return ToolTurn(
+                    text=_text_content(message.content),
+                    tool_calls=_tool_call_requests(message.tool_calls),
+                    model_name=response.model,
+                )
             else:
-                async with client.messages.stream(**request) as stream:
-                    async for event in stream:
-                        if event.type == "text" and event.text:
-                            await on_token(event.text)
-                    message = await stream.get_final_message()
+                stream = await client.chat.completions.create(**request, stream=True)
+                text_parts: list[str] = []
+                tool_parts: dict[int, dict[str, str]] = {}
+                model_name = self.settings.qwen_model
+                async for chunk in stream:
+                    model_name = chunk.model or model_name
+                    if not chunk.choices:
+                        continue
+                    delta = chunk.choices[0].delta
+                    if delta.content:
+                        text_parts.append(delta.content)
+                        await on_token(delta.content)
+                    for call in delta.tool_calls or []:
+                        part = tool_parts.setdefault(
+                            call.index,
+                            {"id": "", "name": "", "arguments": ""},
+                        )
+                        if call.id:
+                            part["id"] = call.id
+                        function = call.function
+                        if function and function.name:
+                            part["name"] += function.name
+                        if function and function.arguments:
+                            part["arguments"] += function.arguments
+                return ToolTurn(
+                    text="".join(text_parts),
+                    tool_calls=[
+                        ToolCallRequest(
+                            id=part["id"],
+                            name=part["name"],
+                            arguments=_parse_tool_arguments(part["arguments"]),
+                        )
+                        for _, part in sorted(tool_parts.items())
+                    ],
+                    model_name=model_name,
+                )
         except LLMError:
             raise
         except Exception as error:
-            raise LLMError("Claude 답변 생성에 실패했습니다.") from error
-
-        text_parts: list[str] = []
-        tool_calls: list[ToolCallRequest] = []
-        for block in message.content:
-            if block.type == "text":
-                text_parts.append(block.text)
-            elif block.type == "tool_use":
-                arguments = block.input if isinstance(block.input, dict) else {}
-                tool_calls.append(ToolCallRequest(block.id, block.name, arguments))
-
-        return ToolTurn(
-            text="".join(text_parts),
-            tool_calls=tool_calls,
-            model_name=message.model,
-        )
+            raise LLMError("Qwen 답변 생성에 실패했습니다.") from error
 
     async def generate_json(self, *, system: str, payload: dict, max_tokens: int = 900) -> dict:
         """Generate one JSON object through the configured provider boundary."""
         if self.settings.use_mock_llm:
             return {"save": None, "reviews": []}
-        client = self._require_client()
+        client = self._async_client()
         try:
-            message = await client.messages.create(
-                model=self.settings.claude_model,
-                max_tokens=max_tokens,
-                system=system,
-                messages=[{"role": "user", "content": json.dumps(payload, ensure_ascii=False)}],
+            response = await client.chat.completions.create(
+                model=self.settings.qwen_model,
+                max_completion_tokens=max_tokens,
+                temperature=self.settings.llm_temperature,
+                messages=[
+                    {"role": "system", "content": system},
+                    {"role": "user", "content": json.dumps(payload, ensure_ascii=False)},
+                ],
+                response_format={"type": "json_object"},
+                extra_body={"enable_thinking": False},
             )
-            raw = "".join(block.text for block in message.content if block.type == "text").strip()
+            raw = _text_content(response.choices[0].message.content).strip()
             if raw.startswith("```"):
                 raw = raw.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
             result = json.loads(raw)
@@ -264,13 +290,13 @@ class LLMService:
         allowed_domains: Sequence[str],
         max_uses: int = 3,
     ) -> WebSearchAnswer:
-        """Answer from Claude's server-side web search, limited to an allowlist.
+        """Answer with Qwen's native web search and verify every returned host.
 
         Args:
             query: Focused search query.
             system: System prompt describing how to answer.
             allowed_domains: Only these hosts may be searched or cited.
-            max_uses: Upper bound on searches for this call.
+            max_uses: Maximum number of verified source URLs to return.
 
         Returns:
             The cited answer and the trusted source URLs backing it.
@@ -280,43 +306,155 @@ class LLMService:
         if not allowed_domains:
             raise LLMError("신뢰 사이트가 비어 있어 웹 검색을 실행할 수 없습니다.")
 
-        client = self._require_client()
+        key = self._require_api_key()
+        allowed_query = " OR ".join(f"site:{domain}" for domain in allowed_domains)
+        endpoint = (
+            f"{self.settings.qwen_dashscope_base_url.rstrip('/')}"
+            "/services/aigc/multimodal-generation/generation"
+        )
+        answer_parts: list[str] = []
+        results: list[dict] = []
         try:
-            message = await client.messages.create(
-                model=self.settings.claude_model,
-                max_tokens=self.settings.llm_max_tokens,
-                system=system,
-                messages=[{"role": "user", "content": query}],
-                tools=[
-                    {
-                        "type": "web_search_20250305",
-                        "name": "web_search",
-                        "max_uses": max_uses,
-                        "allowed_domains": list(allowed_domains),
-                    }
-                ],
-            )
+            async with httpx.AsyncClient(timeout=60.0) as client:
+                async with client.stream(
+                    "POST",
+                    endpoint,
+                    headers={
+                        "Authorization": f"Bearer {key}",
+                        "Content-Type": "application/json",
+                        "X-DashScope-SSE": "enable",
+                    },
+                    json={
+                        "model": self.settings.qwen_web_search_model,
+                        "input": {
+                            "messages": [
+                                {
+                                    "role": "system",
+                                    "content": [
+                                        {
+                                            "text": (
+                                                f"{system}\nSearch and answer only from these "
+                                                f"domains: {', '.join(allowed_domains)}."
+                                            )
+                                        }
+                                    ],
+                                },
+                                {
+                                    "role": "user",
+                                    "content": [{"text": f"({allowed_query}) {query}"}],
+                                },
+                            ]
+                        },
+                        "parameters": {
+                            "result_format": "message",
+                            "enable_thinking": self.settings.qwen_enable_thinking,
+                            "enable_search": True,
+                            "incremental_output": True,
+                            "search_options": {
+                                "enable_source": True,
+                            },
+                        },
+                    },
+                ) as response:
+                    response.raise_for_status()
+                    async for line in response.aiter_lines():
+                        if not line.startswith("data:"):
+                            continue
+                        raw = line.removeprefix("data:").strip()
+                        if not raw or raw == "[DONE]":
+                            continue
+                        event = json.loads(raw)
+                        if event.get("code"):
+                            raise LLMError("Qwen 웹 검색 API가 오류를 반환했습니다.")
+                        output = event.get("output") or {}
+                        choices = output.get("choices") or []
+                        if choices:
+                            answer_parts.append(
+                                _dashscope_text(choices[0].get("message", {}).get("content"))
+                            )
+                        search_info = output.get("search_info") or {}
+                        if search_info.get("search_results"):
+                            results = search_info["search_results"]
+        except LLMError:
+            raise
         except Exception as error:
             raise LLMError("신뢰 웹 검색에 실패했습니다.") from error
 
-        text_parts: list[str] = []
-        urls: list[str] = []
-        for block in message.content:
-            if block.type == "text":
-                text_parts.append(block.text)
-            elif block.type == "web_search_tool_result":
-                for result in getattr(block, "content", None) or []:
-                    url = getattr(result, "url", None)
-                    if url:
-                        urls.append(url)
+        answer = "".join(answer_parts)
+        urls = [result.get("url") for result in results if result.get("url")]
+        disallowed = [url for url in urls if not _host_allowed(url, allowed_domains)]
+        if not answer.strip() or not urls:
+            raise LLMError("신뢰 웹 검색이 인용 가능한 답변을 반환하지 않았습니다.")
+        if disallowed:
+            logger.warning("Rejected Qwen web search with disallowed sources: %s", disallowed)
+            raise LLMError("신뢰 목록 밖의 출처가 포함되어 웹 검색 결과를 거부했습니다.")
 
         return WebSearchAnswer(
-            answer="".join(text_parts).strip(),
-            # Re-check the allowlist locally: never trust the provider to have
-            # honoured the filter before we show a link to a student.
-            sources=[url for url in dict.fromkeys(urls) if _host_allowed(url, allowed_domains)],
-            model_name=message.model,
+            answer=answer.strip(),
+            sources=list(dict.fromkeys(urls))[:max_uses],
+            model_name=self.settings.qwen_web_search_model,
         )
+
+
+def _text_content(content: object) -> str:
+    """Normalize the text-only content returned by OpenAI-compatible clients."""
+    if isinstance(content, str):
+        return content
+    if not isinstance(content, list):
+        return ""
+    return "".join(
+        str(part.get("text", ""))
+        for part in content
+        if isinstance(part, dict) and part.get("type") == "text"
+    )
+
+
+def _dashscope_text(content: object) -> str:
+    if isinstance(content, str):
+        return content
+    if not isinstance(content, list):
+        return ""
+    return "".join(
+        str(part.get("text", "")) for part in content if isinstance(part, dict)
+    )
+
+
+def _parse_tool_arguments(raw: object) -> dict:
+    if isinstance(raw, dict):
+        return raw
+    if not raw:
+        return {}
+    try:
+        parsed = json.loads(str(raw))
+    except json.JSONDecodeError as error:
+        raise LLMError("Qwen 도구 호출 인자를 해석하지 못했습니다.") from error
+    if not isinstance(parsed, dict):
+        raise LLMError("Qwen 도구 호출 인자가 JSON 객체가 아닙니다.")
+    return parsed
+
+
+def _tool_call_requests(tool_calls: object) -> list[ToolCallRequest]:
+    requests: list[ToolCallRequest] = []
+    for call in tool_calls or []:
+        function = getattr(call, "function", None)
+        if function is None:
+            continue
+        requests.append(
+            ToolCallRequest(
+                id=getattr(call, "id", ""),
+                name=getattr(function, "name", ""),
+                arguments=_parse_tool_arguments(getattr(function, "arguments", "")),
+            )
+        )
+    return requests
+
+
+def _qwen_tool_choice(force_tools: Sequence[str]) -> object:
+    if not force_tools:
+        return "auto"
+    if len(force_tools) > 1:
+        raise LLMError("Qwen은 한 요청에서 하나의 도구만 강제할 수 있습니다.")
+    return {"type": "function", "function": {"name": force_tools[0]}}
 
 
 def _host_allowed(url: str, allowed_domains: Sequence[str]) -> bool:
@@ -333,7 +471,11 @@ def _mock_tool_turn(
 ) -> ToolTurn:
     """Deterministic tool-using turn so the voice assistant runs without a key."""
 
-    known = {tool["name"] for tool in tools}
+    known = {
+        tool["function"]["name"]
+        for tool in tools
+        if isinstance(tool.get("function"), dict) and tool["function"].get("name")
+    }
     if force_tools:
         topic = _last_user_text(messages)
         return ToolTurn(
@@ -398,6 +540,19 @@ def _mock_grounded_answer(messages: Sequence[dict]) -> str:
 
     question = _last_user_text(messages)
     for message in reversed(messages):
+        if message.get("role") == "tool" and isinstance(message.get("content"), str):
+            try:
+                payload = json.loads(message["content"])
+            except json.JSONDecodeError:
+                continue
+            results = payload.get("results") if isinstance(payload, dict) else None
+            if results:
+                first = results[0]
+                preview = " ".join(str(first.get("excerpt", "")).split())[:200]
+                return (
+                    f"[모의 답변] '{question}'은(는) "
+                    f"{first.get('source', '강의자료')}에서 확인할 수 있어요. {preview}"
+                )
         for block in message.get("content") or []:
             if not isinstance(block, dict) or block.get("type") != "tool_result":
                 continue

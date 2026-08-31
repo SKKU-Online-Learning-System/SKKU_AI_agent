@@ -2,12 +2,12 @@ from skku_ai_rag.config import RagConfig
 from skku_ai_rag.embeddings import LocalHashEmbeddingProvider
 from skku_ai_rag.generator import (
     AnswerGenerator,
-    AnthropicLLMService,
     LLMResponse,
     LLMService,
     MockLLMService,
     PromptBuilderService,
     PromptChunk,
+    QwenLLMService,
     create_llm_service,
 )
 from skku_ai_rag.ingest import DocumentInput, IngestionPipeline, split_text_by_words
@@ -16,7 +16,6 @@ from skku_ai_rag.vector_store import InMemoryVectorStore, SearchHit, VectorRecor
 
 __all__ = [
     "AnswerGenerator",
-    "AnthropicLLMService",
     "CourseRetriever",
     "DocumentInput",
     "InMemoryVectorStore",
@@ -27,6 +26,7 @@ __all__ = [
     "MockLLMService",
     "PromptBuilderService",
     "PromptChunk",
+    "QwenLLMService",
     "RagConfig",
     "SearchHit",
     "VectorRecord",
