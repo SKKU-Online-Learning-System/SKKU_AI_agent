@@ -82,6 +82,10 @@ class Settings(BaseSettings):
     tts_timeout_seconds: float = Field(default=30.0, gt=0)
     tts_speaker: str = "Sohee"
     tts_language: str = "Korean"
+    # Bound each synthesis request so the first playable audio arrives before
+    # the complete response waveform has been generated. Sentence boundaries
+    # are preferred; this limit only splits unusually long sentences further.
+    tts_chunk_max_chars: int = Field(default=80, ge=20, le=300)
 
     xai_api_key: Optional[str] = None
     xai_realtime_url: str = "wss://api.x.ai/v1/realtime"
