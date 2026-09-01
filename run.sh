@@ -12,7 +12,17 @@ unset VIRTUAL_ENV  # silence uv's warning when the editor's .venv is activated
 [ -f apps/frontend/.env.local ] || cp apps/frontend/.env.local.example apps/frontend/.env.local
 [ -d node_modules ] || npm install
 
-docker compose up -d --wait db
+if command -v docker >/dev/null && docker info >/dev/null 2>&1; then
+  docker compose up -d --wait db
+else
+  # ponytail: SQLite is for one Backend.AI dev session; use PostgreSQL for multi-replica deployment.
+  export DATABASE_URL="sqlite:///${PWD}/course-agent.sqlite"
+  export VECTOR_DB_PROVIDER="local"
+  export VECTOR_DB_URL="${DATABASE_URL}"
+  export VECTOR_SEARCH_MODE="local"
+  export NEXT_PUBLIC_API_BASE_URL=""
+  echo "Docker unavailable; using embedded SQLite at ${PWD}/course-agent.sqlite"
+fi
 "$UV" run --locked --all-packages --extra dev --extra voice alembic -c apps/backend/alembic.ini upgrade head
 "$UV" run --locked --all-packages --extra dev --extra voice python -m app.db.seed
 
