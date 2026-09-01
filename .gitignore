@@ -2,6 +2,7 @@
 .env
 .env.*
 !.env.example
+!.env.backendai.example
 !apps/frontend/.env.local.example
 
 node_modules/
@@ -26,3 +27,4 @@ __pycache__/
 uploads/
 local_vector_store/
 .worktrees/
+.run/
