@@ -24,6 +24,8 @@ jobs:
         with:
           node-version: "22"
           cache: npm
+      - name: Validate Backend.AI launch scripts
+        run: bash -n run_backendai.sh stop_backendai.sh healthcheck_backendai.sh
       - name: Install frontend dependencies
         run: npm ci
       - name: Run full verification
