@@ -61,6 +61,7 @@ set +a
 
 DATABASE_URL="${DATABASE_URL:-}"
 VECTOR_DB_URL="${VECTOR_DB_URL:-}"
+JWT_SECRET_VALUE="${JWT_SECRET:-}"
 BACKEND_PORT="${BACKENDAI_BACKEND_PORT:-8000}"
 FRONTEND_PORT="${BACKENDAI_FRONTEND_PORT:-3000}"
 FRONTEND_MODE="${BACKENDAI_FRONTEND_MODE:-dev}"
@@ -72,7 +73,7 @@ fi
 if [[ -n "${VECTOR_DB_URL}" && ( "${VECTOR_DB_URL}" == *"CHANGE_ME"* || "${VECTOR_DB_URL}" == *"DB_HOST"* ) ]]; then
   fail "configure VECTOR_DB_URL in .env before starting Backend.AI"
 fi
-if [[ "${JWT_SECRET:-}" == *"CHANGE_ME"* || ${#JWT_SECRET:-0} -lt 32 ]]; then
+if [[ -z "${JWT_SECRET_VALUE}" || "${JWT_SECRET_VALUE}" == *"CHANGE_ME"* || ${#JWT_SECRET_VALUE} -lt 32 ]]; then
   fail "JWT_SECRET must be a unique secret of at least 32 characters"
 fi
 if [[ "${NEXT_PUBLIC_API_BASE_URL:-}" == *"BACKENDAI_BACKEND_APP_URL"* ]]; then
@@ -260,8 +261,15 @@ if ! wait_http "frontend" "http://127.0.0.1:${FRONTEND_PORT}/" "${FRONTEND_PID_F
   exit 1
 fi
 
-MODEL_HEALTH="$(curl -fsS --max-time 5 "http://127.0.0.1:${BACKEND_PORT}/api/health/model-server" || true)"
-if [[ "${MODEL_HEALTH}" != *'"status":"ok"'* && "${MODEL_HEALTH}" != *'"status": "ok"'* ]]; then
+MODEL_HEALTH="$(curl -fsS --max-time 5 "http://127.0.0.1:${BACKEND_PORT}/api/health/model-server")"
+if ! python3 - "${MODEL_HEALTH}" <<'PY'
+import json
+import sys
+
+payload = json.loads(sys.argv[1])
+raise SystemExit(0 if payload.get("status") == "ok" else 1)
+PY
+then
   echo "Backend started, but its Model Server health is not OK:" >&2
   echo "${MODEL_HEALTH}" >&2
   cleanup_started_processes
