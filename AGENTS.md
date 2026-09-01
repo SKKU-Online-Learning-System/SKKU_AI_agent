@@ -26,7 +26,9 @@ COURSE AGENT is bound by the same RBAC, SAFE, course-scoped RAG, citation and Ch
 
 ## Build, Test, and Development Commands
 
-Run `bash run.sh` from the repo root: it starts PostgreSQL/pgvector, applies migrations and seed, then runs FastAPI on port 8000 and Next.js on port 3000. The external Model Server and SearXNG, when used, are separate processes and are not started by this repository. Run `bash test.sh` for Python tests, Ruff, and the frontend test/typecheck/lint sweep. Both scripts use the `.venv-app` environment, not the editor's `.venv`. Use `npm run build:frontend`, `npm run lint`, and `npm run typecheck` before frontend/shared changes. Unit tests must mock provider HTTP calls and must not require a live Model Server.
+Run `bash run.sh` from the repo root for local Docker development: it starts PostgreSQL/pgvector, applies migrations and seed, then runs FastAPI on port 8000 and Next.js on port 3000. The external Model Server and SearXNG, when used, are separate processes and are not started by this repository. Run `bash test.sh` for Python tests, Ruff, and the frontend test/typecheck/lint sweep. Both scripts use the `.venv-app` environment, not the editor's `.venv`. Use `npm run build:frontend`, `npm run lint`, and `npm run typecheck` before frontend/shared changes. Unit tests must mock provider HTTP calls and must not require a live Model Server.
+
+For the school Backend.AI compute session use `.env.backendai.example` plus `bash run_backendai.sh`; do not add Docker-in-Docker or try to start the Model Server from the application repository. Backend.AI startup requires a reachable PostgreSQL `DATABASE_URL`, verifies the already-running loopback Model Server, and directly binds FastAPI/Next.js to `0.0.0.0:8000`/`:3000`. Use `bash healthcheck_backendai.sh` and `bash stop_backendai.sh` for that runtime. Keep ports 8001/8002/8010 internal to the compute session.
 
 ## Coding Style & Naming Conventions
 
