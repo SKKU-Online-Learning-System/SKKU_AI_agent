@@ -1,3 +1,4 @@
+import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -18,6 +19,9 @@ from app.api.routes import (
 from app.core.config import get_settings
 from app.middleware.upload_request_limit import UploadRequestSizeLimitMiddleware
 from app.services.voice.session_store import shutdown as shutdown_voice
+
+
+logging.basicConfig(level=logging.INFO)
 
 
 @asynccontextmanager
