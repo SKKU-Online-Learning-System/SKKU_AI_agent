@@ -68,6 +68,14 @@ class ExternalBrain:
             recent = conversation[-12:]
             uncertainty = _explicit_uncertainty_evidence(recent)
             settings = get_settings()
+            if getattr(settings, "voice_trace_content", False):
+                log.info(
+                    "external brain input source=%s conversation=%.8000r uncertainty=%.4000r memories=%.4000r",
+                    source,
+                    recent,
+                    uncertainty,
+                    memories,
+                )
             try:
                 decision = await LLMService(settings).generate_json(
                     system=SYSTEM_PROMPT,
@@ -93,6 +101,12 @@ class ExternalBrain:
                 # Preserve useful local behavior for explicit learner confusion.
                 if settings.use_mock_llm and decision.get("save") is None:
                     decision["save"] = _fallback_decision(uncertainty)["save"]
+            if getattr(settings, "voice_trace_content", False):
+                log.info(
+                    "external brain decision source=%s decision=%.8000r",
+                    source,
+                    decision,
+                )
             await self._apply(decision, memories)
         log.info(
             "external brain completed source=%s elapsed_ms=%s",

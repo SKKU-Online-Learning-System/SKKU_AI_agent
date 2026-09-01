@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import time
 from dataclasses import dataclass
 from typing import Awaitable, Callable
@@ -16,6 +17,8 @@ from typing import Awaitable, Callable
 from app.core.config import get_settings
 from app.services.llm_service import LLMService
 from app.services.voice import brain
+
+log = logging.getLogger("voice.local-brain")
 
 
 @dataclass(frozen=True)
@@ -50,7 +53,8 @@ async def think_voice(
     """Run the existing brain policy with the Qwen voice profile."""
     context.append_history({"role": "user", "content": transcript})
     context.last_material_sources = []
-    llm = LLMService(get_settings(), profile="voice")
+    settings = get_settings()
+    llm = LLMService(settings, profile="voice")
     tool_messages: list[dict] = []
     tools_used: list[str] = []
     external_sources: list[str] = []
@@ -63,6 +67,14 @@ async def think_voice(
         for tool in brain.TOOLS
         if tool["function"]["name"] in {"search_trusted_web", "show_visualization"}
     ]
+    if getattr(settings, "voice_trace_content", False):
+        log.info(
+            "voice llm input mode=%s transcript=%.4000s system=%.4000s history=%.8000r",
+            mode,
+            transcript,
+            system,
+            context.history,
+        )
 
     for _ in range(brain.MAX_TOOL_ROUNDS):
         started_at = time.perf_counter()
@@ -87,6 +99,13 @@ async def think_voice(
         )
         elapsed_ms = round((time.perf_counter() - started_at) * 1000)
         timer.timings_ms["llm"] = timer.timings_ms.get("llm", 0) + elapsed_ms
+        if getattr(settings, "voice_trace_content", False):
+            log.info(
+                "voice llm output model=%s text=%.8000s tool_calls=%.4000r",
+                turn.model_name,
+                turn.text,
+                turn.tool_calls,
+            )
 
         if not turn.tool_calls:
             reply = turn.text.strip() or "답변을 생성하지 못했어요. 다시 질문해 주세요."

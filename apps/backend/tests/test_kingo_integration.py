@@ -1,3 +1,4 @@
+import logging
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
@@ -172,3 +173,31 @@ async def test_external_brain_does_not_save_an_ordinary_first_question() -> None
         )
 
     memory.save.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_external_brain_trace_logs_input_and_decision(caplog) -> None:
+    memory = AsyncMock()
+    memory.all_memories.return_value = []
+    worker = ExternalBrain(memory, "인공지능개론")
+    decision = {"save": None, "reviews": []}
+    with (
+        patch(
+            "app.services.voice.external_brain.get_settings",
+            return_value=SimpleNamespace(use_mock_llm=False, voice_trace_content=True),
+        ),
+        patch(
+            "app.services.voice.external_brain.LLMService.generate_json",
+            new=AsyncMock(return_value=decision),
+        ),
+        caplog.at_level(logging.INFO, logger="voice.external-brain"),
+    ):
+        await worker.assess(
+            [{"role": "user", "content": "어텐션이 헷갈려요."}],
+            source="test",
+        )
+
+    output = caplog.text
+    assert "external brain input source=test" in output
+    assert "어텐션이 헷갈려요." in output
+    assert "external brain decision source=test" in output

@@ -76,6 +76,7 @@ class Settings(BaseSettings):
     # COURSE AGENT voice orchestration. local_cascade is the default path;
     # Grok stays available only as a legacy regression provider.
     voice_provider: Literal["grok", "local_cascade"] = "local_cascade"
+    voice_trace_content: bool = False
     speech_base_url: str = "http://localhost:8010"
     asr_timeout_seconds: float = Field(default=30.0, gt=0)
     tts_timeout_seconds: float = Field(default=30.0, gt=0)
