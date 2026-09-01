@@ -27,3 +27,9 @@ def test_mock_llm_override_remains_available_for_ci() -> None:
         use_mock_llm=True,
     )
     assert settings.effective_llm_provider == "mock"
+
+
+def test_voice_trace_content_defaults_off_and_accepts_env(monkeypatch) -> None:
+    assert Settings(_env_file=None).voice_trace_content is False
+    monkeypatch.setenv("VOICE_TRACE_CONTENT", "true")
+    assert Settings(_env_file=None).voice_trace_content is True
