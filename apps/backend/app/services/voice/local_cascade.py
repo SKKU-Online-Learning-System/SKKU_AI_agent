@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 import time
 from collections.abc import AsyncIterator, Awaitable, Callable
 
@@ -35,12 +36,63 @@ from app.services.voice.turn_detector import SAMPLE_RATE, TurnDetector
 
 log = logging.getLogger("voice.local-cascade")
 _SENTINEL = object()
+_SENTENCE_BOUNDARY = re.compile(r"(?<=[.!?。！？])\s+|\n+")
 BrainRunner = Callable[..., Awaitable[VoiceBrainResult]]
 QueuedEvent = tuple[int | None, Event]
 
 
+def _split_long_segment(text: str, max_chars: int) -> list[str]:
+    words = text.split()
+    if not words:
+        return []
+    chunks: list[str] = []
+    current = ""
+    for original_word in words:
+        word = original_word
+        candidate = f"{current} {word}".strip()
+        if current and len(candidate) > max_chars:
+            chunks.append(current)
+            current = ""
+        while len(word) > max_chars:
+            if current:
+                chunks.append(current)
+                current = ""
+            chunks.append(word[:max_chars])
+            word = word[max_chars:]
+        if word:
+            candidate = f"{current} {word}".strip()
+            if len(candidate) <= max_chars:
+                current = candidate
+            else:
+                if current:
+                    chunks.append(current)
+                current = word
+    if current:
+        chunks.append(current)
+    return chunks
+
+
+def _tts_chunks(text: str, max_chars: int) -> list[str]:
+    """Prefer sentence-sized TTS requests and cap pathological long sentences."""
+    normalized = re.sub(r"[ \t]+", " ", text.strip())
+    segments = [part.strip() for part in _SENTENCE_BOUNDARY.split(normalized) if part.strip()]
+    chunks: list[str] = []
+    for segment in segments:
+        if len(segment) <= max_chars:
+            chunks.append(segment)
+        else:
+            chunks.extend(_split_long_segment(segment, max_chars))
+    return chunks or ([normalized] if normalized else [])
+
+
+def _pcm_duration_ms(pcm: bytes, sample_rate: int) -> int:
+    if not sample_rate:
+        return 0
+    return round((len(pcm) / 2) * 1000 / sample_rate)
+
+
 class LocalCascadeTransport(Transport):
-    """ASR -> existing COURSE AGENT brain -> TTS with generation cancellation."""
+    """ASR -> existing COURSE AGENT brain -> chunked TTS with generation cancellation."""
 
     name = "local_cascade"
     provider_name = "local_qwen"
@@ -58,8 +110,6 @@ class LocalCascadeTransport(Transport):
     ) -> None:
         self.settings = settings or get_settings()
         self.context = context
-        # Keep model-side history independent from the WebSocket event pump.
-        # The pump remains the owner of the shared context and ChatLog writes.
         self._brain_context = clone_context(context)
         self.mode = mode
         self.speech = speech_client or SpeechClient(self.settings)
@@ -69,7 +119,6 @@ class LocalCascadeTransport(Transport):
         self.model_name = self.settings.voice_llm_model
         self.last_web_sources: list[str] = []
         self.last_safety: SafetyResult = NORMAL_RESULT
-
         self._events: asyncio.Queue[QueuedEvent | object] = asyncio.Queue()
         self._generation = 0
         self._active_task: asyncio.Task[None] | None = None
@@ -91,7 +140,6 @@ class LocalCascadeTransport(Transport):
             await self._emit(UserStartedSpeaking(), generation)
         if utterance is None:
             return
-
         generation = self._generation
         await self._emit(UserStoppedSpeaking(), generation)
         speech_end = time.perf_counter()
@@ -171,16 +219,11 @@ class LocalCascadeTransport(Transport):
         timer = StageTimer()
         if not self._current(generation):
             return
-
-        # Snapshot before emitting the transcript so route-side history updates
-        # cannot race with the model-side turn.
         safety = self.safety.check_question(transcript)
         self.last_safety = safety
         await self._emit(
-            Transcript("user", transcript, item_id=f"local-{generation}-user"),
-            generation,
+            Transcript("user", transcript, item_id=f"local-{generation}-user"), generation
         )
-
         try:
             if safety.blocked:
                 reply = safety.safe_answer or "요청하신 내용은 도와드릴 수 없습니다."
@@ -226,9 +269,6 @@ class LocalCascadeTransport(Transport):
             return
         self.context.last_material_sources = list(self._brain_context.last_material_sources)
         self.last_web_sources = list(brain_result.sources[:3])
-
-        # Tool/source metadata must reach the route before the final transcript,
-        # because the route persists the turn when Transcript(agent) arrives.
         for name in brain_result.tools:
             if name == "show_visualization":
                 continue
@@ -236,25 +276,58 @@ class LocalCascadeTransport(Transport):
             await self._emit(ToolCalled(name=name, result=result), generation)
         for visualization in brain_result.visualizations:
             await self._emit(
-                ToolCalled(name="show_visualization", result=visualization),
-                generation,
+                ToolCalled(name="show_visualization", result=visualization), generation
             )
         await self._emit(
-            Transcript("agent", reply, item_id=f"local-{generation}-agent"),
-            generation,
+            Transcript("agent", reply, item_id=f"local-{generation}-agent"), generation
         )
 
         tts_started = time.perf_counter()
+        tts_inference_ms = 0
+        tts_audio_duration_ms = 0
+        tts_chunks = 0
+        first_audio_at: float | None = None
+        chunks = _tts_chunks(reply, self.settings.tts_chunk_max_chars)
         try:
-            synthesized = await self.speech.synthesize(
-                reply,
-                speaker=self.settings.tts_speaker,
-                language=self.settings.tts_language,
-            )
+            for index, chunk in enumerate(chunks, start=1):
+                if not self._current(generation):
+                    return
+                chunk_started = time.perf_counter()
+                synthesized = await self.speech.synthesize(
+                    chunk,
+                    speaker=self.settings.tts_speaker,
+                    language=self.settings.tts_language,
+                )
+                chunk_http_ms = round((time.perf_counter() - chunk_started) * 1000)
+                inference_ms = synthesized.inference_ms or 0
+                audio_duration_ms = synthesized.audio_duration_ms
+                if audio_duration_ms is None:
+                    audio_duration_ms = _pcm_duration_ms(
+                        synthesized.pcm, synthesized.sample_rate
+                    )
+                tts_chunks += 1
+                tts_inference_ms += inference_ms
+                tts_audio_duration_ms += audio_duration_ms
+                log.info(
+                    "local voice tts chunk generation=%d index=%d/%d chars=%d http_ms=%d inference_ms=%d audio_duration_ms=%d",
+                    generation,
+                    index,
+                    len(chunks),
+                    len(chunk),
+                    chunk_http_ms,
+                    inference_ms,
+                    audio_duration_ms,
+                )
+                if not self._current(generation):
+                    return
+                if first_audio_at is None:
+                    first_audio_at = time.perf_counter()
+                await self._emit(
+                    AgentAudio(synthesized.pcm, rate=synthesized.sample_rate), generation
+                )
         except asyncio.CancelledError:
             raise
         except SpeechError:
-            # Text has already been emitted and stays visible even when audio fails.
             tts_ms = round((time.perf_counter() - tts_started) * 1000)
             self._log_metrics(
                 vad_speech_ms=vad_speech_ms,
@@ -262,27 +335,34 @@ class LocalCascadeTransport(Transport):
                 llm_ttft_ms=timer.timings_ms.get("llm_ttft", 0),
                 llm_total_ms=timer.timings_ms.get("llm", 0),
                 tts_ms=tts_ms,
-                speech_end_to_first_audio_ms=0,
+                tts_inference_ms=tts_inference_ms,
+                tts_audio_duration_ms=tts_audio_duration_ms,
+                tts_chunks=tts_chunks,
+                speech_end_to_first_audio_ms=(
+                    round((first_audio_at - speech_end) * 1000) if first_audio_at else 0
+                ),
                 total_turn_ms=round((time.perf_counter() - turn_started) * 1000),
                 status="tts_failed",
             )
             await self._fail("음성 합성 서버가 응답 오디오를 생성하지 못했습니다.", generation)
             return
-        tts_ms = round((time.perf_counter() - tts_started) * 1000)
 
+        tts_ms = round((time.perf_counter() - tts_started) * 1000)
         if not self._current(generation):
             return
-        first_audio_at = time.perf_counter()
-        await self._emit(AgentAudio(synthesized.pcm, rate=synthesized.sample_rate), generation)
         await self._emit(AgentTurnDone(), generation)
-
         self._log_metrics(
             vad_speech_ms=vad_speech_ms,
             asr_ms=asr_ms,
             llm_ttft_ms=timer.timings_ms.get("llm_ttft", 0),
             llm_total_ms=timer.timings_ms.get("llm", 0),
             tts_ms=tts_ms,
-            speech_end_to_first_audio_ms=round((first_audio_at - speech_end) * 1000),
+            tts_inference_ms=tts_inference_ms,
+            tts_audio_duration_ms=tts_audio_duration_ms,
+            tts_chunks=tts_chunks,
+            speech_end_to_first_audio_ms=(
+                round((first_audio_at - speech_end) * 1000) if first_audio_at else 0
+            ),
             total_turn_ms=round((time.perf_counter() - turn_started) * 1000),
             status="ok",
         )
@@ -298,8 +378,15 @@ class LocalCascadeTransport(Transport):
         speech_end_to_first_audio_ms: int,
         total_turn_ms: int,
         status: str,
+        tts_inference_ms: int = 0,
+        tts_audio_duration_ms: int = 0,
+        tts_chunks: int = 0,
     ) -> None:
-        # Do not log the student's transcript by default.
+        tts_rtf = (
+            round(tts_inference_ms / tts_audio_duration_ms, 4)
+            if tts_audio_duration_ms > 0
+            else None
+        )
         log.info(
             "local voice turn status=%s metrics=%s",
             status,
@@ -309,6 +396,10 @@ class LocalCascadeTransport(Transport):
                 "llm_ttft_ms": llm_ttft_ms,
                 "llm_total_ms": llm_total_ms,
                 "tts_ms": tts_ms,
+                "tts_inference_ms": tts_inference_ms,
+                "tts_audio_duration_ms": tts_audio_duration_ms,
+                "tts_rtf": tts_rtf,
+                "tts_chunks": tts_chunks,
                 "speech_end_to_first_audio_ms": speech_end_to_first_audio_ms,
                 "total_turn_ms": total_turn_ms,
             },
@@ -330,8 +421,6 @@ class LocalCascadeTransport(Transport):
             if item is _SENTINEL:
                 break
             generation, event = item  # type: ignore[misc]
-            # Barge-in may happen after old audio/text was queued but before the
-            # event pump consumed it. Drop those stale queue entries here too.
             if generation is not None and not self._current(generation):
                 continue
             yield event
