@@ -85,8 +85,9 @@ docs                제품·기술 문서
 
 ## 실행
 
-필수 도구는 [uv](https://docs.astral.sh/uv/), Python 3.12+, Node.js, Docker입니다.
-먼저 Model Server와 필요하면 SearXNG를 실행하고 `.env`에 endpoint를 설정합니다.
+필수 도구는 [uv](https://docs.astral.sh/uv/), Python 3.12+, Node.js입니다. 로컬 Docker 개발
+환경에서는 PostgreSQL 기동을 위해 Docker도 사용합니다. 먼저 Model Server와 필요하면
+SearXNG를 실행하고 `.env`에 endpoint를 설정합니다.
 
 ```dotenv
 LLM_PROVIDER=local_qwen
@@ -102,19 +103,100 @@ TTS_LANGUAGE=Korean
 SEARXNG_URL=http://SEARXNG_SERVER:8080
 ```
 
-그 뒤 저장소 루트에서 실행합니다.
+### 로컬 Docker 개발
+
+저장소 루트에서 실행합니다.
 
 ```bash
 bash run.sh
 ```
 
-환경 파일 복사, 의존성 설치, 데이터베이스 기동, 마이그레이션, Seed, 백엔드와
+환경 파일 복사, 의존성 설치, Docker PostgreSQL 기동, 마이그레이션, Seed, 백엔드와
 프론트엔드 실행까지 처리합니다. `Ctrl+C`로 둘 다 종료합니다.
 
 - 웹: <http://localhost:3000>
 - API 문서: <http://localhost:8000/docs>
 - 앱 상태: <http://localhost:8000/api/health>
 - Model Server 상태: <http://localhost:8000/api/health/model-server>
+
+### Backend.AI (학교 GPU 서버)
+
+Backend.AI compute session 안에서는 Docker-in-Docker를 사용하지 않습니다. 별도
+`SKKU_AI_model_server`가 같은 세션의 `127.0.0.1:8001`, `:8002`, `:8010`에서 이미 실행 중인
+구성을 기준으로 하며, 애플리케이션은 CPU 프로세스로 FastAPI와 Next.js만 직접 실행합니다.
+Model Server 포트는 브라우저에 공개할 필요가 없습니다.
+
+Backend.AI용 구성 파일을 복사합니다.
+
+```bash
+cp .env.backendai.example .env
+```
+
+최소한 다음 값을 환경에 맞게 수정합니다.
+
+```dotenv
+# Backend.AI session에서 접근 가능한 PostgreSQL
+DATABASE_URL=postgresql+psycopg://USER:PASSWORD@DB_HOST:5432/course_agent
+VECTOR_DB_URL=postgresql+psycopg://USER:PASSWORD@DB_HOST:5432/course_agent
+
+# 같은 Backend.AI session에서 이미 실행 중인 Model Server
+TEXT_LLM_BASE_URL=http://127.0.0.1:8001/v1
+VOICE_LLM_BASE_URL=http://127.0.0.1:8002/v1
+SPEECH_BASE_URL=http://127.0.0.1:8010
+
+# Backend.AI App Proxy / Preopen Port URL
+NEXT_PUBLIC_API_BASE_URL=https://BACKENDAI_BACKEND_APP_URL
+BACKEND_CORS_ORIGINS=https://BACKENDAI_FRONTEND_APP_URL
+```
+
+현재 `VECTOR_SEARCH_MODE=local`은 embedding을 PostgreSQL JSON column에 저장하고 application
+process에서 cosine ranking을 수행하므로 이 모드 자체는 pgvector 연산자를 요구하지 않습니다.
+관계형 사용자/과목/자료/로그 저장을 위해 PostgreSQL은 반드시 필요합니다.
+
+Backend.AI에서 preopen port/App Proxy 대상으로 다음 두 포트를 노출합니다.
+
+```text
+3000  Next.js frontend
+8000  FastAPI REST/WebSocket backend
+```
+
+특히 COURSE AGENT 음성 WebSocket을 사용하려면 8000번 App Proxy가 WebSocket upgrade를
+지원해야 합니다. `8001`, `8002`, `8010`은 같은 compute session 내부 loopback으로만
+사용합니다.
+
+실행은 Docker 없이 다음 한 명령으로 합니다.
+
+```bash
+bash run_backendai.sh
+```
+
+`.env`가 없으면 스크립트가 `.env.backendai.example`을 복사하고 안전한 JWT secret을 자동
+생성한 뒤, DB 주소를 수정하도록 종료합니다. 설정이 완료된 실행에서는 다음을 순서대로
+검증하고 하나라도 실패하면 즉시 중단합니다.
+
+1. uv workspace/CPU-only Silero VAD 의존성
+2. npm/Next.js 의존성
+3. PostgreSQL `SELECT 1`
+4. Text LLM, Voice LLM, Speech Server health
+5. Alembic migration과 선택적 seed
+6. FastAPI `0.0.0.0:8000` readiness
+7. Next.js `0.0.0.0:3000` readiness
+8. Application에서 다시 확인한 Model Server health
+
+기본 frontend 모드는 `dev`입니다. 안정적인 build/start 형태를 사용하려면 `.env`에서
+`BACKENDAI_FRONTEND_MODE=production`으로 변경합니다. seed가 필요하지 않은 환경은
+`BACKENDAI_SEED=false`를 설정할 수 있습니다.
+
+상태 확인과 종료:
+
+```bash
+bash healthcheck_backendai.sh
+bash stop_backendai.sh
+```
+
+로그는 `logs/backendai/backend.log`, `logs/backendai/frontend.log`에 저장되고 PID 파일은
+`.run/backendai/`에 저장됩니다. 이 스크립트들은 Application PID만 관리하며 별도
+`SKKU_AI_model_server` 프로세스는 종료하지 않습니다.
 
 ### Model Server endpoint contract
 
@@ -168,6 +250,7 @@ uv run --all-packages --extra dev --extra voice python scripts/test_model_server
 | `DATABASE_URL` | PostgreSQL 연결 주소 |
 | `JWT_SECRET` | JWT 서명 키. 비로컬 환경에서는 32자 이상의 고유 키 필요 |
 | `BACKEND_CORS_ORIGINS` | 허용할 프론트엔드 Origin |
+| `NEXT_PUBLIC_API_BASE_URL` | 브라우저에서 접근하는 FastAPI base URL |
 | `UPLOAD_DIR` | 업로드 파일 저장 위치 |
 | `MAX_UPLOAD_SIZE_BYTES` | 파일당 업로드 제한 |
 | `LLM_PROVIDER` | `local_qwen`(기본), `mock`, `anthropic` |
@@ -179,12 +262,16 @@ uv run --all-packages --extra dev --extra voice python scripts/test_model_server
 | `TTS_SPEAKER` / `TTS_LANGUAGE` | 기본 `Sohee` / `Korean` |
 | `VAD_THRESHOLD` / `SILENCE_MS` / `PREFIX_MS` | application-side Silero endpointing 설정 |
 | `SEARXNG_URL` | self-hosted trusted-web search endpoint |
+| `BACKENDAI_BACKEND_PORT` / `BACKENDAI_FRONTEND_PORT` | Backend.AI 내부 application ports |
+| `BACKENDAI_FRONTEND_MODE` | `dev` 또는 `production` |
+| `BACKENDAI_SEED` | Backend.AI 시작 시 seed 실행 여부 |
 | `ANTHROPIC_API_KEY` / `CLAUDE_MODEL` | legacy Anthropic provider 전용 |
 | `XAI_API_KEY` / `GROK_VOICE_MODEL` | legacy Grok voice provider 전용 |
 | `MOSS_PROJECT_ID` / `MOSS_PROJECT_KEY` | 취약 개념 클라우드 메모리. 비우면 로컬 파일 사용 |
 
-전체 기본값과 설명은 [.env.example](.env.example)에 있습니다. 환경변수를 바꾼 뒤에는
-API와 웹 개발 서버를 다시 시작하세요.
+전체 기본값과 설명은 로컬 Docker 개발은 [.env.example](.env.example), Backend.AI는
+[.env.backendai.example](.env.backendai.example)에 있습니다. 환경변수를 바꾼 뒤에는 API와
+웹 프로세스를 다시 시작하세요.
 
 ## 문서 지원 범위
 
