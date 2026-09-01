@@ -6,7 +6,7 @@ from app.core.config import Settings
 from app.services.model_server.speech_client import SpeechError, SynthesisResult, TranscriptionResult
 from app.services.voice.brain import VoiceContext
 from app.services.voice.local_brain import VoiceBrainResult
-from app.services.voice.local_cascade import LocalCascadeTransport
+from app.services.voice.local_cascade import LocalCascadeTransport, _tts_chunks
 from app.services.voice.transport import (
     AgentAudio,
     AgentTextDelta,
@@ -36,6 +36,7 @@ class FakeSpeech:
     def __init__(self) -> None:
         self.transcribe_calls = 0
         self.synthesize_calls = 0
+        self.synthesized_texts: list[str] = []
 
     async def transcribe(self, pcm: bytes, *, sample_rate: int) -> TranscriptionResult:
         self.transcribe_calls += 1
@@ -43,7 +44,13 @@ class FakeSpeech:
 
     async def synthesize(self, text: str, **kwargs) -> SynthesisResult:
         self.synthesize_calls += 1
-        return SynthesisResult(b"\x01\x02" * 100, sample_rate=24000)
+        self.synthesized_texts.append(text)
+        return SynthesisResult(
+            b"\x01\x02" * 100,
+            sample_rate=24000,
+            inference_ms=25,
+            audio_duration_ms=50,
+        )
 
 
 class AsrFailure(FakeSpeech):
@@ -64,6 +71,7 @@ class BlockingTts(FakeSpeech):
 
     async def synthesize(self, text: str, **kwargs) -> SynthesisResult:
         self.synthesize_calls += 1
+        self.synthesized_texts.append(text)
         self.started.set()
         await self.release.wait()
         return SynthesisResult(b"old-audio", sample_rate=24000)
@@ -102,6 +110,31 @@ async def fake_brain(ctx, transcript, timer, mode, on_token=None) -> VoiceBrainR
     )
 
 
+async def multi_sentence_brain(ctx, transcript, timer, mode, on_token=None) -> VoiceBrainResult:
+    reply = "첫 번째 설명입니다. 두 번째 설명입니다! 마지막 설명인가요?"
+    timer.timings_ms["llm_ttft"] = 12
+    timer.timings_ms["llm"] = 40
+    if on_token:
+        await on_token(reply)
+    return VoiceBrainResult(
+        reply=reply,
+        tools=[],
+        sources=[],
+        visualizations=[],
+        model_name="Qwen/Qwen3.5-9B",
+    )
+
+
+def test_tts_chunks_prefer_sentence_boundaries_and_cap_long_segments() -> None:
+    assert _tts_chunks("첫 문장입니다. 둘째 문장입니다!", 80) == [
+        "첫 문장입니다.",
+        "둘째 문장입니다!",
+    ]
+    chunks = _tts_chunks("가나다라마바사 아자차카타파하 가나다라마바사 아자차카타파하", 20)
+    assert chunks
+    assert all(len(chunk) <= 20 for chunk in chunks)
+
+
 @pytest.mark.asyncio
 async def test_audio_turn_runs_vad_asr_voice_brain_tts() -> None:
     speech = FakeSpeech()
@@ -115,7 +148,7 @@ async def test_audio_turn_runs_vad_asr_voice_brain_tts() -> None:
     )
     await transport.start()
     events = transport.events()
-    await _next(events)  # SessionReady
+    await _next(events)
 
     await transport.send_audio(b"frame-1")
     assert isinstance(await _next(events), UserStartedSpeaking)
@@ -129,6 +162,34 @@ async def test_audio_turn_runs_vad_asr_voice_brain_tts() -> None:
     assert any(isinstance(event, AgentAudio) and event.rate == 24000 for event in observed)
     assert speech.transcribe_calls == 1
     assert speech.synthesize_calls == 1
+    await transport.close()
+
+
+@pytest.mark.asyncio
+async def test_multi_sentence_reply_is_synthesized_and_emitted_as_audio_chunks() -> None:
+    speech = FakeSpeech()
+    transport = LocalCascadeTransport(
+        context=context(),
+        mode="explain",
+        settings=settings(),
+        speech_client=speech,  # type: ignore[arg-type]
+        detector=FakeDetector(),  # type: ignore[arg-type]
+        brain_runner=multi_sentence_brain,
+    )
+    await transport.start()
+    events = transport.events()
+    await _next(events)
+
+    await transport.send_text("설명해줘")
+    observed = await _through_turn_done(events)
+    audio_events = [event for event in observed if isinstance(event, AgentAudio)]
+
+    assert speech.synthesized_texts == [
+        "첫 번째 설명입니다.",
+        "두 번째 설명입니다!",
+        "마지막 설명인가요?",
+    ]
+    assert len(audio_events) == 3
     await transport.close()
 
 
