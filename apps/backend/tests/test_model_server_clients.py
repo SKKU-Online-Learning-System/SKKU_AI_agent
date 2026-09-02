@@ -90,8 +90,9 @@ class FakeSearchHttpClient:
 def settings(**overrides) -> Settings:
     values = {
         "speech_base_url": "http://speech:8010",
+        "tts_base_url": "http://tts:8011",
         "searxng_url": "http://search:8080",
-        "tts_speaker": "Sohee",
+        "tts_speaker": "cosyvoice",
         "tts_language": "Korean",
     }
     values.update(overrides)
@@ -101,13 +102,19 @@ def settings(**overrides) -> Settings:
 @pytest.mark.asyncio
 async def test_speech_client_asr_and_tts_contract(monkeypatch) -> None:
     fake = FakeSpeechHttpClient()
-    monkeypatch.setattr(speech_client, "async_client", lambda *args: fake)
+    base_urls = []
+    monkeypatch.setattr(
+        speech_client,
+        "async_client",
+        lambda base_url, *args: base_urls.append(base_url) or fake,
+    )
     client = SpeechClient(settings())
 
     transcription = await client.transcribe(b"\x00\x00" * 16000, sample_rate=16000)
     synthesized = await client.synthesize("안녕하세요.")
 
     assert transcription.text == "가상 메모리가 뭐야?"
+    assert base_urls == ["http://speech:8010", "http://tts:8011"]
     asr_call = fake.calls[0]
     assert asr_call["path"] == "v1/audio/transcriptions"
     assert asr_call["files"]["file"][2] == "audio/wav"
@@ -117,7 +124,7 @@ async def test_speech_client_asr_and_tts_contract(monkeypatch) -> None:
     assert tts_call["path"] == "v1/audio/speech"
     assert tts_call["json"] == {
         "input": "안녕하세요.",
-        "voice": "Sohee",
+        "voice": "cosyvoice",
         "language": "Korean",
         "response_format": "pcm",
     }
