@@ -23,6 +23,11 @@ import type { CourseAgentSymbolState } from "../ui/course-agent-symbol";
 import { CourseAgentVisualizationCard } from "./course-agent-visualization";
 
 const SAMPLE_RATE = 16000;
+// The speech server emits 24 kHz PCM. The playback AudioContext must run at
+// the same rate: at any other rate the browser resamples every chunk on its
+// own, with no filter history carried across chunks, so each boundary gets a
+// transient — an audible tick roughly three times a second.
+const PLAYBACK_SAMPLE_RATE = 24000;
 const FRAME_SAMPLES = 320;
 const MAX_PENDING_AUDIO_FRAMES = 250;
 
@@ -139,6 +144,7 @@ export function CourseAgentClient({
   const micUnavailableRef = useRef(false);
   const captureContextRef = useRef<AudioContext | null>(null);
   const playContextRef = useRef<AudioContext | null>(null);
+  const rateMismatchLoggedRef = useRef(false);
   const pcmBufferRef = useRef<Float32Array>(new Float32Array(0));
   const pendingAudioFramesRef = useRef<string[]>([]);
   const nextPlayAtRef = useRef(0);
@@ -392,6 +398,13 @@ export function CourseAgentClient({
     if (!context || bytes.byteLength < 2) return;
     const usable = bytes.byteLength - (bytes.byteLength % 2);
     const pcm = new Int16Array(bytes.buffer, bytes.byteOffset, usable / 2);
+    if (rate !== context.sampleRate && !rateMismatchLoggedRef.current) {
+      rateMismatchLoggedRef.current = true;
+      console.warn(
+        `[voice] playback context is ${context.sampleRate} Hz but audio is ${rate} Hz; ` +
+          "each chunk will be resampled separately and boundaries may tick"
+      );
+    }
     const buffer = context.createBuffer(1, pcm.length, rate);
     const channel = buffer.getChannelData(0);
     for (let index = 0; index < pcm.length; index += 1) channel[index] = pcm[index] / 32768;
@@ -399,7 +412,12 @@ export function CourseAgentClient({
     const source = context.createBufferSource();
     source.buffer = buffer;
     source.connect(context.destination);
-    const startAt = Math.max(context.currentTime + 0.03, nextPlayAtRef.current);
+    // The first TTS request of a turn delivers ~320ms of audio and the packet
+    // after it can land 60-80ms late, so a 30ms lead under-runs audibly right as
+    // the agent starts speaking. Give the first chunk a real jitter buffer and let
+    // later chunks, which play from a buffer several seconds deep, stay tight.
+    const lead = nextPlayAtRef.current === 0 ? 0.18 : 0.03;
+    const startAt = Math.max(context.currentTime + lead, nextPlayAtRef.current);
     source.start(startAt);
     nextPlayAtRef.current = startAt + buffer.duration;
     activeSourcesRef.current.add(source);
@@ -596,7 +614,7 @@ export function CourseAgentClient({
     setVoiceStatus(VOICE_STATE_LABELS.connecting);
 
     try {
-      const playContext = new AudioContext();
+      const playContext = new AudioContext({ sampleRate: PLAYBACK_SAMPLE_RATE });
       void playContext.resume().catch(() => undefined);
       playContextRef.current = playContext;
       nextPlayAtRef.current = 0;
