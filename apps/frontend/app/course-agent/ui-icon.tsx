@@ -3,7 +3,8 @@ export type IconName =
   | "posts" | "mypage" | "info" | "timetable" | "school" | "content"
   | "material" | "upload" | "source" | "shield" | "send" | "question"
   | "bolt" | "chart" | "home" | "attendance" | "grade" | "agent"
-  | "attachment" | "image" | "close" | "chevron" | "check";
+  | "attachment" | "image" | "close" | "chevron" | "check"
+  | "mic" | "mic-off";
 
 export function UiIcon({
   name,
@@ -43,6 +44,8 @@ export function UiIcon({
       {name === "close" ? <path d="m6 6 12 12M18 6 6 18" /> : null}
       {name === "chevron" ? <path d="m9 5 7 7-7 7" /> : null}
       {name === "check" ? <path d="m5 12.5 4.5 4.5L19 7.5" /> : null}
+      {name === "mic" ? <><rect x="9.2" y="2.9" width="5.6" height="11.2" rx="2.8" /><path d="M5.9 11.1a6.1 6.1 0 0 0 12.2 0" /><path d="M12 17.2v3.9M8.9 21.1h6.2" /></> : null}
+      {name === "mic-off" ? <><rect x="9.2" y="2.9" width="5.6" height="11.2" rx="2.8" /><path d="M5.9 11.1a6.1 6.1 0 0 0 12.2 0" /><path d="M12 17.2v3.9M8.9 21.1h6.2" /><path d="M4.1 3.4 19.9 20.6" /></> : null}
     </svg>
   );
 }
