@@ -300,6 +300,31 @@ def test_speech_text_drops_urls() -> None:
     assert brain.for_speech("설명이에요. https://arxiv.org/abs/1706.03762") == "설명이에요."
 
 
+def test_speech_text_spells_acronyms_in_hangul() -> None:
+    """The TTS model mispronounces upper-case acronyms, and a Korean particle
+    attaches straight to them, so the boundary cannot rely on \\b."""
+    assert brain.for_speech("CPU 사용률이 높으면 GPU로 넘기세요.") == (
+        "씨피유 사용률이 높으면 지피유로 넘기세요."
+    )
+    assert brain.for_speech("API를 호출하면 JSON이 반환됩니다.") == (
+        "에이피아이를 호출하면 제이슨이 반환됩니다."
+    )
+    # Read as a word, not letter by letter.
+    assert brain.for_speech("RAM 용량") == "램 용량"
+    # Written with a slash, so the acronym pattern cannot reach it.
+    assert brain.for_speech("I/O를 관리합니다.") == "아이오를 관리합니다."
+
+
+def test_speech_text_leaves_non_acronyms_alone() -> None:
+    # Mixed case is a name or identifier, and a trailing lower-case letter makes
+    # the reading ambiguous; neither should be spelled out.
+    assert brain.for_speech("MyCPU 변수") == "MyCPU 변수"
+    assert brain.for_speech("CPUs 두 개") == "CPUs 두 개"
+    # Lower-case English prose is left to the model.
+    assert brain.for_speech("softmax 함수") == "softmax 함수"
+    assert brain.for_speech("가상 메모리는 큽니다.") == "가상 메모리는 큽니다."
+
+
 def test_history_is_bounded_per_session() -> None:
     context = make_context()
     for index in range(brain.MAX_HISTORY_MESSAGES + 5):
