@@ -18,6 +18,7 @@ import {
   streamVoiceAnswer,
   voiceStreamUrl
 } from "../../lib/voice-api";
+import { UiIcon } from "../ui/ui-icon";
 import { CourseAgentSymbol } from "../ui/course-agent-symbol";
 import type { CourseAgentSymbolState } from "../ui/course-agent-symbol";
 import { CourseAgentVisualizationCard } from "./course-agent-visualization";
@@ -45,6 +46,16 @@ const VOICE_STATE_LABELS: Record<VoiceState, string> = {
   hearing: "말씀 듣는 중",
   thinking: "응답 준비 중",
   speaking: "응답 중"
+};
+
+/** The single status line shown while a call is running. */
+const VOICE_STATE_CAPTIONS: Record<VoiceState, string> = {
+  idle: "대기 중",
+  connecting: "연결 중",
+  listening: "듣는 중",
+  hearing: "말씀하시는 중",
+  thinking: "생각하는 중",
+  speaking: "답변하는 중"
 };
 
 const WEAK_CONCEPT_STATUS_LABELS: Record<WeakConcept["status"], string> = {
@@ -129,7 +140,6 @@ export function CourseAgentClient({
   const [question, setQuestion] = useState("");
   const [isSending, setIsSending] = useState(false);
   const [voiceState, setVoiceState] = useState<VoiceState>("idle");
-  const [voiceStatus, setVoiceStatus] = useState("마이크가 꺼져 있습니다");
   const [isMuted, setIsMuted] = useState(false);
   const [isVoiceOpen, setIsVoiceOpen] = useState(false);
   const [isMicrophoneAvailable, setIsMicrophoneAvailable] = useState(true);
@@ -328,7 +338,6 @@ export function CourseAgentClient({
         tools: []
       };
       setVoiceState("thinking");
-      setVoiceStatus(VOICE_STATE_LABELS.thinking);
       liveSocket.send(JSON.stringify({ type: "text", text }));
       return;
     }
@@ -431,19 +440,9 @@ export function CourseAgentClient({
 
       if (type === "ready") {
         setVoiceState("listening");
-        setVoiceStatus(
-          micUnavailableRef.current
-            ? "마이크 없음 · 채팅창에 입력해 음성 에이전트 테스트"
-            : VOICE_STATE_LABELS.listening
-        );
       } else if (type === "state") {
         const next = String(message.value) as VoiceState;
         setVoiceState(next);
-        setVoiceStatus(
-          next === "listening" && micUnavailableRef.current
-            ? "마이크 없음 · 채팅창에 입력해 음성 에이전트 테스트"
-            : VOICE_STATE_LABELS[next] ?? next
-        );
       } else if (type === "flush") {
         flushPlayback();
       } else if (type === "token") {
@@ -542,7 +541,6 @@ export function CourseAgentClient({
           text: `오류: ${String(message.message ?? "")}`
         });
         setVoiceState("listening");
-        setVoiceStatus(VOICE_STATE_LABELS.listening);
         setIsSending(false);
       }
     },
@@ -601,7 +599,6 @@ export function CourseAgentClient({
     setIsMuted(false);
     setIsSending(false);
     setVoiceState("idle");
-    setVoiceStatus("마이크가 꺼져 있습니다");
   }, [flushPlayback]);
 
   useEffect(() => stopVoice, [stopVoice]);
@@ -611,7 +608,6 @@ export function CourseAgentClient({
     setIsMicrophoneAvailable(true);
     setIsVoiceOpen(true);
     setVoiceState("connecting");
-    setVoiceStatus(VOICE_STATE_LABELS.connecting);
 
     try {
       const playContext = new AudioContext({ sampleRate: PLAYBACK_SAMPLE_RATE });
@@ -629,13 +625,9 @@ export function CourseAgentClient({
         socketRef.current = null;
         setIsVoiceOpen(false);
         setVoiceState("idle");
-        setVoiceStatus("연결 종료");
       };
       socketRef.current = socket;
     } catch (error) {
-      setVoiceStatus(
-        `음성 연결 오류: ${error instanceof Error ? error.message : "알 수 없는 오류"}`
-      );
       setIsVoiceOpen(false);
       setVoiceState("idle");
       return;
@@ -668,13 +660,19 @@ export function CourseAgentClient({
       micUnavailableRef.current = true;
       setIsMicrophoneAvailable(false);
       setVoiceState("listening");
-      setVoiceStatus("마이크 없음 · 채팅창에 입력해 음성 에이전트 테스트");
     }
   };
 
   // ------------------------------------------------------------------ render
 
   const voiceReady = config?.voice_enabled ?? false;
+  // The panel shows one line at rest, so it has to carry whichever of these
+  // applies rather than stacking a pill, a status and a hint.
+  const voiceHelp = !voiceReady
+    ? "음성 기능이 아직 준비되지 않았습니다. 텍스트 질문은 그대로 사용할 수 있습니다."
+    : isMicrophoneAvailable
+      ? "마이크로 질문하면 음성으로 답해요. 한 번 시작하면 버튼 없이 이어서 대화합니다."
+      : "마이크를 사용할 수 없습니다. 텍스트 질문은 그대로 사용할 수 있습니다.";
 
   return (
     <section className="course-agent-page">
@@ -834,41 +832,85 @@ export function CourseAgentClient({
           <div className="icampus-card-head">
             <h2>음성으로 질문</h2>
           </div>
-          <div className="icampus-card-body">
+          <div
+            className="icampus-card-body voice-stage"
+            data-muted={isMuted}
+            data-open={isVoiceOpen}
+            data-ready={voiceReady}
+            data-state={voiceState}
+          >
             <button
-              aria-label="음성 대화 시작"
+              aria-label={isVoiceOpen ? "음성 대화 진행 중" : "음성으로 질문하기"}
               className="voice-orb"
               data-state={voiceState}
               disabled={isVoiceOpen || !voiceReady}
               onClick={startVoice}
               type="button"
             >
-              {VOICE_STATE_LABELS[voiceState]}
+              <span aria-hidden="true" className="voice-orb-ripple" />
+              <span aria-hidden="true" className="voice-orb-ripple voice-orb-ripple--late" />
+              <span aria-hidden="true" className="voice-orb-body" />
+              <span className="voice-orb-face">
+                {!isVoiceOpen ? (
+                  <>
+                    <UiIcon className="voice-orb-mic" name="mic" />
+                    <span className="voice-orb-label">음성 시작</span>
+                  </>
+                ) : isMicrophoneAvailable ? (
+                  <span aria-hidden="true" className="voice-level" data-state={voiceState}>
+                    <i />
+                    <i />
+                    <i />
+                    <i />
+                    <i />
+                  </span>
+                ) : (
+                  // Nothing is being heard without a microphone, so a level meter
+                  // would be claiming activity that is not happening.
+                  <span className="voice-orb-label">대화 중</span>
+                )}
+              </span>
             </button>
-            <div className="voice-status">
-              {voiceReady ? voiceStatus : "음성 기능이 설정되지 않았습니다"}
+            <div aria-live="polite" className="voice-state">
+              {!isVoiceOpen
+                ? voiceReady
+                  ? "대기 중"
+                  : "사용할 수 없음"
+                : !isMicrophoneAvailable
+                  ? "마이크 없음 · 채팅창에 입력해 대화하세요"
+                  : isMuted
+                    ? "마이크 꺼짐"
+                    : VOICE_STATE_CAPTIONS[voiceState]}
             </div>
-            <p className="voice-help">
-              {voiceReady
-                ? "한 번 시작하면 버튼 없이 자연스럽게 이어서 대화할 수 있습니다."
-                : "텍스트 질문은 지금 그대로 사용할 수 있습니다. 관리자가 XAI_API_KEY를 설정하면 핸즈프리 음성 대화도 열립니다."}
-            </p>
             {isVoiceOpen ? (
-              <div className="voice-controls">
+              <div className="voice-controls voice-call-controls">
                 {isMicrophoneAvailable ? (
                   <button
-                    className="voice-secondary"
+                    aria-label={isMuted ? "마이크 켜기" : "마이크 끄기"}
+                    aria-pressed={isMuted}
+                    className="voice-round-button"
+                    data-variant="mic"
                     onClick={() => setIsMuted((muted) => !muted)}
+                    title={isMuted ? "마이크 켜기" : "마이크 끄기"}
                     type="button"
                   >
-                    {isMuted ? "음소거 해제" : "음소거"}
+                    <UiIcon name={isMuted ? "mic-off" : "mic"} />
                   </button>
                 ) : null}
-                <button className="voice-secondary" onClick={stopVoice} type="button">
-                  종료
+                <button
+                  aria-label="음성 대화 종료"
+                  className="voice-round-button"
+                  data-variant="end"
+                  onClick={stopVoice}
+                  title="음성 대화 종료"
+                  type="button"
+                >
+                  <UiIcon name="close" />
                 </button>
               </div>
-            ) : null}
+            ) : (
+              <p className="voice-help">{voiceHelp}</p>
+            )}
           </div>
         </aside>
       </div>
