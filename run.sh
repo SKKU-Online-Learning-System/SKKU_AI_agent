@@ -46,7 +46,5 @@ fi
 
 # ponytail: kill 0 tears down the whole process group; fine for one dev shell
 trap 'kill 0' EXIT
-# Backend.AI's app proxy connects to the container interface, not loopback, so the
-# preopen-port app for 8000 only works when uvicorn binds 0.0.0.0.
-"$UV" run --locked --all-packages --extra dev --extra voice uvicorn app.main:app --reload --app-dir apps/backend --host "${API_HOST:-0.0.0.0}" --port 8000 &
+"$UV" run --locked --all-packages --extra dev --extra voice uvicorn app.main:app --reload --app-dir apps/backend --port 8000 &
 npm run dev:frontend
