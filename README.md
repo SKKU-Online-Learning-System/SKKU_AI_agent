@@ -91,17 +91,22 @@ docs                제품·기술 문서
 
 ```dotenv
 LLM_PROVIDER=local_qwen
-TEXT_LLM_BASE_URL=http://MODEL_SERVER:8001/v1
+TEXT_LLM_BASE_URL=https://siriuscluster.skku.edu:102xx/v1
 TEXT_LLM_MODEL=Qwen/Qwen3.8-27B
-VOICE_LLM_BASE_URL=http://MODEL_SERVER:8001/v1
-VOICE_LLM_MODEL=Qwen/Qwen3.8-27B
-SPEECH_BASE_URL=http://MODEL_SERVER:8010
-MODEL_SERVER_API_KEY=
+VOICE_LLM_BASE_URL=https://siriuscluster.skku.edu:102yy/v1
+VOICE_LLM_MODEL=Qwen/Qwen3.5-9B
+SPEECH_BASE_URL=https://siriuscluster.skku.edu:102zz
+TTS_BASE_URL=https://siriuscluster.skku.edu:102zz
+MODEL_SERVER_API_KEY=서버와_동일한_키
 VOICE_PROVIDER=local_cascade
 TTS_SPEAKER=Sohee
 TTS_LANGUAGE=Korean
 SEARXNG_URL=http://SEARXNG_SERVER:8080
 ```
+
+`102xx`, `102yy`, `102zz`는 Backend.AI에서 각각 preopen port `8001`, `8002`,
+`8010` 앱을 공개로 열었을 때 표시되는 실제 포트로 바꿉니다. 모델 서버 세션은
+살아 있어야 하며, 세 앱 모두 주소 노출만으로 호출되지 않도록 같은 API 키를 사용합니다.
 
 그 뒤 저장소 루트에서 실행합니다.
 
@@ -174,7 +179,7 @@ uv run --all-packages --extra dev --extra voice python scripts/test_model_server
 | `LLM_PROVIDER` | `local_qwen`(기본), `mock`, `anthropic` |
 | `TEXT_LLM_BASE_URL` / `TEXT_LLM_MODEL` | typed/External Brain Qwen endpoint와 model |
 | `VOICE_LLM_BASE_URL` / `VOICE_LLM_MODEL` | realtime cascade의 Voice Qwen endpoint와 model |
-| `SPEECH_BASE_URL` | Qwen ASR/TTS Speech Server |
+| `SPEECH_BASE_URL` / `TTS_BASE_URL` | Qwen ASR/TTS endpoint. 3-port 구성에서는 둘 다 8010 앱 주소 |
 | `MODEL_SERVER_API_KEY` | optional Model Server bearer key |
 | `VOICE_PROVIDER` | `local_cascade`(기본) 또는 legacy `grok` |
 | `TTS_SPEAKER` / `TTS_LANGUAGE` | 기본 `Sohee` / `Korean` |
