@@ -3,14 +3,20 @@ import asyncio
 import pytest
 
 from app.core.config import Settings
-from app.services.model_server.speech_client import SpeechError, SynthesisResult, TranscriptionResult
+from app.services.model_server.speech_client import (
+    SpeechError,
+    SynthesisResult,
+    TranscriptionResult,
+)
 from app.services.voice.brain import VoiceContext
 from app.services.voice.local_brain import VoiceBrainResult
 from app.services.voice.local_cascade import LocalCascadeTransport, _tts_chunks
+from app.services.voice.visual_router import VisualDecision
 from app.services.voice.transport import (
     AgentAudio,
     AgentTextDelta,
     AgentTurnDone,
+    ToolCalled,
     Failed,
     Transcript,
     UserStartedSpeaking,
@@ -151,7 +157,9 @@ async def multi_sentence_brain(
     on_speech_delta=None,
     on_speech_rollback=None,
 ) -> VoiceBrainResult:
-    reply = "첫 번째 문장은 이 정도로 충분히 길게 만들었습니다. 두 번째 설명입니다! 마지막 설명인가요?"
+    reply = (
+        "첫 번째 문장은 이 정도로 충분히 길게 만들었습니다. 두 번째 설명입니다! 마지막 설명인가요?"
+    )
     timer.timings_ms["llm_ttft"] = 12
     timer.timings_ms["llm"] = 40
     if on_token:
@@ -624,8 +632,127 @@ async def test_first_chunk_is_released_at_a_clause_boundary() -> None:
     await transport.close()
 
 
+@pytest.mark.parametrize("input_kind", ["text", "audio"])
+@pytest.mark.asyncio
+async def test_real_voice_brain_never_synthesizes_rejected_reply(monkeypatch, input_kind):
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock, Mock
+
+    from app.services.llm_service import ToolCallRequest, ToolTurn
+    from app.services.voice import brain, local_brain
+
+    good = {
+        "intent": "teach",
+        "feedback": "한정된 공간을 나눠 쓰는 상황이에요.",
+        "question": "공간이 부족하면 어떻게 나눠 쓸까요?",
+        "visual_action": "none",
+    }
+    bad = {**good, "feedback": "", "question": "가상 메모리가 뭐야?"}
+    llm = SimpleNamespace(
+        stream_tool_turn=AsyncMock(
+            side_effect=[
+                ToolTurn("bad preamble", [ToolCallRequest("bad", "finish_turn", bad)], "test"),
+                ToolTurn("", [ToolCallRequest("good", "finish_turn", good)], "test"),
+            ]
+        )
+    )
+    monkeypatch.setattr(local_brain, "LLMService", lambda *a, **kw: llm)
+    monkeypatch.setattr(brain, "prefetch_context", AsyncMock(return_value={}))
+    monkeypatch.setattr(
+        "app.services.voice.session_store.external_brain_for",
+        lambda *a: SimpleNamespace(schedule=Mock()),
+    )
+    monkeypatch.setattr(
+        "app.services.voice.local_cascade.decide_visualization",
+        AsyncMock(return_value=VisualDecision(False)),
+    )
+    speech = FakeSpeech()
+    transport = LocalCascadeTransport(
+        context=context(),
+        mode="socratic",
+        settings=settings(),
+        speech_client=speech,
+        detector=FakeDetector(),
+        brain_runner=local_brain.think_voice,
+    )
+    await transport.start()
+    events = transport.events()
+    await _next(events)
+    try:
+        if input_kind == "text":
+            await transport.send_text("가상 메모리가 뭐야?")
+        else:
+            await transport.send_audio(b"frame-1")
+            await transport.send_audio(b"frame-2")
+        observed = await _through_turn_done(events)
+        answers = [e.text for e in observed if isinstance(e, Transcript) and e.who == "agent"]
+        assert answers == [good["feedback"] + " " + good["question"]]
+        spoken = " ".join(speech.synthesized_texts)
+        assert "가상 메모리가 뭐야?" not in spoken
+        assert "bad preamble" not in spoken
+        assert good["question"] in spoken
+        assert llm.stream_tool_turn.await_count == 2
+        assert speech.transcribe_calls == (input_kind == "audio")
+    finally:
+        await transport.close()
+
+
 async def _next(events):
     return await asyncio.wait_for(anext(events), timeout=1)
+
+
+@pytest.mark.asyncio
+async def test_deferred_visual_is_emitted_while_tts_is_still_running(monkeypatch) -> None:
+    speech = BlockingTts()
+
+    async def visual_brain(ctx, transcript, timer, mode, **callbacks):
+        reply = "점수가 클수록 더 큰 가중치를 받아요. 어느 점수가 더 클까요?"
+        if callback := callbacks.get("on_token"):
+            await callback(reply)
+        if callback := callbacks.get("on_speech_delta"):
+            await callback(reply)
+        return VoiceBrainResult(
+            reply, [], [], [], "Qwen/Qwen3.5-9B", "show", "소프트맥스 점수 비교"
+        )
+
+    async def decide(*args):
+        return VisualDecision(
+            True,
+            "flow",
+            {
+                "kind": "flow",
+                "title": "점수 비교",
+                "caption": "두 점수를 비교해 보세요.",
+                "labels": ["낮은 점수", "높은 점수"],
+            },
+        )
+
+    monkeypatch.setattr("app.services.voice.local_cascade.decide_visualization", decide)
+    transport = LocalCascadeTransport(
+        context=context(),
+        mode="socratic",
+        settings=settings(),
+        speech_client=speech,
+        detector=FakeDetector(),
+        brain_runner=visual_brain,
+    )
+    await transport.start()
+    events = transport.events()
+    await _next(events)
+    await transport.send_text("소프트맥스가 뭐야?")
+    await asyncio.wait_for(speech.started.wait(), timeout=1)
+
+    visual = None
+    while visual is None:
+        event = await _next(events)
+        if isinstance(event, ToolCalled) and event.name == "show_visualization":
+            visual = event.result
+    assert visual["title"] == "점수 비교"
+    assert transport.context.last_visualizations[-1] == visual
+
+    speech.release.set()
+    await _through_turn_done(events)
+    await transport.close()
 
 
 async def _through_turn_done(events) -> list[object]:

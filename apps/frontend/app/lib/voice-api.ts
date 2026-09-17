@@ -1,6 +1,6 @@
 import { ApiError, apiConnectionErrorMessage, apiRequest, readAccessToken } from "./api";
 
-export type VoiceMode = "explain" | "socratic";
+export type VoiceMode = "socratic";
 
 export type VoicePlotPoint = { x: number; y: number };
 
@@ -110,10 +110,12 @@ export function removeVoiceTrustedSite(
 }
 
 /** WebSocket URL for the hands-free voice session; the JWT rides the query string. */
-export function voiceStreamUrl(courseId: string, mode: VoiceMode): string {
+export function voiceStreamUrl(courseId: string, sessionId?: string | null): string {
   const base = apiBaseUrl().replace(/^http/, "ws");
   const token = readAccessToken() ?? "";
-  return `${base}/api/voice/courses/${courseId}/stream?mode=${mode}&token=${encodeURIComponent(token)}`;
+  const params = new URLSearchParams({ token });
+  if (sessionId) params.set("chat_session_id", sessionId);
+  return `${base}/api/voice/courses/${courseId}/stream?${params}`;
 }
 
 export async function fetchVoicePdfUrl(courseId: string, materialId: string): Promise<string> {

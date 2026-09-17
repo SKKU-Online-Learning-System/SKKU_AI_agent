@@ -3,7 +3,8 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import "@testing-library/jest-dom/vitest";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { listWeakConcepts } from "../../lib/voice-api";
+import { getChatSession } from "../../lib/api";
+import { listWeakConcepts, voiceStreamUrl } from "../../lib/voice-api";
 import { CourseAgentClient } from "./course-agent-client";
 
 vi.mock("../../lib/api", async () => {
@@ -131,5 +132,18 @@ describe("CourseAgentClient microphone fallback", () => {
       "67"
     );
     expect(screen.getByText("67%")).toBeInTheDocument();
+  });
+
+  it("offers only Socratic teaching and resumes the visible session in voice", async () => {
+    vi.mocked(getChatSession).mockResolvedValue({ logs: [] } as unknown as Awaited<
+      ReturnType<typeof getChatSession>
+    >);
+    render(<CourseAgentClient courseId="course-1" initialSessionId="saved-session" />);
+    const start = await screen.findByRole("button", { name: "음성으로 질문하기" });
+    await waitFor(() => expect(start).toBeEnabled());
+    expect(screen.queryByText("설명 모드")).not.toBeInTheDocument();
+    expect(screen.queryByRole("radiogroup", { name: "챗봇 답변 모드" })).not.toBeInTheDocument();
+    fireEvent.click(start);
+    await waitFor(() => expect(voiceStreamUrl).toHaveBeenCalledWith("course-1", "saved-session"));
   });
 });

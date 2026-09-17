@@ -198,3 +198,28 @@ def test_model_server_error_is_provider_neutral(monkeypatch) -> None:
 
 async def _append(values: list[str], value: str) -> None:
     values.append(value)
+
+
+@pytest.mark.asyncio
+async def test_truncated_stream_is_not_accepted_as_a_final_answer(monkeypatch):
+    fake = FakeAsyncClient(lines=[
+        'data: {"choices":[{"delta":{"content":"unfinished"},"finish_reason":"length"}]}',
+        'data: [DONE]',
+    ])
+    monkeypatch.setattr(llm_service, "async_client", lambda *args: fake)
+    with pytest.raises(LLMError, match="truncated"):
+        await LLMService(settings(), profile="voice").stream_tool_turn(
+            system="policy", messages=[{"role": "user", "content": "hello"}], tools=[])
+
+
+@pytest.mark.asyncio
+async def test_single_forced_tool_uses_named_choice(monkeypatch):
+    fake = FakeAsyncClient(lines=['data: [DONE]'])
+    monkeypatch.setattr(llm_service, "async_client", lambda *args: fake)
+    await LLMService(settings(), profile="voice").stream_tool_turn(
+        system="policy", messages=[{"role": "user", "content": "hello"}],
+        tools=[{"type": "function", "function": {"name": "finish_turn", "parameters": {}}}],
+        force_tools=("finish_turn",),
+    )
+    assert fake.stream_requests[0]["json"]["tool_choice"] == {
+        "type": "function", "function": {"name": "finish_turn"}}

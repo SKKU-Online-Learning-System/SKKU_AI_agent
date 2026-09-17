@@ -84,6 +84,9 @@ def restore_history(
     context.history = history[-MAX_HISTORY_MESSAGES:]
     context.chat_session_id = chat_session.id
     context.last_material_sources = []
+    context.last_visualizations = list(
+        (logs[-1].retrieval_result or {}).get("visualizations", [])
+    )[-3:] if logs else []
     return True
 
 
@@ -103,6 +106,7 @@ def log_turn(
     response_time_ms: int,
     safety: SafetyResult,
     provider_name: Optional[str] = None,
+    visualizations: Sequence[dict] = (),
 ) -> str:
     """Write one voice turn to the chat log and return its id."""
     is_grounded = bool(material_sources)
@@ -121,6 +125,7 @@ def log_turn(
         "tools_used": list(tools_used),
         "web_sources": list(web_sources),
         "result_count": len(material_sources),
+        "visualizations": list(visualizations)[-3:],
     }
     if provider_name:
         retrieval_result["provider"] = provider_name

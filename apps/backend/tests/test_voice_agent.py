@@ -254,6 +254,24 @@ def test_visualization_normalizes_realtime_provider_aliases() -> None:
     assert rendered["title"] == "트랜스포머 구조"
     assert rendered["labels"] == ["입력", "Self-Attention", "Feed Forward", "출력"]
 
+
+def test_visualization_normalizes_delimiters_and_rejects_placeholder_latex() -> None:
+    rendered = json.loads(
+        brain.show_visualization(
+            kind="formula",
+            title="소프트맥스",
+            caption="점수를 확률로 바꿉니다.",
+            latex=r"$\operatorname{softmax}(x_i)=\frac{e^{x_i}}{\sum_j e^{x_j}}$",
+        )
+    )
+    assert rendered["latex"].startswith(r"\operatorname")
+
+    with pytest.raises(ValueError, match="meaningful latex"):
+        brain.show_visualization(
+            kind="formula", title="소프트맥스", caption="깨진 수식", latex="$"
+        )
+
+
 def test_tool_logs_include_args_status_timing_and_result() -> None:
     args = {
         "title": "소프트맥스",
@@ -322,6 +340,32 @@ def test_history_is_bounded_per_session() -> None:
 
     assert len(context.history) == brain.MAX_HISTORY_MESSAGES
     assert context.history[-1]["content"] == str(brain.MAX_HISTORY_MESSAGES + 4)
+
+
+@pytest.mark.parametrize("answer", ["응", "모르겠어", "0.8", "큰 쪽이요", "저 식은 왜 그래?"])
+def test_followup_retrieval_keeps_the_tutors_question(answer) -> None:
+    context = make_context()
+    context.history = [
+        {"role": "user", "content": "소프트맥스가 뭐야?"},
+        {"role": "assistant", "content": "어텐션 가중치가 0.8과 0.2라면 어느 쪽이 더 클까요?"},
+        {"role": "user", "content": answer},
+    ]
+    query = brain.retrieval_query(context, answer)
+    assert "어텐션 가중치" in query
+    assert query.endswith(answer)
+    assert brain.retrieval_query(context, "새로운 주제인 경사하강법을 설명해줘") == (
+        "새로운 주제인 경사하강법을 설명해줘"
+    )
+
+
+def test_recent_visual_is_in_next_prompt_and_cleared_on_reset() -> None:
+    context = make_context()
+    context.last_visualizations = [{"kind": "formula", "latex": "a/(a+b)"}]
+    prompt = brain.answer_instructions(context, "explain", {})
+    assert "a/(a+b)" in prompt
+    assert brain.SOCRATIC_PROMPT in prompt
+    context.reset()
+    assert context.last_visualizations == []
 
 # --------------------------------------------------------------------------
 # Trusted-site allowlist

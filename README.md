@@ -37,7 +37,7 @@
 - 매 turn 전에 취약 개념과 강의자료를 사전 로딩하고 기존 course-scoped RAG를 그대로 사용
 - 수식·단계 도식·좌표 그래프·강의 PDF 페이지 visualization 카드
 - 응답과 분리된 External Brain이 완료된 대화를 진단해 취약 개념 저장·복습 상태 갱신
-- 설명 모드와 소크라테스 모드
+- 소크라테스식 대화: 학생 답에 대한 피드백, 단계별 힌트, 한 번에 하나의 사고 질문
 - 강의자료 근거가 부족할 때만 교수자가 등록한 신뢰 도메인에서 SearXNG 보충 검색
 - 모든 음성·텍스트 turn은 기존 질문 로그(`ChatLog`)에 저장되어 교수자·관리자 화면에 노출
 
@@ -57,8 +57,9 @@ Frontend -> FastAPI -> RAG / Tools / SAFE -> LLMService
 Hands-free voice
 Browser microphone -> FastAPI WebSocket -> Silero VAD (CPU)
  -> Qwen3-ASR (:8010)
- -> existing COURSE AGENT Brain / RAG / Tools / SAFE / Memory / Visualization
- -> Qwen/Qwen3.5-9B (:8002/v1, thinking disabled)
+ -> existing COURSE AGENT Brain / RAG / Tools / SAFE / Memory
+ -> Qwen/Qwen3.5-9B (:8002/v1, thinking disabled, compact validated finish_turn)
+ -> TTS starts while a separate 9B visual worker renders optional visuals asynchronously
  -> Qwen3-TTS Sohee/Korean (:8010)
  -> PCM16 mono 24 kHz -> Browser speaker
 ```
@@ -92,8 +93,8 @@ docs                제품·기술 문서
 LLM_PROVIDER=local_qwen
 TEXT_LLM_BASE_URL=http://MODEL_SERVER:8001/v1
 TEXT_LLM_MODEL=Qwen/Qwen3.8-27B
-VOICE_LLM_BASE_URL=http://MODEL_SERVER:8002/v1
-VOICE_LLM_MODEL=Qwen/Qwen3.5-9B
+VOICE_LLM_BASE_URL=http://MODEL_SERVER:8001/v1
+VOICE_LLM_MODEL=Qwen/Qwen3.8-27B
 SPEECH_BASE_URL=http://MODEL_SERVER:8010
 MODEL_SERVER_API_KEY=
 VOICE_PROVIDER=local_cascade

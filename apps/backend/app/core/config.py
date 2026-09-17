@@ -58,6 +58,7 @@ class Settings(BaseSettings):
     text_llm_model: str = "Qwen/Qwen3.8-27B"
     voice_llm_base_url: str = "http://localhost:8002/v1"
     voice_llm_model: str = "Qwen/Qwen3.5-9B"
+    voice_llm_max_tokens: int = Field(default=320, ge=128, le=1024)
     model_server_api_key: Optional[str] = None
     model_request_timeout_seconds: float = Field(default=60.0, gt=0)
     model_health_timeout_seconds: float = Field(default=2.0, gt=0, le=10)
@@ -132,7 +133,7 @@ class Settings(BaseSettings):
     xai_connect_timeout_seconds: float = Field(default=20.0, gt=0)
     xai_connect_attempts: int = Field(default=2, ge=1, le=5)
     xai_connect_retry_delay_seconds: float = Field(default=0.75, ge=0, le=10)
-    visual_router_timeout_seconds: float = Field(default=3.0, gt=0, le=15)
+    visual_router_timeout_seconds: float = Field(default=5.0, gt=0, le=15)
     grok_voice_model: str = "grok-voice-latest"
     grok_voice: str = "eve"
 
@@ -200,11 +201,7 @@ class Settings(BaseSettings):
 
     @property
     def cors_origins(self) -> list[str]:
-        return [
-            origin.strip()
-            for origin in self.backend_cors_origins.split(",")
-            if origin.strip()
-        ]
+        return [origin.strip() for origin in self.backend_cors_origins.split(",") if origin.strip()]
 
     @property
     def resolved_vector_db_url(self) -> str:

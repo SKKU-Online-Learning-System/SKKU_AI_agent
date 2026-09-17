@@ -26,7 +26,7 @@ def test_socratic_persona_keeps_memory_and_visual_priority() -> None:
     )
     assert "Self-Attention" in prompt
     assert "show_visualization" in prompt
-    assert "exactly one question" in prompt
+    assert agent_spec.SOCRATIC_PROMPT in prompt
 
 
 def test_visual_decision_accepts_only_renderable_payloads() -> None:
