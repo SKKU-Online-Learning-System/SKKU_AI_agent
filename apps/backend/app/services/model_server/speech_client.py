@@ -73,7 +73,7 @@ class SpeechClient:
             response = await self.asr_client.post(
                 "v1/audio/transcriptions",
                 files={"file": ("utterance.wav", wav, "audio/wav")},
-                data={"language": language or self.settings.tts_language},
+                data={"language": language} if language else {},
                 timeout=self.settings.asr_timeout_seconds,
             )
             response.raise_for_status()
@@ -86,7 +86,7 @@ class SpeechClient:
             raise SpeechError("ASR 서버가 빈 transcript를 반환했습니다.")
         return TranscriptionResult(
             text=text,
-            language=str(payload.get("language", language or self.settings.tts_language)),
+            language=str(payload.get("language", language or "")),
             audio_duration_ms=int(payload.get("audio_duration_ms", 0) or 0),
             inference_ms=int(payload.get("inference_ms", 0) or 0),
         )
@@ -134,6 +134,7 @@ class SpeechClient:
         speaker: str | None = None,
         language: str | None = None,
         hop_len: int | None = None,
+        continuity_id: str | None = None,
     ) -> AsyncIterator[tuple[bytes, int]]:
         """Yield ``(pcm_chunk, sample_rate)`` as the TTS server produces them.
 
@@ -155,6 +156,10 @@ class SpeechClient:
                 "response_format": "pcm",
                 "stream": True,
                 **({"hop_len": hop_len} if hop_len else {}),
+                # Lets the server level this request against the rest of the turn
+                # instead of normalising it on its own; ignored by backends that
+                # do not implement it.
+                **({"continuity_id": continuity_id} if continuity_id else {}),
             },
             timeout=self.settings.tts_timeout_seconds,
         )

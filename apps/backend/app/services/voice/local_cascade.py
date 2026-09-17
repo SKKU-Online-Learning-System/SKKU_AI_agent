@@ -12,6 +12,7 @@ import asyncio
 import logging
 import re
 import time
+import uuid
 from collections.abc import AsyncIterator, Awaitable, Callable
 
 from app.core.config import Settings, get_settings
@@ -49,6 +50,8 @@ _SENTENCE_FLUSH = re.compile(r"[.!?。！？]+[\"'”’)\]]*\s+|\n+")
 _CLAUSE_FLUSH = re.compile(r"[,;:、，；：]\s")
 BrainRunner = Callable[..., Awaitable[VoiceBrainResult]]
 QueuedEvent = tuple[int | None, Event]
+# (text to synthesize, silence in ms to play after it)
+TtsChunk = tuple[str, int]
 
 
 def _split_long_segment(text: str, max_chars: int) -> list[str]:
@@ -82,17 +85,43 @@ def _split_long_segment(text: str, max_chars: int) -> list[str]:
     return chunks
 
 
-def _tts_chunks(text: str, max_chars: int) -> list[str]:
-    """Prefer sentence-sized TTS requests and cap pathological long sentences."""
+def _tts_chunks(
+    text: str, max_chars: int, *, sentence_gap_ms: int, tail_gap_ms: int,
+    min_chars: int = 0,
+) -> list[TtsChunk]:
+    """Prefer sentence-sized TTS requests and cap pathological long sentences.
+
+    Each chunk carries the silence that belongs *after* it. The caller knows why
+    it cut the stream where it did and passes that as ``tail_gap_ms``; every split
+    made in here is a sentence or newline boundary, except the word-boundary
+    splits inside an over-long sentence, which are mid-phrase and must not pause.
+    """
     normalized = re.sub(r"[ \t]+", " ", text.strip())
     segments = [part.strip() for part in _SENTENCE_BOUNDARY.split(normalized) if part.strip()]
-    chunks: list[str] = []
-    for segment in segments:
-        if len(segment) <= max_chars:
-            chunks.append(segment)
-        else:
-            chunks.extend(_split_long_segment(segment, max_chars))
-    return chunks or ([normalized] if normalized else [])
+    if min_chars:
+        # Splitting back at every sentence would undo the caller's floor and hand
+        # the model a fragment too short to pitch. Merged sentences need no explicit
+        # gap: inside one request the model renders the pause from the punctuation.
+        merged: list[str] = []
+        for segment in segments:
+            if (
+                merged
+                and len(merged[-1]) < min_chars
+                and len(merged[-1]) + 1 + len(segment) <= max_chars
+            ):
+                merged[-1] = f"{merged[-1]} {segment}"
+            else:
+                merged.append(segment)
+        segments = merged
+    chunks: list[TtsChunk] = []
+    for index, segment in enumerate(segments):
+        gap = tail_gap_ms if index == len(segments) - 1 else sentence_gap_ms
+        pieces = (
+            [segment] if len(segment) <= max_chars else _split_long_segment(segment, max_chars)
+        )
+        for offset, piece in enumerate(pieces):
+            chunks.append((piece, gap if offset == len(pieces) - 1 else 0))
+    return chunks or ([(normalized, tail_gap_ms)] if normalized else [])
 
 
 def _pcm_duration_ms(pcm: bytes, sample_rate: int) -> int:
@@ -119,6 +148,8 @@ class _SpeechPipeline:
         chunk_max_chars: int,
         first_chunk_hop_len: int,
         first_chunk_min_chars: int = 0,
+        sentence_gap_ms: int = 0,
+        clause_gap_ms: int = 0,
     ) -> None:
         self._transport = transport
         self._generation = generation
@@ -126,12 +157,19 @@ class _SpeechPipeline:
         self._chunk_max_chars = chunk_max_chars
         self._first_chunk_hop_len = first_chunk_hop_len
         self._first_chunk_min_chars = first_chunk_min_chars
-        self._queue: asyncio.Queue[str | object] = asyncio.Queue()
+        self._sentence_gap_ms = sentence_gap_ms
+        self._clause_gap_ms = clause_gap_ms
+        # Shared by every TTS request of this turn so the server can level them
+        # against each other. Per turn, not per session: a new turn starts from
+        # the reference loudness again rather than inheriting an old one.
+        self._continuity_id = uuid.uuid4().hex
+        self._queue: asyncio.Queue[TtsChunk | object] = asyncio.Queue()
         self._pending = ""
         self._task: asyncio.Task[None] | None = None
         self._enqueued = 0
         self.chunks = 0
         self.audio_bytes = 0
+        self.gap_bytes = 0
         self.sample_rate = 0
         self.first_audio_at: float | None = None
         self.started_at = 0.0
@@ -142,8 +180,15 @@ class _SpeechPipeline:
         self.started_at = time.perf_counter()
         self._task = asyncio.create_task(self._consume())
 
-    def _enqueue(self, text: str) -> None:
-        for chunk in _tts_chunks(text, self._next_limit()):
+    def _enqueue(self, text: str, tail_gap_ms: int) -> None:
+        chunks = _tts_chunks(
+            text,
+            self._next_limit(),
+            sentence_gap_ms=self._sentence_gap_ms,
+            tail_gap_ms=tail_gap_ms,
+            min_chars=self._first_chunk_min_chars if self._enqueued == 0 else 0,
+        )
+        for chunk in chunks:
             self._queue.put_nowait(chunk)
             self._enqueued += 1
 
@@ -154,13 +199,35 @@ class _SpeechPipeline:
         """Accumulate streamed answer text and release completed sentences."""
         self._pending += token
         while True:
-            match = _SENTENCE_FLUSH.search(self._pending)
+            # The opening chunk has a floor, whichever boundary ends it. The floor
+            # was only enforced on the clause path below, so a reply starting
+            # "안녕하세요! ..." still made a 6-character first request -- and "네!"
+            # a 2-character one, which is 204ms of audio when the packet after it
+            # cannot arrive for ~650ms (the LLM needs ~450ms to finish the next
+            # sentence and the TTS server ~200ms for its first packet). Measured
+            # over 24 such turns, 7 came out too short to cover that, so playback
+            # stalled right after the greeting.
+            #
+            # This does NOT make the greeting's pitch match the answer. That gap
+            # is the model reading the "!": "안녕하세요!" comes back at 169Hz against
+            # 115Hz for "안녕하세요.", and it stays at 172Hz even when embedded in one
+            # long request, so merging it changes nothing there (n=24, p=0.98).
+            # The floor is here for the buffer, not for the register.
+            #
+            # Searching from the floor rolls the short opener into the sentence
+            # after it rather than holding it back, which costs ~450ms of first
+            # audio on these replies and nothing on any other.
+            floor = self._first_chunk_min_chars if self._enqueued == 0 else 0
+            match = next(
+                (m for m in _SENTENCE_FLUSH.finditer(self._pending) if m.end() >= floor),
+                None,
+            )
             if match is None:
                 break
             sentence = self._pending[: match.end()].strip()
             self._pending = self._pending[match.end() :]
             if sentence:
-                self._enqueue(sentence)
+                self._enqueue(sentence, self._sentence_gap_ms)
         # The opening chunk may be released before its sentence ends, but only at a
         # clause boundary. Splitting at an arbitrary word boundary saves a little
         # more latency and sounds broken; if the sentence has no clause boundary,
@@ -171,13 +238,15 @@ class _SpeechPipeline:
                 head = self._pending[: match.end()].strip()
                 self._pending = self._pending[match.end() :]
                 if head:
-                    self._enqueue(head)
+                    self._enqueue(head, self._clause_gap_ms)
         # A sentence that never terminates must not stall playback forever.
         if len(self._pending) > self._chunk_max_chars * 2:
             head = _split_long_segment(self._pending, self._next_limit())
             self._pending = head.pop() if head else ""
             for piece in head:
-                self._queue.put_nowait(piece)
+                # A word-boundary split lands mid-phrase; pausing there sounds
+                # like a stall rather than a breath.
+                self._queue.put_nowait((piece, 0))
                 self._enqueued += 1
 
     async def rollback(self) -> None:
@@ -204,11 +273,11 @@ class _SpeechPipeline:
         tail = self._pending.strip()
         self._pending = ""
         if tail:
-            self._enqueue(tail)
+            self._enqueue(tail, 0)
         if self._enqueued == 0 and reply.strip():
             # Non-streaming providers (and the mock) never call feed(); fall back
             # to synthesizing the finished reply.
-            self._enqueue(reply)
+            self._enqueue(reply, 0)
         self._queue.put_nowait(_QUEUE_DONE)
         if self._task is not None:
             await self._task
@@ -226,9 +295,21 @@ class _SpeechPipeline:
 
     # -- consumer side -------------------------------------------------
 
+    async def _emit_gap(self, gap_ms: int) -> None:
+        """Play the pause the previous request's boundary lost."""
+        samples = round(self.sample_rate * gap_ms / 1000)
+        if samples <= 0:
+            return
+        silence = b"\x00\x00" * samples
+        self.gap_bytes += len(silence)
+        await self._transport._emit(
+            AgentAudio(silence, rate=self.sample_rate), self._generation
+        )
+
     async def _consume(self) -> None:
         transport = self._transport
         done = False
+        pending_gap_ms = 0
         while not done:
             item = await self._queue.get()
             if item is _QUEUE_DONE:
@@ -238,7 +319,11 @@ class _SpeechPipeline:
             # Every request pays the TTS server's fixed first-packet cost, so once
             # the first chunk is out the way, merge whatever the LLM has produced
             # in the meantime into a single request instead of paying it again.
-            parts = [str(item)]
+            # Merged-away boundaries need no explicit pause: inside one request the
+            # model renders them from the punctuation itself. Only the last part's
+            # gap survives, because only that boundary becomes a request seam.
+            text, gap_ms = item  # type: ignore[misc]
+            parts = [text]
             if self.chunks > 0:
                 budget = self._chunk_max_chars * 3
                 while sum(len(part) for part in parts) < budget:
@@ -249,18 +334,28 @@ class _SpeechPipeline:
                     if extra is _QUEUE_DONE:
                         done = True
                         break
-                    parts.append(str(extra))
+                    extra_text, gap_ms = extra  # type: ignore[misc]
+                    parts.append(extra_text)
             # URLs belong on screen, not in speech.
             chunk = for_speech(" ".join(parts)).strip()
             if not chunk:
                 continue
+            # Emitted before the request, not after the previous one: the pause is
+            # then already scheduled in the player while this request is still being
+            # synthesized, so it doubles as a jitter buffer instead of adding delay.
+            if pending_gap_ms and self.sample_rate:
+                await self._emit_gap(pending_gap_ms)
+                if not transport._current(self._generation):
+                    return
+            pending_gap_ms = gap_ms
             chunk_started = time.perf_counter()
             chunk_bytes = 0
             async for pcm, rate in transport.speech.synthesize_stream(
                 chunk,
                 speaker=transport.settings.tts_speaker,
-                language=transport.settings.tts_language,
-                hop_len=self._first_chunk_hop_len if self.chunks == 0 else None,  # 0 -> server default
+                language="Korean",
+                hop_len=self._first_chunk_hop_len if self.chunks == 0 else None,
+                continuity_id=self._continuity_id,
             ):
                 if not transport._current(self._generation):
                     return
@@ -282,9 +377,16 @@ class _SpeechPipeline:
 
     @property
     def audio_duration_ms(self) -> int:
+        """Synthesized speech only; inserted silence is excluded to keep RTF honest."""
         if not self.sample_rate:
             return 0
         return round((self.audio_bytes / 2) * 1000 / self.sample_rate)
+
+    @property
+    def gap_duration_ms(self) -> int:
+        if not self.sample_rate:
+            return 0
+        return round((self.gap_bytes / 2) * 1000 / self.sample_rate)
 
 
 class LocalCascadeTransport(Transport):
@@ -428,6 +530,8 @@ class LocalCascadeTransport(Transport):
             chunk_max_chars=self.settings.tts_chunk_max_chars,
             first_chunk_hop_len=self.settings.tts_first_chunk_hop_len,
             first_chunk_min_chars=self.settings.tts_first_chunk_min_chars,
+            sentence_gap_ms=self.settings.tts_sentence_gap_ms,
+            clause_gap_ms=self.settings.tts_clause_gap_ms,
         )
         speech.start()
 
@@ -439,6 +543,7 @@ class LocalCascadeTransport(Transport):
                 llm_total_ms=timer.timings_ms.get("llm", 0),
                 tts_ms=round((time.perf_counter() - speech.started_at) * 1000),
                 tts_audio_duration_ms=speech.audio_duration_ms,
+                tts_gap_ms=speech.gap_duration_ms,
                 tts_chunks=speech.chunks,
                 speech_end_to_first_audio_ms=(
                     round((speech.first_audio_at - speech_end) * 1000)
@@ -531,6 +636,7 @@ class LocalCascadeTransport(Transport):
         total_turn_ms: int,
         status: str,
         tts_audio_duration_ms: int = 0,
+        tts_gap_ms: int = 0,
         tts_chunks: int = 0,
     ) -> None:
         # Streaming responses carry no X-Inference-Ms header, so RTF is measured
@@ -548,6 +654,7 @@ class LocalCascadeTransport(Transport):
                 "llm_total_ms": llm_total_ms,
                 "tts_ms": tts_ms,
                 "tts_audio_duration_ms": tts_audio_duration_ms,
+                "tts_gap_ms": tts_gap_ms,
                 "tts_rtf": tts_rtf,
                 "tts_chunks": tts_chunks,
                 "speech_end_to_first_audio_ms": speech_end_to_first_audio_ms,

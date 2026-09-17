@@ -14,15 +14,12 @@ from app.services.llm_service import ToolCallRequest, ToolTurn
 from app.services.voice import brain, trusted_sites, turn_detector
 from app.services.voice.moss_memory import MossMemoryStore
 
-
 # --------------------------------------------------------------------------
 # Tool dispatcher
 # --------------------------------------------------------------------------
 
-
 def call(call_id: str, name: str, args: dict) -> ToolCallRequest:
     return ToolCallRequest(id=call_id, name=name, arguments=args)
-
 
 class FakeLLM:
     """Two scripted turns: optional action tools, then the final answer."""
@@ -68,7 +65,6 @@ class FakeLLM:
         self.calls.append(kwargs)
         return next(self.turns)
 
-
 def make_context(memory=None) -> brain.VoiceContext:
     return brain.VoiceContext(
         course_id="course-1",
@@ -76,7 +72,6 @@ def make_context(memory=None) -> brain.VoiceContext:
         user_id="student-1",
         memory=memory or AsyncMock(),
     )
-
 
 def test_tool_schema_names_are_the_six_agent_tools() -> None:
     assert {tool["function"]["name"] for tool in brain.TOOLS} == {
@@ -87,7 +82,6 @@ def test_tool_schema_names_are_the_six_agent_tools() -> None:
         "review_weak_concept",
         "show_visualization",
     }
-
 
 def test_weak_concept_list_is_course_scoped_and_sorted_by_recent_activity() -> None:
     memory = AsyncMock()
@@ -122,7 +116,6 @@ def test_weak_concept_list_is_course_scoped_and_sorted_by_recent_activity() -> N
 
     assert [item["memory_id"] for item in concepts] == ["newer", "older"]
     assert [item["mastery_percent"] for item in concepts] == [67, 34]
-
 
 def test_all_schemas_execute_through_dispatcher() -> None:
     fake_llm = FakeLLM()
@@ -194,7 +187,6 @@ def test_all_schemas_execute_through_dispatcher() -> None:
     assert visualizations[0]["kind"] == "formula"
     assert context.last_material_sources == [{"document_name": "w1.pdf"}]
 
-
 def test_mock_llm_grounds_the_answer_without_any_api_key() -> None:
     """The voice TA must work on the project default (USE_MOCK_LLM=true)."""
 
@@ -235,7 +227,6 @@ def test_mock_llm_grounds_the_answer_without_any_api_key() -> None:
     assert sources == []
     assert visualizations == []
 
-
 def test_visualization_rejects_incomplete_shapes() -> None:
     with pytest.raises(ValueError):
         brain.show_visualization(
@@ -248,7 +239,6 @@ def test_visualization_rejects_incomplete_shapes() -> None:
             x_label="x",
             y_label="y",
         )
-
 
 def test_visualization_normalizes_realtime_provider_aliases() -> None:
     rendered = json.loads(
@@ -263,7 +253,6 @@ def test_visualization_normalizes_realtime_provider_aliases() -> None:
     assert rendered["kind"] == "flow"
     assert rendered["title"] == "트랜스포머 구조"
     assert rendered["labels"] == ["입력", "Self-Attention", "Feed Forward", "출력"]
-
 
 def test_tool_logs_include_args_status_timing_and_result() -> None:
     args = {
@@ -295,10 +284,8 @@ def test_tool_logs_include_args_status_timing_and_result() -> None:
     assert "tool result name=show_visualization status=ok elapsed_ms=" in output
     assert 'result={"title":"소프트맥스"' in output
 
-
 def test_speech_text_drops_urls() -> None:
     assert brain.for_speech("설명이에요. https://arxiv.org/abs/1706.03762") == "설명이에요."
-
 
 def test_speech_text_spells_acronyms_in_hangul() -> None:
     """The TTS model mispronounces upper-case acronyms, and a Korean particle
@@ -314,6 +301,10 @@ def test_speech_text_spells_acronyms_in_hangul() -> None:
     # Written with a slash, so the acronym pattern cannot reach it.
     assert brain.for_speech("I/O를 관리합니다.") == "아이오를 관리합니다."
 
+def test_speech_text_uses_hangul_pronunciation_hints() -> None:
+    assert brain.for_speech(
+        "softmax(소프트맥스) 함수와 virtual memory(버추얼 메모리)를 비교해요."
+    ) == "소프트맥스 함수와 버추얼 메모리를 비교해요."
 
 def test_speech_text_leaves_non_acronyms_alone() -> None:
     # Mixed case is a name or identifier, and a trailing lower-case letter makes
@@ -324,7 +315,6 @@ def test_speech_text_leaves_non_acronyms_alone() -> None:
     assert brain.for_speech("softmax 함수") == "softmax 함수"
     assert brain.for_speech("가상 메모리는 큽니다.") == "가상 메모리는 큽니다."
 
-
 def test_history_is_bounded_per_session() -> None:
     context = make_context()
     for index in range(brain.MAX_HISTORY_MESSAGES + 5):
@@ -333,21 +323,17 @@ def test_history_is_bounded_per_session() -> None:
     assert len(context.history) == brain.MAX_HISTORY_MESSAGES
     assert context.history[-1]["content"] == str(brain.MAX_HISTORY_MESSAGES + 4)
 
-
 # --------------------------------------------------------------------------
 # Trusted-site allowlist
 # --------------------------------------------------------------------------
-
 
 @pytest.fixture
 def voice_storage(tmp_path, monkeypatch):
     monkeypatch.setattr(trusted_sites, "voice_storage_dir", lambda: tmp_path)
     return tmp_path
 
-
 def test_trusted_sites_default_to_the_academic_allowlist(voice_storage) -> None:
     assert "skku.edu" in trusted_sites.get_trusted_domains("course-1")
-
 
 def test_trusted_sites_are_scoped_per_course(voice_storage) -> None:
     trusted_sites.add_trusted_domain("course-1", "https://kosis.kr/statHtml")
@@ -358,16 +344,13 @@ def test_trusted_sites_are_scoped_per_course(voice_storage) -> None:
     trusted_sites.remove_trusted_domain("course-1", "kosis.kr")
     assert "kosis.kr" not in trusted_sites.get_trusted_domains("course-1")
 
-
 def test_trusted_site_rejects_non_http_values(voice_storage) -> None:
     with pytest.raises(ValueError):
         trusted_sites.add_trusted_domain("course-1", "ftp://example")
 
-
 # --------------------------------------------------------------------------
 # Week-3 endpointing fallback
 # --------------------------------------------------------------------------
-
 
 class FakeVad:
     def __init__(self, decisions: list[bool]) -> None:
@@ -376,9 +359,7 @@ class FakeVad:
     def is_speech(self, frame: bytes, sample_rate: int) -> bool:
         return next(self.decisions)
 
-
 FRAME = bytes(turn_detector.FRAME_BYTES)
-
 
 def test_turn_detector_debounces_prefix_and_endpoint() -> None:
     decisions = [False, False, True, True, True] + [True] * 10 + [False] * 45
@@ -390,7 +371,6 @@ def test_turn_detector_debounces_prefix_and_endpoint() -> None:
     assert utterance is not None
     assert len(utterance) == len(decisions) * turn_detector.FRAME_BYTES
     assert detector.speaking is False
-
 
 def test_turn_detector_requires_consecutive_silence(monkeypatch) -> None:
     decisions = [True, True, True, False, False, True, False, False, False]
@@ -404,7 +384,6 @@ def test_turn_detector_requires_consecutive_silence(monkeypatch) -> None:
     assert all(result is None for result in results[:-1])
     assert results[-1] is not None
 
-
 def test_turn_detector_discards_short_noise(monkeypatch) -> None:
     decisions = [True, True, True, False, False]
     monkeypatch.setattr(turn_detector, "PREFIX_MS", 40)
@@ -417,17 +396,14 @@ def test_turn_detector_discards_short_noise(monkeypatch) -> None:
     assert all(result is None for result in results)
     assert detector.speaking is False
 
-
 def test_wav_contract() -> None:
     wav = turn_detector.wav_bytes(FRAME)
     assert wav[:4] == b"RIFF"
     assert b"WAVE" in wav[:16]
 
-
 # --------------------------------------------------------------------------
 # Weak-concept memory (local fallback)
 # --------------------------------------------------------------------------
-
 
 def test_local_memory_saves_recalls_and_reviews(tmp_path) -> None:
     store = MossMemoryStore(student_id="student-1", local_path=tmp_path / "weak.json")
@@ -450,7 +426,6 @@ def test_local_memory_saves_recalls_and_reviews(tmp_path) -> None:
     assert recalled["found"] is True
     assert recalled["memories"][0]["concept"] == "Self-Attention"
     assert reviewed["status"] == "practicing"
-
 
 def test_local_memory_is_isolated_per_student(tmp_path) -> None:
     shared = tmp_path / "weak.json"

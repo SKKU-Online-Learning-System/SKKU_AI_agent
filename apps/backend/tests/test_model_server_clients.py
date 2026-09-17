@@ -92,7 +92,7 @@ def settings(**overrides) -> Settings:
         "speech_base_url": "http://speech:8010",
         "tts_base_url": "http://tts:8011",
         "searxng_url": "http://search:8080",
-        "tts_speaker": "cosyvoice",
+        "tts_speaker": "ryan",
         "tts_language": "Korean",
     }
     values.update(overrides)
@@ -117,6 +117,7 @@ async def test_speech_client_asr_and_tts_contract(monkeypatch) -> None:
     assert base_urls == ["http://speech:8010", "http://tts:8011"]
     asr_call = fake.calls[0]
     assert asr_call["path"] == "v1/audio/transcriptions"
+    assert asr_call["data"] == {}
     assert asr_call["files"]["file"][2] == "audio/wav"
     assert asr_call["files"]["file"][1][:4] == b"RIFF"
 
@@ -124,7 +125,7 @@ async def test_speech_client_asr_and_tts_contract(monkeypatch) -> None:
     assert tts_call["path"] == "v1/audio/speech"
     assert tts_call["json"] == {
         "input": "안녕하세요.",
-        "voice": "cosyvoice",
+        "voice": "ryan",
         "language": "Korean",
         "response_format": "pcm",
     }
