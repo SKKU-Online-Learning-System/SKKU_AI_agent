@@ -63,9 +63,6 @@ router = APIRouter(prefix="/voice", tags=["voice"])
 TEXT_FILLER_MESSAGE = "질문을 살펴보고 있어요. 잠시만 기다려 주세요."
 VOICE_UNAVAILABLE_MESSAGE = "음성 모델 서비스를 사용할 수 없습니다. 잠시 후 다시 시도해 주세요."
 
-VALID_MODES = {"explain", "socratic"}
-
-
 class VoiceQuestion(BaseModel):
     text: str = Field(min_length=1, max_length=4000)
     mode: str = "socratic"
@@ -77,7 +74,8 @@ class TrustedSitePayload(BaseModel):
 
 
 def _normalized_mode(mode: Optional[str]) -> str:
-    return mode if mode in VALID_MODES else "socratic"
+    # Older clients may still send a mode; it cannot change the teaching policy.
+    return "socratic"
 
 
 def _session_context(user: User, course: Course) -> VoiceContext:
@@ -291,6 +289,7 @@ def _persist(
         response_time_ms=elapsed_ms,
         safety=payload["safety"],
         provider_name=None if blocked else llm.provider,
+        visualizations=context.last_visualizations,
     )
     return {"session_id": chat_session.id, "log_id": log_id}
 
@@ -471,6 +470,14 @@ async def voice_stream(websocket: WebSocket, course_id: str) -> None:
     mode = _normalized_mode(websocket.query_params.get("mode"))
     context = get_context(user.id, course.id, course.name)
     try:
+        with SessionLocal() as db:
+            _resume(db, context, user, course, websocket.query_params.get("chat_session_id"))
+            chat_session = voice_log.resolve_session(db, user, course, context.chat_session_id)
+            context.chat_session_id = chat_session.id
+    except HTTPException as exc:
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION, reason=str(exc.detail))
+        return
+    try:
         memory_context = await asyncio.wait_for(prefetch_memory_context(context), timeout=3)
     except Exception:
         memory_context = {"found": False}
@@ -499,7 +506,9 @@ async def voice_stream(websocket: WebSocket, course_id: str) -> None:
         reader = asyncio.create_task(
             _pump_provider_events(websocket, transport, context, user, course, mode)
         )
-        await websocket.send_json({"type": "ready", "provider": transport.name})
+        await websocket.send_json(
+            {"type": "ready", "provider": transport.name, "session_id": context.chat_session_id}
+        )
         await _pump_caller_audio(websocket, transport)
     except WebSocketDisconnect:
         log.info("voice stream closed")
@@ -761,6 +770,7 @@ def _log_voice_turn(
                 response_time_ms=elapsed_ms,
                 safety=safety,
                 provider_name=provider_name,
+                visualizations=context.last_visualizations,
             )
     except Exception:
         log.exception("failed to persist a voice turn")

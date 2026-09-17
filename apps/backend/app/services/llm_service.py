@@ -89,11 +89,19 @@ class LLMService:
             return MOCK_MODEL_NAME
         if self.provider == "anthropic":
             return self.settings.claude_model
-        return self.settings.voice_llm_model if self.profile == "voice" else self.settings.text_llm_model
+        return (
+            self.settings.voice_llm_model
+            if self.profile == "voice"
+            else self.settings.text_llm_model
+        )
 
     @property
     def base_url(self) -> str:
-        return self.settings.voice_llm_base_url if self.profile == "voice" else self.settings.text_llm_base_url
+        return (
+            self.settings.voice_llm_base_url
+            if self.profile == "voice"
+            else self.settings.text_llm_base_url
+        )
 
     def generate_answer(self, messages: Sequence[ChatMessage]) -> LLMResponse:
         if not messages:
@@ -144,7 +152,9 @@ class LLMService:
             from anthropic import Anthropic
             from anthropic.types import MessageParam
 
-            system = "\n\n".join(message.content for message in messages if message.role == "system")
+            system = "\n\n".join(
+                message.content for message in messages if message.role == "system"
+            )
             provider_messages: list[MessageParam] = [
                 {
                     "role": cast(Literal["user", "assistant"], message.role),
@@ -258,10 +268,16 @@ class LLMService:
         if tools:
             request["tools"] = list(tools)
             request["tool_choice"] = "required" if force_tools else "auto"
+            if force_tools and len(tools) == 1:
+                request["tool_choice"] = {
+                    "type": "function",
+                    "function": {"name": tools[0]["function"]["name"]},
+                }
 
         text_parts: list[str] = []
         tool_parts: dict[int, dict[str, str]] = {}
         returned_model = self.model_name
+        finish_reason = None
         try:
             client = async_client(
                 self.base_url,
@@ -284,6 +300,8 @@ class LLMService:
                     choices = chunk.get("choices") or []
                     if not choices:
                         continue
+                    if choices[0].get("finish_reason"):
+                        finish_reason = choices[0]["finish_reason"]
                     delta = choices[0].get("delta") or {}
                     text = delta.get("content")
                     if text:
@@ -298,7 +316,9 @@ class LLMService:
                             # the final reply. Let callers stop speaking it.
                             await on_tool_call_started()
                         index = int(item.get("index", 0))
-                        current = tool_parts.setdefault(index, {"id": "", "name": "", "arguments": ""})
+                        current = tool_parts.setdefault(
+                            index, {"id": "", "name": "", "arguments": ""}
+                        )
                         if item.get("id"):
                             current["id"] += str(item["id"])
                         function = item.get("function") or {}
@@ -309,6 +329,8 @@ class LLMService:
         except (httpx.HTTPError, ValueError, KeyError, TypeError, json.JSONDecodeError) as exc:
             raise self._model_server_error() from exc
 
+        if finish_reason == "length":
+            raise LLMError("Model output was truncated before completion")
         tool_calls = [
             ToolCallRequest(
                 id=value["id"] or f"tool-{index}",
@@ -389,7 +411,10 @@ class LLMService:
             else:
                 request["messages"] = [
                     *messages,
-                    {"role": "user", "content": "Return exactly one valid JSON object and no markdown fence."},
+                    {
+                        "role": "user",
+                        "content": "Return exactly one valid JSON object and no markdown fence.",
+                    },
                 ]
             try:
                 client = async_client(
@@ -434,7 +459,9 @@ class LLMService:
         from app.services.trusted_web_search import TrustedWebSearchError, TrustedWebSearchService
 
         try:
-            results = await TrustedWebSearchService(self.settings).search(query, list(allowed_domains))
+            results = await TrustedWebSearchService(self.settings).search(
+                query, list(allowed_domains)
+            )
         except TrustedWebSearchError as exc:
             raise LLMError(str(exc)) from exc
         if not results:
@@ -611,7 +638,11 @@ def _openai_messages_to_anthropic(messages: Sequence[dict]) -> list[dict]:
                 function = call.get("function") or {}
                 raw_arguments = function.get("arguments", "{}")
                 try:
-                    parsed = json.loads(raw_arguments) if isinstance(raw_arguments, str) else raw_arguments
+                    parsed = (
+                        json.loads(raw_arguments)
+                        if isinstance(raw_arguments, str)
+                        else raw_arguments
+                    )
                 except json.JSONDecodeError:
                     parsed = {}
                 blocks.append(
@@ -633,7 +664,9 @@ def _openai_usage(raw: object) -> LLMUsage:
     if not isinstance(raw, dict):
         return LLMUsage()
     return LLMUsage(
-        prompt_tokens=raw.get("prompt_tokens") if isinstance(raw.get("prompt_tokens"), int) else None,
+        prompt_tokens=raw.get("prompt_tokens")
+        if isinstance(raw.get("prompt_tokens"), int)
+        else None,
         completion_tokens=(
             raw.get("completion_tokens") if isinstance(raw.get("completion_tokens"), int) else None
         ),
@@ -711,6 +744,13 @@ def _mock_prefetched_answer(system: str, messages: Sequence[dict]) -> str:
 
 
 def _mock_tool_arguments(name: str, topic: str) -> dict:
+    if name == "finish_turn":
+        return {
+            "intent": "teach",
+            "feedback": "모의 음성 응답입니다.",
+            "question": "어떤 부분부터 함께 살펴볼까요?",
+            "visual_action": "none",
+        }
     if name == "recall_weak_concepts":
         return {"topic": topic}
     if name == "search_course_materials":

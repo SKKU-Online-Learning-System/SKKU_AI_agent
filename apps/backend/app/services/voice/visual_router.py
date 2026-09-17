@@ -19,6 +19,7 @@ object with: needed, kind, title, caption, latex, labels, file, page. kind must 
 none, formula, flow, pdf. Use formula for an equation or variable relationship, flow
 for a process or structure, and pdf only when an exact filename and page already appear
 in context. Keep the caption as a clue, not a final answer. Never invent a PDF location.
+Write every user-visible title, caption and label in natural Korean.
 When no visual helps, return needed=false, kind=none, empty strings, labels=[], page=0.
 """.strip()
 
@@ -81,14 +82,14 @@ async def decide_visualization(
         return fallback
     try:
         payload = await asyncio.wait_for(
-            LLMService(settings).generate_json(
+            LLMService(settings, profile="voice").generate_json(
                 system=VISUAL_DECISION_PROMPT,
                 payload={
                     "task": "visual_decision",
                     "recent_conversation": recent_conversation[-6:],
                     "current_user": current_user,
                 },
-                max_tokens=500,
+                max_tokens=192,
             ),
             settings.visual_router_timeout_seconds,
         )

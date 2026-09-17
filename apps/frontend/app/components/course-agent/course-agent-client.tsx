@@ -7,7 +7,6 @@ import type {
   VoiceAnswer,
   VoiceConfig,
   VoiceMaterialSource,
-  VoiceMode,
   VoiceVisualization,
   WeakConcept
 } from "../../lib/voice-api";
@@ -31,11 +30,6 @@ const SAMPLE_RATE = 16000;
 const PLAYBACK_SAMPLE_RATE = 24000;
 const FRAME_SAMPLES = 320;
 const MAX_PENDING_AUDIO_FRAMES = 250;
-
-const MODE_LABELS: Record<VoiceMode, string> = {
-  explain: "설명 모드",
-  socratic: "소크라테스 모드"
-};
 
 type VoiceState = "idle" | "connecting" | "listening" | "hearing" | "thinking" | "speaking";
 
@@ -132,7 +126,6 @@ export function CourseAgentClient({
 }) {
   const [config, setConfig] = useState<VoiceConfig | null>(null);
   const [configError, setConfigError] = useState<string | null>(null);
-  const [mode, setMode] = useState<VoiceMode>("socratic");
   const [chatSessionId, setChatSessionId] = useState<string | null>(initialSessionId);
   const [entries, setEntries] = useState<ChatEntry[]>([
     { kind: "message", id: 0, role: "assistant", text: GREETING, symbolState: "presence" }
@@ -160,7 +153,6 @@ export function CourseAgentClient({
   const nextPlayAtRef = useRef(0);
   const activeSourcesRef = useRef<Set<AudioBufferSourceNode>>(new Set());
   const mutedRef = useRef(false);
-  const modeRef = useRef<VoiceMode>("socratic");
   const voiceTurnRef = useRef<{
     tools: string[];
     latency?: number;
@@ -174,10 +166,6 @@ export function CourseAgentClient({
     nextId.current += 1;
     return nextId.current;
   };
-
-  useEffect(() => {
-    modeRef.current = mode;
-  }, [mode]);
 
   useEffect(() => {
     mutedRef.current = isMuted;
@@ -346,7 +334,7 @@ export function CourseAgentClient({
     try {
       const answer: VoiceAnswer = await streamVoiceAnswer(
         courseId,
-        { chat_session_id: chatSessionId, mode, text },
+        { chat_session_id: chatSessionId, mode: "socratic", text },
         (token) => {
           streamed += token;
           patchMessage(pendingId, { text: streamed, symbolState: "flow" });
@@ -439,6 +427,7 @@ export function CourseAgentClient({
       const type = String(message.type ?? "");
 
       if (type === "ready") {
+        if (typeof message.session_id === "string") setChatSessionId(message.session_id);
         setVoiceState("listening");
       } else if (type === "state") {
         const next = String(message.value) as VoiceState;
@@ -615,7 +604,7 @@ export function CourseAgentClient({
       playContextRef.current = playContext;
       nextPlayAtRef.current = 0;
 
-      const socket = new WebSocket(voiceStreamUrl(courseId, modeRef.current));
+      const socket = new WebSocket(voiceStreamUrl(courseId, chatSessionId));
       socket.onopen = () => {
         pendingAudioFramesRef.current.forEach((payload) => socket.send(payload));
         pendingAudioFramesRef.current = [];
@@ -704,31 +693,6 @@ export function CourseAgentClient({
         </p>
       ) : null}
 
-      <div className="voice-mode-grid" role="radiogroup" aria-label="챗봇 답변 모드">
-        <button
-          aria-checked={mode === "explain"}
-          className="voice-mode"
-          disabled={isVoiceOpen}
-          onClick={() => setMode("explain")}
-          role="radio"
-          type="button"
-        >
-          <strong>설명 모드</strong>
-          <small>개념과 예시를 직접 설명하고 이해를 확인합니다.</small>
-        </button>
-        <button
-          aria-checked={mode === "socratic"}
-          className="voice-mode"
-          disabled={isVoiceOpen}
-          onClick={() => setMode("socratic")}
-          role="radio"
-          type="button"
-        >
-          <strong>소크라테스 모드</strong>
-          <small>질문과 단계별 힌트로 스스로 답을 찾게 합니다.</small>
-        </button>
-      </div>
-
       <div className="voice-chat-layout">
         <section aria-label="AI 조교 채팅" className="icampus-card voice-chat-card">
           <div className="icampus-card-head">
@@ -739,7 +703,7 @@ export function CourseAgentClient({
             <small className="voice-online">● 이용 가능</small>
           </div>
           <div className="voice-chat-toolbar">
-            <span>{MODE_LABELS[mode]}</span>
+            <span>질문과 힌트로 함께 생각해요</span>
             <button className="voice-secondary" onClick={handleNewChat} type="button">
               새 대화
             </button>

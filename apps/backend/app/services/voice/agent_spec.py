@@ -13,7 +13,7 @@ from sqlalchemy import func, select
 
 from app.db.session import SessionLocal
 from app.models import CourseMaterial, CourseMaterialStatus, DocumentChunk
-from app.services.voice.brain import MODE_PROMPTS, TOOLS, StageTimer, VoiceContext
+from app.services.voice.brain import SOCRATIC_PROMPT, TOOLS, StageTimer, VoiceContext
 from app.services.voice.brain import run_tool as run_brain_tool
 
 log = logging.getLogger("voice.agent-spec")
@@ -32,20 +32,19 @@ results or reveal formula/visual data in the filler. Follow tool-result instruct
 Use trusted web only when course evidence is insufficient.
 
 # Visualization
-Visualization is part of teaching, not decoration. Prefer show_visualization for a
-helpful formula, process, structure, or exact PDF page. In Socratic mode use it as a
-clue, not the final answer. Speak only its meaning; never read raw visual data aloud.
+Proactively provide visual clues; do not wait for the student to request one.
+Before a reasoning question benefits from an equation/variable relationship, a
+multi-step process/structure, or an exact course PDF page, you MUST call
+show_visualization. Never invent a PDF filename or page. Show the smallest clue
+for the next question, not the complete solution, and ask about that clue.
+Reuse an existing visual when it already contains the needed clue; do not redraw
+the same content after an acknowledgment. New reasoning steps needing a different
+clue get a new visual. Simple verbal feedback and closing remarks need no visual.
+Speak only its meaning; never read raw visual data aloud.
 All user-visible visualization text must be Korean except formulas and standard terms.
 
 # Output
 Keep each turn short and conversational. Never read raw JSON aloud.
-""".strip()
-
-VOICE_SOCRATIC_VISUAL_RULE = """
-# Socratic visual priority
-A visual clue is not a spoken explanation. When the current reasoning step has a useful
-formula, process, or structure, call show_visualization before the one Socratic
-question. Keep the visual a clue and never use it to reveal the final answer.
 """.strip()
 
 VOICE_COURSE_TOOL = {
@@ -124,15 +123,12 @@ VOICE_VISUALIZATION_TOOL = {
 
 def persona(course_name: str, mode: str, memory_context: dict | None = None) -> str:
     """Return the compact realtime policy and recent learner memory."""
-    mode_prompt = MODE_PROMPTS.get(mode, MODE_PROMPTS["socratic"])
-    if mode == "socratic":
-        mode_prompt = f"{mode_prompt}\n\n{VOICE_SOCRATIC_VISUAL_RULE}"
     memory_json = json.dumps(memory_context or {"found": False}, ensure_ascii=False)
     return "\n\n".join(
         (
             VOICE_SYSTEM_PROMPT,
             f"# Course\nCourse: '{course_name}'. Search is limited to this course.",
-            mode_prompt,
+            SOCRATIC_PROMPT,
             f"# Recent weak concepts\n{memory_json}",
         )
     )

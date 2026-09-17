@@ -9,6 +9,7 @@ server. No model weight is loaded by this transport.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import re
 import time
@@ -18,8 +19,9 @@ from collections.abc import AsyncIterator, Awaitable, Callable
 from app.core.config import Settings, get_settings
 from app.services.model_server.speech_client import SpeechClient, SpeechError
 from app.services.safety_service import NORMAL_RESULT, SafetyGuardService, SafetyResult
-from app.services.voice.brain import StageTimer, VoiceContext, for_speech
+from app.services.voice.brain import StageTimer, VoiceContext, for_speech, show_visualization
 from app.services.voice.local_brain import VoiceBrainResult, clone_context, think_voice
+from app.services.voice.visual_router import decide_visualization
 from app.services.voice.transport import (
     AgentAudio,
     AgentTextDelta,
@@ -86,7 +88,11 @@ def _split_long_segment(text: str, max_chars: int) -> list[str]:
 
 
 def _tts_chunks(
-    text: str, max_chars: int, *, sentence_gap_ms: int, tail_gap_ms: int,
+    text: str,
+    max_chars: int,
+    *,
+    sentence_gap_ms: int,
+    tail_gap_ms: int,
     min_chars: int = 0,
 ) -> list[TtsChunk]:
     """Prefer sentence-sized TTS requests and cap pathological long sentences.
@@ -116,9 +122,7 @@ def _tts_chunks(
     chunks: list[TtsChunk] = []
     for index, segment in enumerate(segments):
         gap = tail_gap_ms if index == len(segments) - 1 else sentence_gap_ms
-        pieces = (
-            [segment] if len(segment) <= max_chars else _split_long_segment(segment, max_chars)
-        )
+        pieces = [segment] if len(segment) <= max_chars else _split_long_segment(segment, max_chars)
         for offset, piece in enumerate(pieces):
             chunks.append((piece, gap if offset == len(pieces) - 1 else 0))
     return chunks or ([(normalized, tail_gap_ms)] if normalized else [])
@@ -302,9 +306,7 @@ class _SpeechPipeline:
             return
         silence = b"\x00\x00" * samples
         self.gap_bytes += len(silence)
-        await self._transport._emit(
-            AgentAudio(silence, rate=self.sample_rate), self._generation
-        )
+        await self._transport._emit(AgentAudio(silence, rate=self.sample_rate), self._generation)
 
     async def _consume(self) -> None:
         transport = self._transport
@@ -504,6 +506,38 @@ class LocalCascadeTransport(Transport):
             asr_ms=asr_ms,
         )
 
+    async def _render_visual(
+        self,
+        result: VoiceBrainResult,
+        transcript: str,
+        generation: int,
+    ) -> None:
+        if result.visual_action != "show":
+            return
+        try:
+            decision = await decide_visualization(
+                f"{transcript}\nVisual focus: {result.visual_topic}",
+                self._brain_context.history,
+            )
+            if not decision.needed or not decision.args:
+                return
+            visual = json.loads(show_visualization(**decision.args))
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            log.exception("deferred voice visualization failed")
+            await self._emit(
+                ToolCalled(name="show_visualization", result={"error": "render_failed"}),
+                generation,
+            )
+            return
+        if not self._current(generation) or visual in self._brain_context.last_visualizations:
+            return
+        recent = [*self._brain_context.last_visualizations, visual][-3:]
+        self._brain_context.last_visualizations = recent
+        self.context.last_visualizations = list(recent)
+        await self._emit(ToolCalled(name="show_visualization", result=visual), generation)
+
     async def _run_text_turn(
         self,
         transcript: str,
@@ -594,7 +628,14 @@ class LocalCascadeTransport(Transport):
             await speech.abort()
             return
         self.context.last_material_sources = list(self._brain_context.last_material_sources)
+        self.context.last_visualizations = list(self._brain_context.last_visualizations)
         self.last_web_sources = list(brain_result.sources[:3])
+        visual_task = (
+            asyncio.create_task(self._render_visual(brain_result, transcript, generation))
+            if brain_result.visual_action == "show"
+            else None
+        )
+
         for name in brain_result.tools:
             if name == "show_visualization":
                 continue
@@ -612,13 +653,21 @@ class LocalCascadeTransport(Transport):
             await speech.finish(reply)
         except asyncio.CancelledError:
             await speech.abort()
+            if visual_task is not None:
+                visual_task.cancel()
+                await asyncio.gather(visual_task, return_exceptions=True)
             raise
         except SpeechError:
             await speech.abort()
+            if visual_task is not None:
+                visual_task.cancel()
+                await asyncio.gather(visual_task, return_exceptions=True)
             metrics("tts_failed")
             await self._fail("음성 합성 서버가 응답 오디오를 생성하지 못했습니다.", generation)
             return
 
+        if visual_task is not None:
+            await visual_task
         if not self._current(generation):
             return
         await self._emit(AgentTurnDone(), generation)
@@ -641,9 +690,7 @@ class LocalCascadeTransport(Transport):
     ) -> None:
         # Streaming responses carry no X-Inference-Ms header, so RTF is measured
         # against the wall time the transport actually spent on synthesis.
-        tts_rtf = (
-            round(tts_ms / tts_audio_duration_ms, 4) if tts_audio_duration_ms > 0 else None
-        )
+        tts_rtf = round(tts_ms / tts_audio_duration_ms, 4) if tts_audio_duration_ms > 0 else None
         log.info(
             "local voice turn status=%s metrics=%s",
             status,

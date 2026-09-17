@@ -3,20 +3,26 @@
 from __future__ import annotations
 
 import json
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import pytest
 from sqlalchemy import select
+from starlette.websockets import WebSocketDisconnect
 
 from app.api.routes import voice as voice_routes
 from app.core.config import Settings
 from app.models import ChatLog, CourseMaterial
-from app.services.voice import brain, trusted_sites
+from app.services.voice import brain, external_brain, trusted_sites
 from app.services.voice.session_store import get_context, reset_context
 
 
 @pytest.fixture(autouse=True)
 def isolated_voice_storage(tmp_path, monkeypatch):
     monkeypatch.setattr(trusted_sites, "voice_storage_dir", lambda: tmp_path / "voice")
+    monkeypatch.setattr(
+        external_brain, "get_settings", lambda: Settings(_env_file=None, use_mock_llm=True),
+    )
 
 
 @pytest.fixture
@@ -143,6 +149,7 @@ def test_voice_answer_is_grounded_and_logged_with_its_sources(
         assert log.is_grounded is True
         assert log.answer_source_type.value == "rag"
         assert log.referenced_documents == stub_course_search
+        assert log.retrieval_result["mode"] == "socratic"
 
 
 def test_text_stream_sends_filler_before_answer(
@@ -235,6 +242,55 @@ def test_reopened_conversation_resumes_with_its_stored_history(
     history = get_context(student_id, course_id, "인공지능개론").history
     assert history[0] == {"role": "user", "content": "경사하강법이 뭐야?"}
     assert history[-1]["role"] == "assistant"
+
+
+@pytest.mark.parametrize("caller", ["student", "professor"])
+def test_voice_socket_restores_owned_history_and_visuals(
+    chat_api, stub_course_search, monkeypatch, caller,
+) -> None:
+    course_id = chat_api.courses["ai"]
+    student_id = chat_api.users["student"]
+    reset_context(student_id, course_id)
+    context = get_context(student_id, course_id, "인공지능개론")
+    visual = {"kind": "formula", "title": "가중치", "latex": "a/(a+b)"}
+    context.last_visualizations = [visual]
+    first = chat_api.post(
+        f"/api/voice/courses/{course_id}/answer-text",
+        "student", {"text": "소프트맥스가 뭐야?"},
+    ).json()
+    reset_context(student_id, course_id)
+    captured = []
+
+    async def events():
+        if False:
+            yield
+
+    def transport(**kwargs):
+        captured.append(kwargs["context"])
+        return SimpleNamespace(
+            name="test", start=AsyncMock(), close=AsyncMock(), events=events,
+        )
+
+    monkeypatch.setattr(voice_routes, "SessionLocal", chat_api.session_factory)
+    monkeypatch.setattr(
+        voice_routes, "get_voice_availability", lambda _: SimpleNamespace(enabled=True),
+    )
+    monkeypatch.setattr(voice_routes, "prefetch_memory_context", AsyncMock(return_value={}))
+    monkeypatch.setattr(voice_routes, "create_voice_transport", transport)
+    url = (
+        f"/api/voice/courses/{course_id}/stream?token={chat_api.tokens[caller]}"
+        f"&chat_session_id={first['session_id']}"
+    )
+    with chat_api.client.websocket_connect(url) as socket:
+        if caller != "student":
+            with pytest.raises(WebSocketDisconnect):
+                socket.receive_json()
+            assert captured == []
+            return
+        ready = socket.receive_json()
+        assert ready["session_id"] == first["session_id"]
+        assert captured[0].history[0]["content"] == "소프트맥스가 뭐야?"
+        assert captured[0].last_visualizations == [visual]
 
 
 def test_reopening_another_learners_conversation_is_rejected(
