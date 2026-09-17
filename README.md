@@ -59,11 +59,11 @@ Frontend -> FastAPI -> RAG / Tools / SAFE -> LLMService
 
 Hands-free voice
 Browser microphone -> FastAPI WebSocket -> Silero VAD (CPU)
- -> Qwen3-ASR (:8004, Backend.AI preopen port)
+ -> Qwen3-ASR (:8010)
  -> existing COURSE AGENT Brain / RAG / Tools / SAFE / Memory
  -> Qwen/Qwen3.5-9B (:8002/v1, thinking disabled, compact validated finish_turn)
  -> TTS starts while a separate 9B visual worker renders optional visuals asynchronously
- -> Qwen3-TTS Sohee/Korean (:8012, streaming, localhost)
+ -> Qwen3-TTS Sohee/Korean (:8012, streaming)
  -> PCM16 mono 24 kHz -> Browser speaker
 ```
 
@@ -99,7 +99,7 @@ TEXT_LLM_BASE_URL=http://localhost:8001/v1
 TEXT_LLM_MODEL=Qwen/Qwen3.8-27B
 VOICE_LLM_BASE_URL=http://localhost:8002/v1
 VOICE_LLM_MODEL=Qwen/Qwen3.5-9B
-SPEECH_BASE_URL=http://localhost:8004
+SPEECH_BASE_URL=http://localhost:8010
 TTS_BASE_URL=http://localhost:8012
 EMBEDDING_BASE_URL=http://localhost:8003/v1
 MODEL_SERVER_API_KEY=서버와_동일한_키
@@ -109,8 +109,8 @@ TTS_LANGUAGE=Korean
 SEARXNG_URL=http://SEARXNG_SERVER:8080
 ```
 
-위 값은 모델 서버와 이 앱이 같은 Backend.AI 세션에서 돌 때의 기본값입니다. Speech API만
-이 세션의 preopen port에 맞춰 `8010`이 아닌 `8004`에 있고, 나머지는 main과 같습니다.
+localhost 값은 모델 서버가 같은 머신에 있을 때의 기본값입니다. 모델 서버가 Backend.AI 세션에
+있으면 아래 "모델 서버가 Backend.AI에 있을 때"대로 공개 앱 주소를 넣습니다.
 
 그 뒤 저장소 루트에서 실행합니다.
 
@@ -126,26 +126,39 @@ bash run.sh
 - 앱 상태: <http://localhost:8000/api/health>
 - Model Server 상태: <http://localhost:8000/api/health/model-server>
 
-### Backend.AI preopen port
+### 모델 서버가 Backend.AI에 있을 때
 
-이 세션의 preopen port는 `8000`, `8001`, `8002`, `8004`입니다(`echo $BACKENDAI_PREOPEN_PORTS`).
-앱이 모델 서버를 localhost로 호출하므로 모델 포트(`8001`, `8002`, `8004`)와 preopen port가 아닌
-TTS `8012`, Embedding `8003`은 공개할 필요가 없습니다. 브라우저가 닿아야 하는 것은 두 가지입니다.
+앱은 로컬(개발은 `run.sh`, 배포는 Docker)에서 돌고, 모델 서버만 Backend.AI 세션에서 돕니다.
+앱은 Backend.AI에 올리지 않으므로 세션의 `8000`, `8004`는 쓰지 않습니다.
 
-| 대상 | 포트 | 방법 |
-|---|---:|---|
-| 웹 UI (Next.js) | `3000` | preopen port가 아니고 이미지가 `ipython` pty 서비스 포트로 예약한 포트입니다. SSH 터널이나 VS Code 포트 포워딩으로 열거나, 남는 preopen port에서 `PORT=<port> npm run dev:frontend`로 띄운 뒤 그 앱을 **Open app to public**으로 엽니다. |
-| API (uvicorn) | `8000` | `run.sh`가 `0.0.0.0`에 바인딩합니다. Docker가 없는 Backend.AI 세션에서는 `run.sh`가 `NEXT_PUBLIC_API_BASE_URL=""`를 내보내 브라우저가 웹 UI와 같은 origin의 `/api` rewrite(WebSocket 포함)로 API를 호출하므로 공개하지 않아도 됩니다. 브라우저가 API를 직접 호출하게 하려면 8000 앱을 공개로 열고 `NEXT_PUBLIC_API_BASE_URL`을 그 HTTPS 주소로, `BACKEND_CORS_ORIGINS`에 웹 UI origin을 추가합니다. |
+1. 모델 서버 다섯 서비스(`8001` Text LLM, `8002` Voice LLM, `8003` Embedding, `8010` Speech ASR,
+   `8012` 스트리밍 TTS)의 공개 주소를 확보합니다. 주소는 두 형태 중 하나입니다.
 
-웹 UI를 `siriuscluster.skku.edu` 주소로 열 수 있도록 `apps/frontend/next.config.mjs`의
-`allowedDevOrigins`에 그 호스트가 등록돼 있습니다.
+- **포트별 Backend.AI 앱** — 콘솔에서 8001·8002·8003·8010·8012를 각각 **Open app to public**으로
+  열면 포트마다 `https://siriuscluster.skku.edu:1xxxx` 주소가 나옵니다.
+- **VS Code(code-server) 앱의 경로 프록시** — `https://siriuscluster.skku.edu:10245/proxy/<포트>`.
+  다섯 서비스 모두 호출·인증이 되는 것을 확인했지만, 스트리밍 응답의 **첫 청크가 생성이 끝나는
+  시점까지 지연**됩니다(9B 150토큰: 직접 0.14초 → 프록시 3.9초, 이후 청크는 정상 간격). 첫 토큰·첫
+  음성까지의 시간이 그만큼 늘어나므로 음성 지연이 중요하면 포트별 앱 주소를 씁니다.
 
-앱을 세션 밖(예: 노트북)에서 돌리면 모델 서버 포트 다섯 개(`8001`, `8002`, `8004`, `8012`,
-`8003`)를 각각 공개로 열고, 발급된 HTTPS 주소를 `TEXT_LLM_BASE_URL`, `VOICE_LLM_BASE_URL`,
-`SPEECH_BASE_URL`, `TTS_BASE_URL`, `EMBEDDING_BASE_URL`에 넣습니다(LLM·Embedding 주소에만 `/v1`).
-preopen port가 네 개뿐이면 하나가 부족합니다. 선택지는 `SKKU_AI_model_server/README.md`의
-"Backend.AI Preopen Ports"에 있습니다. 모든 주소는 같은 `MODEL_SERVER_API_KEY`로 보호되며
-세션이 살아 있는 동안만 유지됩니다.
+2. 주소를 `.env`에 넣습니다. LLM·Embedding 주소에만 `/v1`을 붙입니다. 아래는 VS Code 앱 경로
+   프록시 형태의 예입니다.
+
+   ```dotenv
+   TEXT_LLM_BASE_URL=https://siriuscluster.skku.edu:10245/proxy/8001/v1
+   VOICE_LLM_BASE_URL=https://siriuscluster.skku.edu:10245/proxy/8002/v1
+   EMBEDDING_BASE_URL=https://siriuscluster.skku.edu:10245/proxy/8003/v1
+   SPEECH_BASE_URL=https://siriuscluster.skku.edu:10245/proxy/8010
+   TTS_BASE_URL=https://siriuscluster.skku.edu:10245/proxy/8012
+   MODEL_SERVER_API_KEY=모델_서버와_동일한_키
+   ```
+
+3. `bash run.sh`로 앱을 띄우고 <http://localhost:8000/api/health/model-server>에서 다섯 endpoint가
+   모두 `ok`인지 확인합니다.
+
+모든 주소는 같은 `MODEL_SERVER_API_KEY`로 보호되며, 세션이 살아 있는 동안만 유지됩니다. 세션을
+다시 만들면 주소가 바뀌므로 `.env`도 갱신해야 합니다. 모델 서버 쪽 설정은
+`SKKU_AI_model_server/README.md`의 "Backend.AI Preopen Ports"를 참고합니다.
 
 ### Model Server endpoint contract
 
@@ -204,7 +217,7 @@ uv run --all-packages --extra dev --extra voice python scripts/test_model_server
 | `LLM_PROVIDER` | `local_qwen`(기본), `mock`, `anthropic` |
 | `TEXT_LLM_BASE_URL` / `TEXT_LLM_MODEL` | typed/External Brain Qwen endpoint와 model |
 | `VOICE_LLM_BASE_URL` / `VOICE_LLM_MODEL` | realtime cascade의 Voice Qwen endpoint와 model |
-| `SPEECH_BASE_URL` / `TTS_BASE_URL` | Qwen ASR endpoint(Backend.AI 세션에서는 `8004`) / 스트리밍 TTS endpoint(`8012`) |
+| `SPEECH_BASE_URL` / `TTS_BASE_URL` | Qwen ASR endpoint(`8010`) / 스트리밍 TTS endpoint(`8012`) |
 | `EMBEDDING_BASE_URL` / `EMBEDDING_MODEL` | 멀티모달 임베딩 endpoint(`8003`)와 model |
 | `MODEL_SERVER_API_KEY` | optional Model Server bearer key |
 | `VOICE_PROVIDER` | `local_cascade`(기본) 또는 legacy `grok` |
