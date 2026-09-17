@@ -15,8 +15,10 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models import ChatAnswerSourceType, ChatLog, ChatSession, Course, User
+from app.core.config import get_settings
 from app.services.chat_service import build_session_title
 from app.services.safety_service import SafetyResult
+from app.services.voice import attachments as attachments_module
 from app.services.voice.brain import MAX_HISTORY_MESSAGES, VoiceContext
 
 logger = logging.getLogger(__name__)
@@ -51,6 +53,7 @@ def restore_history(
     user: User,
     course: Course,
     chat_session_id: str,
+    settings=None,
 ) -> bool:
     """Reload a stored conversation into the in-memory voice session.
 
@@ -76,18 +79,57 @@ def restore_history(
         .order_by(ChatLog.created_at)
     ).all()
 
+    settings = settings or get_settings()
     history: list[dict] = []
     for log in logs:
-        history.append({"role": "user", "content": log.question})
+        # A turn that carried attachments is rebuilt the way the brain kept it:
+        # the question with a bounded copy of what the files said under it.
+        attached = attachments_module.from_logged(
+            (log.retrieval_result or {}).get("attachments")
+        )
+        history.append(
+            {
+                "role": "user",
+                "content": attachments_module.history_content(
+                    log.question, attached, settings=settings
+                ),
+            }
+        )
         history.append({"role": "assistant", "content": log.answer})
 
     context.history = history[-MAX_HISTORY_MESSAGES:]
     context.chat_session_id = chat_session.id
     context.last_material_sources = []
+    context.recent_images = _recent_images(logs[-1], context, settings) if logs else []
     context.last_visualizations = list(
         (logs[-1].retrieval_result or {}).get("visualizations", [])
     )[-3:] if logs else []
     return True
+
+
+def _recent_images(log: ChatLog, context: VoiceContext, settings) -> list[dict]:
+    """The photos the text model looked at on the last logged turn, reloaded from disk.
+
+    Images are not logged (too large); the files usually still exist in the
+    learner's directory, so a follow-up after a reload can see them once more.
+    """
+    parts: list[dict] = []
+    for record in attachments_module.from_logged((log.retrieval_result or {}).get("attachments")):
+        if record.mode != "vision" or record.kind != "image":
+            continue
+        attachment = attachments_module.load_attachment(
+            record.id, user_id=context.user_id, course_id=context.course_id, settings=settings
+        )
+        if attachment is None:
+            continue
+        try:
+            url = attachments_module.image_data_url(
+                open(attachment.path, "rb").read(), settings.document_render_max_side
+            )
+        except Exception:  # a corrupt or evicted file: the follow-up goes without it
+            continue
+        parts.append({"type": "image_url", "image_url": {"url": url}})
+    return parts[: settings.attachment_direct_images_max]
 
 
 def log_turn(
@@ -107,8 +149,15 @@ def log_turn(
     safety: SafetyResult,
     provider_name: Optional[str] = None,
     visualizations: Sequence[dict] = (),
+    attachments: Sequence[dict] = (),
 ) -> str:
-    """Write one voice turn to the chat log and return its id."""
+    """Write one voice turn to the chat log and return its id.
+
+    ``attachments`` are the files the student attached to this question, with
+    the text read from them, so a reopened conversation can be rebuilt and the
+    log screens can show what was asked about. The ``question`` column keeps
+    only the student's own words.
+    """
     is_grounded = bool(material_sources)
     if safety.blocked:
         source_type = ChatAnswerSourceType.safety_response
@@ -129,6 +178,8 @@ def log_turn(
     }
     if provider_name:
         retrieval_result["provider"] = provider_name
+    if attachments:
+        retrieval_result["attachments"] = list(attachments)
 
     log = ChatLog(
         session_id=chat_session.id,

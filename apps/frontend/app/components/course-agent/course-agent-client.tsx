@@ -2,25 +2,43 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ApiError, getChatSession } from "../../lib/api";
-import type { AnswerSource } from "../../lib/api";
+import type { AnswerSource, ChatHistoryAttachment } from "../../lib/api";
 import type {
   VoiceAnswer,
+  VoiceAttachment,
   VoiceConfig,
   VoiceMaterialSource,
+  VoiceTraceStep,
   VoiceVisualization,
   WeakConcept
 } from "../../lib/voice-api";
 import {
+  deleteVoiceAttachment,
+  getVoiceAttachment,
   getVoiceConfig,
   listWeakConcepts,
   resetVoiceConversation,
   streamVoiceAnswer,
+  uploadVoiceAttachment,
   voiceStreamUrl
 } from "../../lib/voice-api";
+import { decodePcm16, newResampleState, resample } from "../../lib/pcm";
 import { UiIcon } from "../ui/ui-icon";
 import { CourseAgentSymbol } from "../ui/course-agent-symbol";
 import type { CourseAgentSymbolState } from "../ui/course-agent-symbol";
+import {
+  appendThinking,
+  appendThought,
+  CourseAgentTrace,
+  EMPTY_TRACE,
+  failTrace,
+  finishTrace,
+  startTrace,
+  upsertStep
+} from "./course-agent-trace";
+import type { TurnTrace } from "./course-agent-trace";
 import { CourseAgentVisualizationCard } from "./course-agent-visualization";
+import { MathText } from "./math-text";
 
 const SAMPLE_RATE = 16000;
 // The speech server emits 24 kHz PCM. The playback AudioContext must run at
@@ -28,8 +46,19 @@ const SAMPLE_RATE = 16000;
 // own, with no filter history carried across chunks, so each boundary gets a
 // transient — an audible tick roughly three times a second.
 const PLAYBACK_SAMPLE_RATE = 24000;
+// Backoff for a realtime connection that drops on its own. Two quiet retries
+// cover a brief network blip or a backend restart; after that the student is
+// told, because silently closing the panel looked like the feature breaking.
+const RECONNECT_DELAYS_MS = [1000, 3000];
 const FRAME_SAMPLES = 320;
 const MAX_PENDING_AUDIO_FRAMES = 250;
+// Files one typed question may carry. The server enforces its own limit too;
+// this only keeps the composer from offering more than it will accept.
+const MAX_ATTACHMENTS = 4;
+const ATTACHMENT_EXTENSIONS = /\.(png|jpe?g|webp|gif|bmp|pdf)$/i;
+const ATTACHMENT_HINT_TYPES = "이미지 또는 PDF만 첨부할 수 있어요.";
+// How often the composer asks how far a long PDF's index is.
+const INDEX_POLL_MS = 1500;
 
 type VoiceState = "idle" | "connecting" | "listening" | "hearing" | "thinking" | "speaking";
 
@@ -58,7 +87,25 @@ const WEAK_CONCEPT_STATUS_LABELS: Record<WeakConcept["status"], string> = {
   mastered: "학습 완료"
 };
 
-type ChatEntry =
+/** An attachment as it appears on a sent message; the preview is a local object URL. */
+type SentAttachment = VoiceAttachment & { previewUrl?: string | null };
+
+/**
+ * A file in the composer, from the moment it is picked until the turn is sent --
+ * or, for a long PDF that is read by excerpt, until the student removes it: such
+ * a file stays pinned across turns so every question can look things up in it.
+ */
+type PendingAttachment = {
+  localId: number;
+  file: File;
+  previewUrl: string | null;
+  status: "uploading" | "indexing" | "ready" | "error";
+  attachment?: VoiceAttachment;
+  error?: string;
+  pinned?: boolean;
+};
+
+export type ChatEntry =
   | {
       kind: "message";
       id: number;
@@ -67,6 +114,9 @@ type ChatEntry =
       tools?: string[];
       webSources?: string[];
       materialSources?: VoiceMaterialSource[];
+      attachments?: SentAttachment[];
+      /** The agent's visible work for this turn; typed turns only. */
+      trace?: TurnTrace;
       timing?: string;
       symbolState: CourseAgentSymbolState;
     }
@@ -74,6 +124,20 @@ type ChatEntry =
 
 const GREETING =
   "안녕하세요. COURSE AGENT입니다. 강의 내용 중 막힌 부분을 텍스트나 음성으로 질문해 주세요.";
+
+/**
+ * The part of the transcript the view follows as it changes: which entries are
+ * shown and how much of each message has been written. The agent's trace is
+ * left out on purpose -- it grows on every reasoning delta, and following it
+ * pulled the student away from whatever they were reading.
+ */
+export function transcriptFollowKey(entries: readonly ChatEntry[]): string {
+  return entries
+    .map((entry) =>
+      entry.kind === "message" ? `${entry.id}:${entry.text.length}` : `${entry.id}:visual`
+    )
+    .join(",");
+}
 
 function toBase64(bytes: Uint8Array): string {
   let value = "";
@@ -104,6 +168,95 @@ function toMaterialSource(source: AnswerSource): VoiceMaterialSource {
   };
 }
 
+function isAttachable(file: File): boolean {
+  return (
+    ATTACHMENT_EXTENSIONS.test(file.name) ||
+    file.type.startsWith("image/") ||
+    file.type === "application/pdf"
+  );
+}
+
+/** Object URL for an image preview; jsdom and older browsers may not have it. */
+function previewUrlFor(file: File): string | null {
+  if (!file.type.startsWith("image/") || typeof URL.createObjectURL !== "function") return null;
+  try {
+    return URL.createObjectURL(file);
+  } catch {
+    return null;
+  }
+}
+
+function revokePreview(url: string | null | undefined): void {
+  if (url && typeof URL.revokeObjectURL === "function") URL.revokeObjectURL(url);
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)}MB`;
+  if (bytes >= 1024) return `${Math.round(bytes / 1024)}KB`;
+  return `${bytes}B`;
+}
+
+function attachmentMeta(attachment: VoiceAttachment): string {
+  if (attachment.kind === "pdf" && attachment.mode === "excerpt") {
+    return `PDF · ${attachment.pages}쪽 · 질문마다 관련 쪽 참고`;
+  }
+  if (attachment.kind === "pdf") return `PDF · ${attachment.pages}쪽`;
+  return `이미지 · ${formatBytes(attachment.size)}`;
+}
+
+function indexMeta(attachment: VoiceAttachment): string {
+  const index = attachment.index;
+  if (!index) return "색인 중";
+  return `색인 중 ${index.pages_done}/${index.pages}쪽`;
+}
+
+function isExcerpted(attachment: VoiceAttachment | undefined): boolean {
+  return attachment?.mode === "excerpt";
+}
+
+/** Stored history carries the attachment shape of the log; the live agent uses the wire shape. */
+function toSentAttachment(attachment: ChatHistoryAttachment): SentAttachment {
+  return {
+    chars: 0,
+    id: attachment.id,
+    kind: attachment.kind === "pdf" ? "pdf" : "image",
+    name: attachment.name,
+    pages: attachment.pages,
+    size: attachment.size
+  };
+}
+
+function AttachmentChips({ attachments }: { attachments: SentAttachment[] }) {
+  if (!attachments.length) return null;
+  return (
+    <ul aria-label="첨부 파일" className="voice-attachment-list">
+      {attachments.map((attachment) => (
+        <li className="voice-attachment" data-kind={attachment.kind} key={attachment.id}>
+          {attachment.previewUrl ? (
+            // eslint-disable-next-line @next/next/no-img-element -- local object URL, not an asset
+            <img alt="" className="voice-attachment-thumb" src={attachment.previewUrl} />
+          ) : (
+            <UiIcon
+              className="voice-attachment-icon"
+              name={attachment.kind === "pdf" ? "material" : "image"}
+            />
+          )}
+          <span className="voice-attachment-name" title={attachment.name}>
+            {attachment.name}
+          </span>
+          <span className="voice-attachment-meta">
+            {attachment.mode === "excerpt" && attachment.pages_used?.length
+              ? `PDF · ${attachment.pages_used.join(", ")}쪽 참고`
+              : attachment.mode === "vision"
+                ? `${attachment.kind === "pdf" ? "PDF" : "이미지"} · 모델이 직접 봄`
+                : attachmentMeta(attachment)}
+          </span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 function webSourceLabel(url: string): string | null {
   try {
     const parsed = new URL(url);
@@ -132,6 +285,9 @@ export function CourseAgentClient({
   ]);
   const [question, setQuestion] = useState("");
   const [isSending, setIsSending] = useState(false);
+  const [pendingAttachments, setPendingAttachments] = useState<PendingAttachment[]>([]);
+  const [attachHint, setAttachHint] = useState<string | null>(null);
+  const [isDragging, setIsDragging] = useState(false);
   const [voiceState, setVoiceState] = useState<VoiceState>("idle");
   const [isMuted, setIsMuted] = useState(false);
   const [isVoiceOpen, setIsVoiceOpen] = useState(false);
@@ -142,14 +298,24 @@ export function CourseAgentClient({
 
   const nextId = useRef(1);
   const messagesRef = useRef<HTMLDivElement | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const pendingAttachmentsRef = useRef<PendingAttachment[]>([]);
+  // Timers of the index polls in flight, by composer item, so they stop with the item.
+  const indexPollsRef = useRef<Map<number, ReturnType<typeof setTimeout>>>(new Map());
   const socketRef = useRef<WebSocket | null>(null);
   const micStreamRef = useRef<MediaStream | null>(null);
   const micUnavailableRef = useRef(false);
   const captureContextRef = useRef<AudioContext | null>(null);
   const playContextRef = useRef<AudioContext | null>(null);
   const rateMismatchLoggedRef = useRef(false);
+  const resampleStateRef = useRef(newResampleState());
   const pcmBufferRef = useRef<Float32Array>(new Float32Array(0));
   const pendingAudioFramesRef = useRef<string[]>([]);
+  // Typed turns waiting for a live socket. The voice panel being open means the
+  // student chose voice -- including the student who has no microphone and types
+  // instead -- so their turn belongs to the voice agent and waits for the socket
+  // rather than silently taking the typed-only path during a reconnect.
+  const pendingTextRef = useRef<string[]>([]);
   const nextPlayAtRef = useRef(0);
   const activeSourcesRef = useRef<Set<AudioBufferSourceNode>>(new Set());
   const mutedRef = useRef(false);
@@ -161,6 +327,31 @@ export function CourseAgentClient({
   }>({ tools: [] });
   const lastLocalTextRef = useRef("");
   const voiceTranscriptMessageIdsRef = useRef<Map<string, number>>(new Map());
+  // A dropped realtime connection used to close the panel with no explanation.
+  // Retry quietly a couple of times, then say so rather than vanishing.
+  const intentionalCloseRef = useRef(false);
+  const reconnectsRef = useRef(0);
+  const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const chatSessionIdRef = useRef<string | null>(initialSessionId);
+
+  useEffect(() => {
+    chatSessionIdRef.current = chatSessionId;
+  }, [chatSessionId]);
+
+  useEffect(() => {
+    pendingAttachmentsRef.current = pendingAttachments;
+  }, [pendingAttachments]);
+
+  // Previews are object URLs; release whatever the composer still holds on unmount,
+  // and stop asking after indexes nobody will see.
+  useEffect(
+    () => () => {
+      pendingAttachmentsRef.current.forEach((item) => revokePreview(item.previewUrl));
+      indexPollsRef.current.forEach((timer) => clearTimeout(timer));
+      indexPollsRef.current.clear();
+    },
+    []
+  );
 
   const allocateId = () => {
     nextId.current += 1;
@@ -225,10 +416,20 @@ export function CourseAgentClient({
     };
   }, [courseId]);
 
+  // Scroll to the end for a new message, and follow an answer being written
+  // only while the student is already reading the end. Trace updates change
+  // neither value, so the agent's thinking never moves the transcript.
+  const transcriptKey = transcriptFollowKey(entries);
+  const entryCount = entries.length;
+  const entryCountRef = useRef(0);
+  const readingEndRef = useRef(true);
+
   useEffect(() => {
     const node = messagesRef.current;
-    if (node) node.scrollTop = node.scrollHeight;
-  }, [entries]);
+    const appended = entryCount !== entryCountRef.current;
+    entryCountRef.current = entryCount;
+    if (node && (appended || readingEndRef.current)) node.scrollTop = node.scrollHeight;
+  }, [transcriptKey, entryCount]);
 
   // Reopening a stored conversation replays it, then keeps answering in it.
   useEffect(() => {
@@ -240,6 +441,7 @@ export function CourseAgentClient({
         if (isCancelled) return;
         const replayed: ChatEntry[] = detail.logs.flatMap((log) => [
           {
+            attachments: (log.attachments ?? []).map(toSentAttachment),
             kind: "message" as const,
             id: (nextId.current += 1),
             role: "user" as const,
@@ -289,6 +491,201 @@ export function CourseAgentClient({
     []
   );
 
+  const removeMessage = useCallback((id: number) => {
+    setEntries((current) =>
+      current.filter((entry) => !(entry.kind === "message" && entry.id === id))
+    );
+  }, []);
+
+  const patchTrace = useCallback((id: number, update: (trace: TurnTrace) => TurnTrace) => {
+    setEntries((current) =>
+      current.map((entry) =>
+        entry.kind === "message" && entry.id === id
+          ? { ...entry, trace: update(entry.trace ?? EMPTY_TRACE) }
+          : entry
+      )
+    );
+  }, []);
+
+  // ---------------------------------------------------------------- attachments
+
+  const addFiles = useCallback(
+    (files: File[]) => {
+      if (!files.length) return;
+      const attachable = files.filter(isAttachable);
+      const room = Math.max(0, MAX_ATTACHMENTS - pendingAttachmentsRef.current.length);
+      const accepted = attachable.slice(0, room);
+      if (attachable.length < files.length) {
+        setAttachHint(ATTACHMENT_HINT_TYPES);
+      } else if (accepted.length < attachable.length) {
+        setAttachHint(`파일은 한 번에 ${MAX_ATTACHMENTS}개까지 첨부할 수 있어요.`);
+      } else {
+        setAttachHint(null);
+      }
+      if (!accepted.length) return;
+
+      const items: PendingAttachment[] = accepted.map((file) => ({
+        file,
+        localId: allocateId(),
+        previewUrl: previewUrlFor(file),
+        status: "uploading"
+      }));
+      setPendingAttachments((current) => [...current, ...items]);
+
+      const patchItem = (localId: number, patch: Partial<PendingAttachment>) => {
+        setPendingAttachments((current) =>
+          current.map((entry) => (entry.localId === localId ? { ...entry, ...patch } : entry))
+        );
+      };
+
+      // A long PDF is indexed after upload; ask how far it is until it is ready.
+      const pollIndex = (localId: number, attachmentId: string) => {
+        const timer = setTimeout(() => {
+          indexPollsRef.current.delete(localId);
+          if (!pendingAttachmentsRef.current.some((entry) => entry.localId === localId)) return;
+          getVoiceAttachment(courseId, attachmentId)
+            .then((attachment) => {
+              if (attachment.index?.status === "ready" || !attachment.index) {
+                patchItem(localId, { attachment, status: "ready" });
+              } else if (attachment.index.status === "failed") {
+                patchItem(localId, {
+                  attachment,
+                  error: attachment.index.message || "파일을 색인하지 못했어요",
+                  status: "error"
+                });
+              } else {
+                patchItem(localId, { attachment });
+                pollIndex(localId, attachmentId);
+              }
+            })
+            .catch(() => pollIndex(localId, attachmentId));
+        }, INDEX_POLL_MS);
+        indexPollsRef.current.set(localId, timer);
+      };
+
+      items.forEach((item) => {
+        uploadVoiceAttachment(courseId, item.file)
+          .then((attachment) => {
+            if (attachment.index && attachment.index.status !== "ready") {
+              if (attachment.index.status === "failed") {
+                patchItem(item.localId, {
+                  attachment,
+                  error: attachment.index.message || "파일을 색인하지 못했어요",
+                  status: "error"
+                });
+                return;
+              }
+              patchItem(item.localId, { attachment, status: "indexing" });
+              pollIndex(item.localId, attachment.id);
+              return;
+            }
+            patchItem(item.localId, { attachment, status: "ready" });
+          })
+          .catch((error: unknown) => {
+            setPendingAttachments((current) =>
+              current.map((entry) =>
+                entry.localId === item.localId
+                  ? {
+                      ...entry,
+                      error:
+                        error instanceof ApiError && error.status === 413
+                          ? "파일이 너무 커요"
+                          : error instanceof ApiError
+                            ? error.message
+                            : "업로드하지 못했어요",
+                      status: "error"
+                    }
+                  : entry
+              )
+            );
+          });
+      });
+    },
+    [courseId]
+  );
+
+  const removeAttachment = useCallback(
+    (localId: number) => {
+      const item = pendingAttachmentsRef.current.find((entry) => entry.localId === localId);
+      if (!item) return;
+      const poll = indexPollsRef.current.get(localId);
+      if (poll) {
+        clearTimeout(poll);
+        indexPollsRef.current.delete(localId);
+      }
+      revokePreview(item.previewUrl);
+      if (item.attachment) {
+        void deleteVoiceAttachment(courseId, item.attachment.id).catch(() => undefined);
+      }
+      setPendingAttachments((current) => current.filter((entry) => entry.localId !== localId));
+      setAttachHint(null);
+    },
+    [courseId]
+  );
+
+  /** Forget every file in the composer, on the server too. */
+  const clearAttachments = useCallback(() => {
+    indexPollsRef.current.forEach((timer) => clearTimeout(timer));
+    indexPollsRef.current.clear();
+    pendingAttachmentsRef.current.forEach((item) => {
+      revokePreview(item.previewUrl);
+      if (item.attachment) {
+        void deleteVoiceAttachment(courseId, item.attachment.id).catch(() => undefined);
+      }
+    });
+    setPendingAttachments([]);
+    setAttachHint(null);
+  }, [courseId]);
+
+  const handleFileInput = (event: React.ChangeEvent<HTMLInputElement>) => {
+    addFiles(Array.from(event.target.files ?? []));
+    event.target.value = "";
+  };
+
+  const handlePaste = (event: React.ClipboardEvent<HTMLInputElement>) => {
+    const files = Array.from(event.clipboardData?.files ?? []);
+    if (!files.length || isVoiceOpen) return;
+    event.preventDefault();
+    addFiles(files);
+  };
+
+  // Drops are always claimed: an unhandled drop makes the browser navigate the
+  // tab to the file. While the voice panel is open the files are simply ignored.
+  const handleDragOver = (event: React.DragEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!isVoiceOpen && !isSending) setIsDragging(true);
+  };
+
+  const handleDragLeave = (event: React.DragEvent<HTMLFormElement>) => {
+    // Crossing into a child fires leave on the form; only a real exit ends the outline.
+    const next = event.relatedTarget;
+    if (next instanceof Node && event.currentTarget.contains(next)) return;
+    setIsDragging(false);
+  };
+
+  const handleDrop = (event: React.DragEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setIsDragging(false);
+    if (isVoiceOpen || isSending) return;
+    addFiles(Array.from(event.dataTransfer?.files ?? []));
+  };
+
+  /**
+   * Drop what a dead turn left behind. A bubble holding only the progress notice
+   * has nothing to show for the turn and goes away; one that already holds the
+   * answer keeps it. The reset matters more than the bubble: a stale pendingId is
+   * what the *next* turn's notice and transcript patch, which renders the next
+   * answer above its own question.
+   */
+  const endPendingTurn = useCallback(() => {
+    const turn = voiceTurnRef.current;
+    if (turn.pendingId !== undefined && !turn.streamStarted) {
+      removeMessage(turn.pendingId);
+    }
+    voiceTurnRef.current = { tools: [] };
+    setIsSending(false);
+  }, [removeMessage]);
+
   const appendVisualizations = useCallback((visualizations: VoiceVisualization[]) => {
     if (!visualizations.length) return;
     setEntries((current) => [
@@ -303,22 +700,71 @@ export function CourseAgentClient({
 
   // ---------------------------------------------------------------- text chat
 
+  const isUploading = pendingAttachments.some(
+    (item) => item.status === "uploading" || item.status === "indexing"
+  );
+  const isIndexing = pendingAttachments.some((item) => item.status === "indexing");
+  const hasPinned = pendingAttachments.some((item) => isExcerpted(item.attachment));
+  const readyAttachments = pendingAttachments.filter(
+    (item): item is PendingAttachment & { attachment: VoiceAttachment } =>
+      item.status === "ready" && item.attachment !== undefined
+  );
+
+  // A typed turn on the voice path carries no files, so an upload in flight
+  // only holds back a typed-only turn.
+  const waitingForUpload = isUploading && !isVoiceOpen;
+
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
     const text = question.trim();
-    if (!text || isSending) return;
+    if (!text || isSending || waitingForUpload) return;
 
-    appendMessage({ role: "user", text, symbolState: "presence" });
+    // A voice turn is spoken and heard, so a file cannot ride on it: while the
+    // panel is open the files stay in the composer for the next typed-only turn.
+    const sending = isVoiceOpen ? [] : readyAttachments;
+    const sentAttachments: SentAttachment[] = sending.map((item) => ({
+      ...item.attachment,
+      previewUrl: item.previewUrl
+    }));
+    const questionId = appendMessage({
+      attachments: sentAttachments,
+      role: "user",
+      symbolState: "presence",
+      text
+    });
+    // On the typed path the folded "생각 중…" line carries the waiting; the bubble
+    // stays empty until the progress notice or the first token fills it.
     const pendingId = appendMessage({
       role: "assistant",
-      text: "답변을 준비하고 있습니다.",
-      symbolState: "flow"
+      symbolState: "flow",
+      text: isVoiceOpen ? "답변을 준비하고 있습니다." : "",
+      trace: isVoiceOpen ? undefined : startTrace()
     });
     setQuestion("");
     setIsSending(true);
+    if (sending.length) {
+      // The previews now belong to the sent message; the failed ones are dropped.
+      // A long PDF read by excerpt stays pinned, so the next question can look
+      // things up in it too; everything else was consumed by this turn.
+      pendingAttachments
+        .filter((item) => item.status !== "ready")
+        .forEach((item) => revokePreview(item.previewUrl));
+      setPendingAttachments((current) =>
+        current
+          .filter((item) => item.status === "ready" && isExcerpted(item.attachment))
+          .map((item) => ({ ...item, pinned: true }))
+      );
+      setAttachHint(null);
+    }
 
     const liveSocket = socketRef.current;
-    if (isVoiceOpen && liveSocket?.readyState === WebSocket.OPEN) {
+    if (isVoiceOpen) {
+      // Submitting a turn interrupts the agent, exactly as speaking over it does.
+      // Only a spoken barge-in gets a server "flush", so without this the agent
+      // talks through its previous answer first -- and typing is the whole way a
+      // student with no microphone interrupts. Done locally because the client
+      // starts the turn and need not wait for a round trip to stop the audio.
+      flushPlayback();
       lastLocalTextRef.current = text.toLocaleLowerCase().trim().replace(/\s+/g, " ");
       voiceTurnRef.current = {
         pendingId,
@@ -326,7 +772,12 @@ export function CourseAgentClient({
         tools: []
       };
       setVoiceState("thinking");
-      liveSocket.send(JSON.stringify({ type: "text", text }));
+      const payload = JSON.stringify({ type: "text", text });
+      if (liveSocket?.readyState === WebSocket.OPEN) {
+        liveSocket.send(payload);
+      } else {
+        pendingTextRef.current.push(payload);
+      }
       return;
     }
 
@@ -334,18 +785,49 @@ export function CourseAgentClient({
     try {
       const answer: VoiceAnswer = await streamVoiceAnswer(
         courseId,
-        { chat_session_id: chatSessionId, mode: "socratic", text },
-        (token) => {
-          streamed += token;
-          patchMessage(pendingId, { text: streamed, symbolState: "flow" });
+        {
+          attachment_ids: sending.map((item) => item.attachment.id),
+          chat_session_id: chatSessionId,
+          mode: "socratic",
+          text
         },
-        (message) => {
-          if (!streamed) {
-            patchMessage(pendingId, { text: message, symbolState: "flow" });
+        {
+          onStatus: (message) => {
+            if (!streamed) {
+              patchMessage(pendingId, { text: message, symbolState: "flow" });
+            }
+          },
+          onStep: (step: VoiceTraceStep) => {
+            patchTrace(pendingId, (trace) => ({ ...trace, steps: upsertStep(trace.steps, step) }));
+          },
+          onThinking: (text, stepKey) => {
+            patchTrace(pendingId, (trace) => appendThinking(trace, text, stepKey));
+          },
+          onThought: (text, stepKey) => {
+            patchTrace(pendingId, (trace) => appendThought(trace, text, stepKey));
+          },
+          onRewind: () => {
+            // A discarded draft: what streamed so far leaves the bubble.
+            streamed = "";
+            patchMessage(pendingId, { text: "", symbolState: "flow" });
+          },
+          onToken: (token) => {
+            streamed += token;
+            patchMessage(pendingId, { text: streamed, symbolState: "flow" });
           }
         }
       );
       setChatSessionId(answer.session_id);
+      patchTrace(pendingId, finishTrace);
+      if (sentAttachments.length) {
+        // The turn says what it read from each file (an excerpted PDF: which pages).
+        patchMessage(questionId, {
+          attachments: sentAttachments.map((sent) => {
+            const read = answer.attachments.find((item) => item.id === sent.id);
+            return read ? { ...sent, ...read, index: undefined } : sent;
+          })
+        });
+      }
       patchMessage(pendingId, {
         materialSources: answer.material_sources,
         symbolState: "bloom",
@@ -357,6 +839,7 @@ export function CourseAgentClient({
       });
       appendVisualizations(answer.visualizations);
     } catch (error) {
+      patchTrace(pendingId, failTrace);
       patchMessage(pendingId, {
         symbolState: "error",
         text: `오류: ${error instanceof Error ? error.message : "답변을 생성하지 못했습니다."}`
@@ -366,8 +849,19 @@ export function CourseAgentClient({
     }
   };
 
+  const toggleTrace = (id: number) => {
+    patchTrace(id, (trace) => ({ ...trace, open: !trace.open }));
+  };
+
   const handleNewChat = async () => {
     if (isVoiceOpen) stopVoice();
+    clearAttachments();
+    // The sent messages' image previews go with the conversation they belonged to.
+    entries.forEach((entry) => {
+      if (entry.kind === "message") {
+        entry.attachments?.forEach((attachment) => revokePreview(attachment.previewUrl));
+      }
+    });
     await resetVoiceConversation(courseId).catch(() => undefined);
     nextId.current = 1;
     setChatSessionId(null);
@@ -388,23 +882,29 @@ export function CourseAgentClient({
     });
     activeSourcesRef.current.clear();
     nextPlayAtRef.current = 0;
+    // The discarded answer's last sample is not the next one's left neighbour.
+    resampleStateRef.current = newResampleState();
   }, []);
 
   const playChunk = useCallback((bytes: Uint8Array, rate: number) => {
     const context = playContextRef.current;
-    if (!context || bytes.byteLength < 2) return;
-    const usable = bytes.byteLength - (bytes.byteLength % 2);
-    const pcm = new Int16Array(bytes.buffer, bytes.byteOffset, usable / 2);
+    if (!context) return;
+    const pcm = decodePcm16(bytes);
+    if (!pcm) return;
     if (rate !== context.sampleRate && !rateMismatchLoggedRef.current) {
       rateMismatchLoggedRef.current = true;
       console.warn(
         `[voice] playback context is ${context.sampleRate} Hz but audio is ${rate} Hz; ` +
-          "each chunk will be resampled separately and boundaries may tick"
+          "resampling to the context rate across chunk boundaries"
       );
     }
-    const buffer = context.createBuffer(1, pcm.length, rate);
-    const channel = buffer.getChannelData(0);
-    for (let index = 0; index < pcm.length; index += 1) channel[index] = pcm[index] / 32768;
+    // Resampled here rather than by handing the browser a buffer at the wrong
+    // rate: it would resample each chunk on its own, and the discontinuity left
+    // at every boundary is audible as a tick through the whole answer.
+    const samples = resample(pcm, rate, context.sampleRate, resampleStateRef.current);
+    if (samples.length === 0) return;
+    const buffer = context.createBuffer(1, samples.length, context.sampleRate);
+    buffer.getChannelData(0).set(samples);
 
     const source = context.createBufferSource();
     source.buffer = buffer;
@@ -434,6 +934,10 @@ export function CourseAgentClient({
         setVoiceState(next);
       } else if (type === "flush") {
         flushPlayback();
+        // Barge-in cancels the turn server-side, so nothing will ever patch its
+        // bubble. Before the progress notice existed there was no bubble yet to
+        // strand, because a spoken turn only created one on its first token.
+        endPendingTurn();
       } else if (type === "token") {
         const token = String(message.text ?? "");
         const turn = voiceTurnRef.current;
@@ -460,7 +964,21 @@ export function CourseAgentClient({
         const text = String(message.text ?? "").trim();
         if (text) {
           const turn = voiceTurnRef.current;
-          if (turn.pendingId === undefined) {
+          if (message.transient) {
+            // A fixed progress notice, not something the agent decided to say:
+            // keep it in the pending bubble so the answer replaces it instead of
+            // leaving an identical line in the transcript every turn.
+            if (turn.pendingId === undefined) {
+              turn.pendingId = appendMessage({
+                role: "assistant",
+                text,
+                symbolState: "resonance"
+              });
+            } else {
+              patchMessage(turn.pendingId, { text, symbolState: "resonance" });
+            }
+            turn.streamStarted = false;
+          } else if (turn.pendingId === undefined) {
             appendMessage({ role: "assistant", text, symbolState: "resonance" });
           } else {
             patchMessage(turn.pendingId, { text, symbolState: "resonance" });
@@ -524,6 +1042,7 @@ export function CourseAgentClient({
       } else if (type === "audio") {
         playChunk(fromBase64(String(message.data ?? "")), Number(message.rate ?? 24000));
       } else if (type === "error") {
+        endPendingTurn();
         appendMessage({
           role: "assistant",
           symbolState: "error",
@@ -533,7 +1052,7 @@ export function CourseAgentClient({
         setIsSending(false);
       }
     },
-    [appendMessage, appendVisualizations, flushPlayback, patchMessage, playChunk]
+    [appendMessage, appendVisualizations, endPendingTurn, flushPlayback, patchMessage, playChunk]
   );
 
   const sendSamples = useCallback((block: Float32Array) => {
@@ -569,6 +1088,12 @@ export function CourseAgentClient({
   }, []);
 
   const stopVoice = useCallback(() => {
+    intentionalCloseRef.current = true;
+    if (reconnectTimerRef.current !== null) {
+      clearTimeout(reconnectTimerRef.current);
+      reconnectTimerRef.current = null;
+    }
+    reconnectsRef.current = 0;
     flushPlayback();
     socketRef.current?.close();
     micStreamRef.current?.getTracks().forEach((track) => track.stop());
@@ -581,6 +1106,7 @@ export function CourseAgentClient({
     playContextRef.current = null;
     pcmBufferRef.current = new Float32Array(0);
     pendingAudioFramesRef.current = [];
+    pendingTextRef.current = [];
     voiceTurnRef.current = { tools: [] };
     voiceTranscriptMessageIdsRef.current.clear();
     setIsVoiceOpen(false);
@@ -592,8 +1118,67 @@ export function CourseAgentClient({
 
   useEffect(() => stopVoice, [stopVoice]);
 
+  /**
+   * End a turn the socket took with it. The server cancels the turn when the
+   * connection closes and nothing replays it, so whatever bubble is pending will
+   * never be patched by an answer. A queued turn is the exception: it was never
+   * sent, so the reconnect will send it and its bubble is still live.
+   */
+  function failPendingTurn(text: string) {
+    if (pendingTextRef.current.length) return;
+    const turn = voiceTurnRef.current;
+    if (turn.pendingId !== undefined && !turn.streamStarted) {
+      patchMessage(turn.pendingId, { symbolState: "error", text });
+    }
+    voiceTurnRef.current = { tools: [] };
+    setIsSending(false);
+  }
+
+  function openVoiceSocket(): WebSocket {
+    const socket = new WebSocket(voiceStreamUrl(courseId, chatSessionIdRef.current));
+    socket.onopen = () => {
+      reconnectsRef.current = 0;
+      pendingAudioFramesRef.current.forEach((payload) => socket.send(payload));
+      pendingAudioFramesRef.current = [];
+      pendingTextRef.current.forEach((payload) => socket.send(payload));
+      pendingTextRef.current = [];
+    };
+    socket.onmessage = handleSocketMessage;
+    // A socket error is always followed by a close, so one recovery path is enough.
+    socket.onerror = () => undefined;
+    socket.onclose = () => {
+      socketRef.current = null;
+      if (intentionalCloseRef.current) return;
+      flushPlayback();
+      const attempt = reconnectsRef.current;
+      // Even a reconnect that succeeds does not revive the turn that was in
+      // flight, and its pending bubble would otherwise sit on "질문을 살펴보고
+      // 있어요..." forever -- then swallow the *next* turn's answer, because the
+      // stale pendingId is still what the next filler and transcript patch.
+      failPendingTurn("연결이 끊겨 답변이 중단됐어요. 다시 질문해 주세요.");
+      if (attempt >= RECONNECT_DELAYS_MS.length) {
+        appendMessage({
+          role: "assistant",
+          symbolState: "error",
+          text: "음성 연결이 끊어졌어요. 마이크 버튼을 다시 눌러 대화를 이어가 주세요."
+        });
+        stopVoice();
+        return;
+      }
+      reconnectsRef.current = attempt + 1;
+      setVoiceState("connecting");
+      reconnectTimerRef.current = setTimeout(() => {
+        reconnectTimerRef.current = null;
+        socketRef.current = openVoiceSocket();
+      }, RECONNECT_DELAYS_MS[attempt]);
+    };
+    return socket;
+  }
+
   const startVoice = async () => {
     micUnavailableRef.current = false;
+    intentionalCloseRef.current = false;
+    reconnectsRef.current = 0;
     setIsMicrophoneAvailable(true);
     setIsVoiceOpen(true);
     setVoiceState("connecting");
@@ -604,18 +1189,7 @@ export function CourseAgentClient({
       playContextRef.current = playContext;
       nextPlayAtRef.current = 0;
 
-      const socket = new WebSocket(voiceStreamUrl(courseId, chatSessionId));
-      socket.onopen = () => {
-        pendingAudioFramesRef.current.forEach((payload) => socket.send(payload));
-        pendingAudioFramesRef.current = [];
-      };
-      socket.onmessage = handleSocketMessage;
-      socket.onclose = () => {
-        socketRef.current = null;
-        setIsVoiceOpen(false);
-        setVoiceState("idle");
-      };
-      socketRef.current = socket;
+      socketRef.current = openVoiceSocket();
     } catch (error) {
       setIsVoiceOpen(false);
       setVoiceState("idle");
@@ -708,7 +1282,15 @@ export function CourseAgentClient({
               새 대화
             </button>
           </div>
-          <div aria-live="polite" className="voice-messages" ref={messagesRef}>
+          <div
+            aria-live="polite"
+            className="voice-messages"
+            onScroll={(event) => {
+              const node = event.currentTarget;
+              readingEndRef.current = node.scrollHeight - node.scrollTop - node.clientHeight < 24;
+            }}
+            ref={messagesRef}
+          >
             {entries.map((entry) =>
               entry.kind === "visualization" ? (
                 <CourseAgentVisualizationCard
@@ -734,7 +1316,16 @@ export function CourseAgentClient({
                     <div className="voice-who">
                       {entry.role === "user" ? "나" : "COURSE AGENT"}
                     </div>
-                    <div className="voice-bubble">{entry.text}</div>
+                    {entry.attachments?.length ? (
+                      <AttachmentChips attachments={entry.attachments} />
+                    ) : null}
+                    {entry.trace ? (
+                      <CourseAgentTrace
+                        onToggle={() => toggleTrace(entry.id)}
+                        trace={entry.trace}
+                      />
+                    ) : null}
+                    {entry.text ? <MathText text={entry.text} /> : null}
                     {entry.tools?.length ? (
                       <div className="voice-tool-row">
                         {entry.tools.map((tool, index) => (
@@ -776,19 +1367,132 @@ export function CourseAgentClient({
               )
             )}
           </div>
-          <form className="voice-chat-form" onSubmit={handleSubmit}>
-            <input
-              aria-label="AI 조교에게 질문"
-              autoComplete="off"
-              disabled={isSending}
-              maxLength={4000}
-              onChange={(event) => setQuestion(event.target.value)}
-              placeholder="예: 강의자료에서 정상성과 차분의 관계를 찾아 설명해줘"
-              value={question}
-            />
-            <button className="voice-primary" disabled={isSending} type="submit">
-              전송
-            </button>
+          <form
+            className="voice-chat-form"
+            data-dragging={isDragging}
+            onDragLeave={handleDragLeave}
+            onDragOver={handleDragOver}
+            onDrop={handleDrop}
+            onSubmit={handleSubmit}
+          >
+            {pendingAttachments.length ? (
+              <ul aria-label="첨부할 파일" className="voice-attach-list">
+                {pendingAttachments.map((item) => (
+                  <li
+                    className="voice-attach-chip"
+                    data-pinned={item.pinned ? "true" : undefined}
+                    data-status={item.status}
+                    key={item.localId}
+                  >
+                    {item.previewUrl ? (
+                      // eslint-disable-next-line @next/next/no-img-element -- local object URL
+                      <img alt="" className="voice-attach-thumb" src={item.previewUrl} />
+                    ) : (
+                      <UiIcon
+                        className="voice-attach-icon"
+                        name={item.file.type === "application/pdf" || /\.pdf$/i.test(item.file.name)
+                          ? "material"
+                          : "image"}
+                      />
+                    )}
+                    <span className="voice-attach-text">
+                      <span className="voice-attach-name" title={item.file.name}>
+                        {item.file.name}
+                      </span>
+                      <span className="voice-attach-meta">
+                        {item.status === "uploading"
+                          ? "업로드 중"
+                          : item.status === "indexing" && item.attachment
+                            ? indexMeta(item.attachment)
+                            : item.status === "error"
+                              ? item.error
+                              : item.attachment
+                                ? `${item.pinned ? "대화에 유지 · " : ""}${attachmentMeta(item.attachment)}`
+                                : ""}
+                      </span>
+                    </span>
+                    <button
+                      aria-label={`${item.file.name} 첨부 취소`}
+                      className="voice-attach-remove"
+                      onClick={() => removeAttachment(item.localId)}
+                      type="button"
+                    >
+                      <UiIcon name="close" />
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+            {attachHint ? (
+              <p className="voice-attach-hint" role="status">
+                {attachHint}
+              </p>
+            ) : isVoiceOpen && pendingAttachments.length ? (
+              <p className="voice-attach-hint" role="status">
+                음성 대화 중에는 첨부 파일을 보낼 수 없어요. 음성 대화를 종료한 뒤 전송해 주세요.
+              </p>
+            ) : isIndexing ? (
+              <p className="voice-attach-hint" role="status">
+                긴 PDF를 색인하고 있어요. 끝나면 질문마다 관련 쪽을 찾아 참고해요.
+              </p>
+            ) : hasPinned ? (
+              <p className="voice-attach-hint" role="status">
+                긴 PDF는 대화에 남아 질문마다 관련 쪽만 찾아 참고해요. ×로 빼면 참고를 멈춰요.
+              </p>
+            ) : null}
+            <div className="voice-chat-form-row">
+              <input
+                accept="image/*,.pdf,application/pdf"
+                aria-label="첨부할 파일 선택"
+                hidden
+                multiple
+                onChange={handleFileInput}
+                ref={fileInputRef}
+                type="file"
+              />
+              <button
+                aria-label="파일 첨부"
+                className="voice-attach-button"
+                disabled={isVoiceOpen || isSending || pendingAttachments.length >= MAX_ATTACHMENTS}
+                onClick={() => fileInputRef.current?.click()}
+                title={
+                  isVoiceOpen
+                    ? "음성 대화 중에는 파일을 첨부할 수 없어요"
+                    : "이미지 또는 PDF 첨부"
+                }
+                type="button"
+              >
+                <UiIcon name="attachment" />
+              </button>
+              <input
+                aria-label="AI 조교에게 질문"
+                autoComplete="off"
+                disabled={isSending}
+                maxLength={4000}
+                onChange={(event) => setQuestion(event.target.value)}
+                onPaste={handlePaste}
+                placeholder={
+                  pendingAttachments.length
+                    ? "첨부한 파일에 대해 무엇을 물어볼까요?"
+                    : "예: 강의자료에서 정상성과 차분의 관계를 찾아 설명해줘"
+                }
+                value={question}
+              />
+              <button
+                className="voice-primary"
+                disabled={isSending || waitingForUpload}
+                title={
+                  waitingForUpload
+                    ? isIndexing
+                      ? "PDF 색인이 끝나면 보낼 수 있어요"
+                      : "파일 업로드가 끝나면 보낼 수 있어요"
+                    : undefined
+                }
+                type="submit"
+              >
+                전송
+              </button>
+            </div>
           </form>
         </section>
 

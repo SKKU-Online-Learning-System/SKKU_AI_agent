@@ -15,8 +15,18 @@ import logging
 import time
 from typing import Annotated, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect, status
-from fastapi.responses import StreamingResponse
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    Depends,
+    File,
+    HTTPException,
+    UploadFile,
+    WebSocket,
+    WebSocketDisconnect,
+    status,
+)
+from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
@@ -32,9 +42,28 @@ from app.models import Course, User
 from app.services.llm_service import LLMService
 from app.services.rag_service import RagService
 from app.services.safety_service import NORMAL_RESULT, SafetyGuardService, SafetyResult
-from app.services.voice import agent_spec, voice_log
-from app.services.voice.brain import StageTimer, VoiceContext, prefetch_memory_context, think
-from app.services.voice.factory import create_voice_transport, get_voice_availability
+from app.services.voice import agent_spec, attachment_index, voice_log
+from app.services.voice import attachments as attachments_module
+from app.services.voice.attachments import (
+    Attachment,
+    AttachmentContent,
+    AttachmentValidationError,
+)
+from app.services.voice.brain import (
+    StageTimer,
+    VoiceContext,
+    attachment_query,
+    emit_step,
+    last_assistant_turn,
+    prefetch_memory_context,
+    think,
+)
+from app.services.voice.factory import (
+    create_voice_transport,
+    get_voice_availability,
+    uses_grok,
+)
+from app.services.voice.filler import pick_filler
 from app.services.voice.session_store import external_brain_for, get_context, reset_context
 from app.services.voice.turn_detector import FRAME_BYTES
 from app.services.voice.transport import (
@@ -60,22 +89,23 @@ from app.services.voice.trusted_sites import (
 log = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/voice", tags=["voice"])
-TEXT_FILLER_MESSAGE = "질문을 살펴보고 있어요. 잠시만 기다려 주세요."
 VOICE_UNAVAILABLE_MESSAGE = "음성 모델 서비스를 사용할 수 없습니다. 잠시 후 다시 시도해 주세요."
+# Teaching is always Socratic. Kept as a constant because it is written into the
+# ChatLog payload, not because anything can select another mode.
+TEACHING_MODE = "socratic"
 
 class VoiceQuestion(BaseModel):
     text: str = Field(min_length=1, max_length=4000)
     mode: str = "socratic"
     chat_session_id: Optional[str] = None
+    # Files the student attached to this question, uploaded first through
+    # ``POST .../attachments``. Only the typed path takes them: a voice turn is
+    # spoken and heard, and a photo cannot be.
+    attachment_ids: list[str] = Field(default_factory=list, max_length=8)
 
 
 class TrustedSitePayload(BaseModel):
     url: str = Field(min_length=1, max_length=500)
-
-
-def _normalized_mode(mode: Optional[str]) -> str:
-    # Older clients may still send a mode; it cannot change the teaching policy.
-    return "socratic"
 
 
 def _session_context(user: User, course: Course) -> VoiceContext:
@@ -88,11 +118,14 @@ def _resume(
     user: User,
     course: Course,
     chat_session_id: Optional[str],
+    settings: Optional[Settings] = None,
 ) -> None:
     """Reload a conversation reopened from 대화 이력, if it is not already loaded."""
     if not chat_session_id or context.chat_session_id == chat_session_id:
         return
-    if not voice_log.restore_history(db, context, user, course, chat_session_id):
+    if not voice_log.restore_history(
+        db, context, user, course, chat_session_id, settings=settings
+    ):
         raise HTTPException(status_code=404, detail="대화를 찾을 수 없습니다.")
 
 
@@ -221,10 +254,12 @@ async def _answer(
     question: VoiceQuestion,
     timer: StageTimer,
     on_token=None,
+    on_event=None,
+    attachments: list[Attachment] | None = None,
+    settings: Settings | None = None,
 ) -> dict:
     """Run SAFE guardrails then the agent, returning the wire payload."""
     transcript = question.text.strip()
-    mode = _normalized_mode(question.mode)
     safety = SafetyGuardService().check_question(transcript)
 
     if safety.blocked:
@@ -242,10 +277,14 @@ async def _answer(
             "visualizations": [],
             "timings": timer.timings_ms,
             "safety": safety,
+            "attachments": [],
         }
 
+    contents = await _read_attachments(
+        attachments or [], timer, on_event, settings, query=attachment_query(context, transcript)
+    )
     reply, tools_used, sources, visualizations = await think(
-        context, transcript, timer, mode, on_token=on_token
+        context, transcript, timer, on_token=on_token, on_event=on_event, attachments=contents
     )
     return {
         "transcript": transcript,
@@ -255,7 +294,96 @@ async def _answer(
         "visualizations": visualizations,
         "timings": timer.timings_ms,
         "safety": safety,
+        "attachments": contents,
     }
+
+
+async def _read_attachments(
+    attachments: list[Attachment],
+    timer: StageTimer,
+    on_event,
+    settings: Settings | None,
+    *,
+    query: str = "",
+) -> list[AttachmentContent]:
+    """Read the turn's files off the event loop, tracing the step for the UI.
+
+    ``query`` is what an indexed (long) PDF is searched with for this turn.
+    """
+    if not attachments:
+        return []
+    started = time.perf_counter()
+    label, detail = attachments_module.reading_label(attachments)
+    await emit_step(on_event, "attachments", "running", label, detail=detail)
+    settings = settings or get_settings()
+    try:
+        contents = await asyncio.wait_for(
+            asyncio.to_thread(
+                attachments_module.read_attachments,
+                attachments,
+                settings=settings,
+                llm=LLMService(settings),
+                query=query,
+            ),
+            timeout=settings.attachment_read_timeout_seconds,
+        )
+    except asyncio.TimeoutError:
+        # The turn goes on without the files rather than hanging; the model is
+        # told they could not be read. (The worker thread finishes on its own.)
+        log.warning("attachment read timed out after %ss", settings.attachment_read_timeout_seconds)
+        contents = [
+            AttachmentContent(
+                item.id, item.name, item.kind, item.pages, "",
+                error="읽는 데 시간이 너무 오래 걸렸어요", size=item.size,
+            )
+            for item in attachments
+        ]
+    except Exception:
+        await emit_step(
+            on_event, "attachments", "failed", "첨부 파일을 읽지 못했어요", started_at=started
+        )
+        raise
+    finally:
+        timer.record("attach", started)
+    label, detail = attachments_module.read_label(contents)
+    state = "done" if any(content.has_content for content in contents) else "failed"
+    await emit_step(on_event, "attachments", state, label, detail=detail, started_at=started)
+    return contents
+
+
+def _resolve_attachments(
+    question: VoiceQuestion, user: User, course: Course, settings: Settings
+) -> list[Attachment]:
+    """Map the request's attachment ids to files this learner uploaded for this course."""
+    ids = list(dict.fromkeys(item.strip() for item in question.attachment_ids if item.strip()))
+    if not ids:
+        return []
+    if len(ids) > settings.attachment_max_count:
+        raise HTTPException(
+            status_code=422,
+            detail=f"파일은 한 번에 {settings.attachment_max_count}개까지 첨부할 수 있어요.",
+        )
+    resolved: list[Attachment] = []
+    for attachment_id in ids:
+        attachment = attachments_module.load_attachment(
+            attachment_id, user_id=user.id, course_id=course.id, settings=settings
+        )
+        if attachment is None:
+            raise HTTPException(status_code=404, detail="첨부 파일을 찾을 수 없어요.")
+        if attachment_index.needs_index(attachment, settings):
+            status_record = attachment_index.index_status(attachment) or {}
+            if status_record.get("status") == "failed":
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"{attachment.name}: {status_record.get('message') or '색인에 실패했어요'}",
+                )
+            if status_record.get("status") != "ready":
+                raise HTTPException(
+                    status_code=409,
+                    detail=f"{attachment.name}의 색인이 아직 진행 중이에요. 잠시 후 다시 보내 주세요.",
+                )
+        resolved.append(attachment)
+    return resolved
 
 
 def _persist(
@@ -264,7 +392,6 @@ def _persist(
     course: Course,
     payload: dict,
     context: VoiceContext,
-    mode: str,
     chat_session_id: Optional[str],
     elapsed_ms: int,
 ) -> dict:
@@ -284,12 +411,13 @@ def _persist(
         material_sources=context.last_material_sources,
         web_sources=payload["sources"],
         tools_used=payload["tools"],
-        mode=mode,
+        mode=TEACHING_MODE,
         model_name=None if blocked else llm.model_name,
         response_time_ms=elapsed_ms,
         safety=payload["safety"],
         provider_name=None if blocked else llm.provider,
         visualizations=context.last_visualizations,
+        attachments=attachments_module.logged_list(payload.get("attachments", [])),
     )
     return {"session_id": chat_session.id, "log_id": log_id}
 
@@ -305,8 +433,104 @@ def _wire(payload: dict, context: VoiceContext, persisted: dict) -> dict:
         "timings": payload["timings"],
         "material_sources": context.last_material_sources,
         "safety": safety.as_dict(),
+        "attachments": attachments_module.wire_list(payload.get("attachments", [])),
         **persisted,
     }
+
+
+# --------------------------------------------------------------------------
+# Attachments: images and PDFs a student asks about
+# --------------------------------------------------------------------------
+
+
+@router.post("/courses/{course_id}/attachments", status_code=status.HTTP_201_CREATED)
+async def upload_attachment(
+    course_id: str,
+    background_tasks: BackgroundTasks,
+    session: Annotated[Session, Depends(get_db)],
+    settings: Annotated[Settings, Depends(get_settings)],
+    current_user: Annotated[User, Depends(get_current_user)],
+    file: UploadFile = File(...),
+) -> dict:
+    """Store one file for the learner's next typed question.
+
+    The file belongs to this learner within this course only. It is validated
+    (type, size, page count) but not read yet: reading happens on the turn that
+    carries it, where the student watches it happen in the trace. A PDF longer
+    than ``attachment_inline_max_pages`` is indexed in the background first;
+    the response says so (``index.status``) and the composer waits for it.
+    """
+    course = authorize_course_access(session, current_user, course_id)
+    try:
+        attachments_module.classify(file.filename or "")
+    except AttachmentValidationError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    chunks: list[bytes] = []
+    size = 0
+    while chunk := await file.read(attachments_module.READ_CHUNK_SIZE):
+        size += len(chunk)
+        if size > settings.attachment_max_size_bytes:
+            limit_mb = settings.attachment_max_size_bytes // (1024 * 1024)
+            raise HTTPException(
+                status_code=422, detail=f"파일은 {limit_mb}MB 이하만 첨부할 수 있어요."
+            )
+        chunks.append(chunk)
+    try:
+        attachment = await asyncio.to_thread(
+            attachments_module.store_attachment,
+            b"".join(chunks),
+            filename=file.filename or "",
+            user_id=current_user.id,
+            course_id=course.id,
+            settings=settings,
+        )
+    except AttachmentValidationError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    if attachment_index.needs_index(attachment, settings):
+        attachment_index.mark_indexing(attachment)
+        background_tasks.add_task(attachment_index.build_index, attachment, settings)
+    return attachment.wire_with_index(settings)
+
+
+@router.get("/courses/{course_id}/attachments/{attachment_id}")
+def read_attachment_status(
+    course_id: str,
+    attachment_id: str,
+    session: Annotated[Session, Depends(get_db)],
+    settings: Annotated[Settings, Depends(get_settings)],
+    current_user: Annotated[User, Depends(get_current_user)],
+) -> dict:
+    """How far an uploaded file is: the composer polls this while a long PDF is indexed."""
+    course = authorize_course_access(session, current_user, course_id)
+    attachment = attachments_module.load_attachment(
+        attachment_id, user_id=current_user.id, course_id=course.id, settings=settings
+    )
+    if attachment is None:
+        raise HTTPException(status_code=404, detail="첨부 파일을 찾을 수 없어요.")
+    return attachment.wire_with_index(settings)
+
+
+@router.delete(
+    "/courses/{course_id}/attachments/{attachment_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+def delete_attachment(
+    course_id: str,
+    attachment_id: str,
+    session: Annotated[Session, Depends(get_db)],
+    settings: Annotated[Settings, Depends(get_settings)],
+    current_user: Annotated[User, Depends(get_current_user)],
+) -> Response:
+    """Drop a file the learner removed before sending; another learner's id is unknown."""
+    course = authorize_course_access(session, current_user, course_id)
+    attachment = attachments_module.load_attachment(
+        attachment_id, user_id=current_user.id, course_id=course.id, settings=settings
+    )
+    if attachment is None:
+        raise HTTPException(status_code=404, detail="첨부 파일을 찾을 수 없어요.")
+    attachments_module.delete_attachment(attachment)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.post("/courses/{course_id}/answer-text")
@@ -314,6 +538,7 @@ async def answer_text(
     course_id: str,
     question: VoiceQuestion,
     session: Annotated[Session, Depends(get_db)],
+    settings: Annotated[Settings, Depends(get_settings)],
     current_user: Annotated[User, Depends(get_current_user)],
 ) -> dict:
     """Answer one typed question with the same brain the voice path uses."""
@@ -322,12 +547,15 @@ async def answer_text(
         raise HTTPException(status_code=422, detail="text must not be blank")
 
     context = _session_context(current_user, course)
-    _resume(session, context, current_user, course, question.chat_session_id)
+    _resume(session, context, current_user, course, question.chat_session_id, settings)
+    attachments = _resolve_attachments(question, current_user, course, settings)
     timer = StageTimer()
     started = time.perf_counter()
     try:
         with timer.stage("total"):
-            payload = await _answer(context, question, timer)
+            payload = await _answer(
+                context, question, timer, attachments=attachments, settings=settings
+            )
     except Exception as exc:
         log.exception("voice text answer failed")
         raise HTTPException(
@@ -342,7 +570,6 @@ async def answer_text(
         course,
         payload,
         context,
-        _normalized_mode(question.mode),
         question.chat_session_id,
         elapsed_ms,
     )
@@ -354,18 +581,31 @@ async def answer_text_stream(
     course_id: str,
     question: VoiceQuestion,
     session: Annotated[Session, Depends(get_db)],
+    settings: Annotated[Settings, Depends(get_settings)],
     current_user: Annotated[User, Depends(get_current_user)],
 ) -> StreamingResponse:
-    """Stream answer tokens as NDJSON, then one final ``done`` event."""
+    """Stream the turn as NDJSON: trace steps, reasoning, answer tokens, then ``done``.
+
+    Event types, one JSON object per line:
+
+    * ``status`` -- the progress notice composed from the question (``filler``).
+    * ``step`` -- one line of the agent's work, addressed by ``key`` so a later
+      event with the same key updates it in place: ``state`` is ``running``,
+      ``done`` or ``failed``; ``label``/``detail`` are the Korean text to show.
+    * ``thinking`` -- a delta of the model's own reasoning, for the collapsible
+      "생각 과정" panel. Never part of the answer.
+    * ``token`` -- a delta of the answer text.
+    * ``done`` -- the same payload ``answer-text`` returns; ``error`` -- failure.
+    """
     course = authorize_course_access(session, current_user, course_id)
     if not question.text.strip():
         raise HTTPException(status_code=422, detail="text must not be blank")
 
     context = _session_context(current_user, course)
-    _resume(session, context, current_user, course, question.chat_session_id)
+    _resume(session, context, current_user, course, question.chat_session_id, settings)
+    attachments = _resolve_attachments(question, current_user, course, settings)
     user_id = current_user.id
     course_id_value = course.id
-    mode = _normalized_mode(question.mode)
 
     async def events():
         queue: asyncio.Queue[dict] = asyncio.Queue()
@@ -375,10 +615,23 @@ async def answer_text_stream(
         async def on_token(token: str) -> None:
             await queue.put({"type": "token", "text": token})
 
+        async def on_event(event: dict) -> None:
+            # Trace lines ("step") and the model's reasoning ("thinking"), shown
+            # while the answer is still being worked out.
+            await queue.put(event)
+
         async def generate() -> None:
             try:
                 with timer.stage("total"):
-                    payload = await _answer(context, question, timer, on_token=on_token)
+                    payload = await _answer(
+                        context,
+                        question,
+                        timer,
+                        on_token=on_token,
+                        on_event=on_event,
+                        attachments=attachments,
+                        settings=settings,
+                    )
                 elapsed_ms = round((time.perf_counter() - started) * 1000)
                 # The request session is already closed when the generator runs.
                 with SessionLocal() as db:
@@ -390,7 +643,6 @@ async def answer_text_stream(
                         course_row,
                         payload,
                         context,
-                        mode,
                         question.chat_session_id,
                         elapsed_ms,
                     )
@@ -401,7 +653,15 @@ async def answer_text_stream(
                     {"type": "error", "message": "답변 생성 서비스를 사용할 수 없습니다."}
                 )
 
-        await queue.put({"type": "status", "text": TEXT_FILLER_MESSAGE})
+        notice = pick_filler(
+            question.text,
+            history_length=len(context.history),
+            previous=context.last_filler,
+            previous_turn=last_assistant_turn(context),
+        )
+        if notice:
+            context.last_filler = notice
+            await queue.put({"type": "status", "text": notice})
         task = asyncio.create_task(generate())
         try:
             while True:
@@ -414,7 +674,19 @@ async def answer_text_stream(
                 task.cancel()
             await asyncio.gather(task, return_exceptions=True)
 
-    return StreamingResponse(events(), media_type="application/x-ndjson")
+    # A proxy that compresses or buffers the body (the Next.js dev server's
+    # rewrite, nginx) would hold every line until the end, and the stream would
+    # arrive as one block after the whole wait. no-transform forbids compression,
+    # X-Accel-Buffering the buffering, and the trailing header is for browsers.
+    return StreamingResponse(
+        events(),
+        media_type="application/x-ndjson",
+        headers={
+            "Cache-Control": "no-cache, no-transform",
+            "X-Accel-Buffering": "no",
+            "X-Content-Type-Options": "nosniff",
+        },
+    )
 
 
 # --------------------------------------------------------------------------
@@ -467,44 +739,49 @@ async def voice_stream(websocket: WebSocket, course_id: str) -> None:
         await websocket.close(code=status.WS_1013_TRY_AGAIN_LATER)
         return
 
-    mode = _normalized_mode(websocket.query_params.get("mode"))
     context = get_context(user.id, course.id, course.name)
     try:
         with SessionLocal() as db:
-            _resume(db, context, user, course, websocket.query_params.get("chat_session_id"))
+            _resume(
+                db, context, user, course, websocket.query_params.get("chat_session_id"), settings
+            )
             chat_session = voice_log.resolve_session(db, user, course, context.chat_session_id)
             context.chat_session_id = chat_session.id
     except HTTPException as exc:
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION, reason=str(exc.detail))
         return
-    try:
-        memory_context = await asyncio.wait_for(prefetch_memory_context(context), timeout=3)
-    except Exception:
-        memory_context = {"found": False}
+    provider_wiring: dict = {}
+    if uses_grok(settings):
+        # Only the legacy provider is driven by a persona, a tool schema and a
+        # dispatcher handed to it; building them costs a learner-memory fetch, so
+        # the default cascade -- which runs the brain itself -- must not pay it.
+        try:
+            memory_context = await asyncio.wait_for(prefetch_memory_context(context), timeout=3)
+        except Exception:
+            memory_context = {"found": False}
 
-    async def refresh_instructions() -> str:
-        memory = await prefetch_memory_context(context)
-        return agent_spec.persona(course.name, mode, memory)
+        async def refresh_instructions() -> str:
+            return agent_spec.persona(
+                course.name, TEACHING_MODE, await prefetch_memory_context(context)
+            )
 
-    external_brain = external_brain_for(user.id, course.id, course.name)
-    transport = create_voice_transport(
-        context=context,
-        mode=mode,
-        instructions=agent_spec.persona(course.name, mode, memory_context),
-        tools=agent_spec.json_schemas(),
-        run_tool=agent_spec.tool_runner(context),
-        refresh_instructions=refresh_instructions,
-        schedule_assessment=lambda conversation: external_brain.schedule(
-            conversation,
-            source="realtime",
-        ),
-        settings=settings,
-    )
+        external_brain = external_brain_for(user.id, course.id, course.name)
+        provider_wiring = {
+            "instructions": agent_spec.persona(course.name, TEACHING_MODE, memory_context),
+            "tools": agent_spec.json_schemas(),
+            "run_tool": agent_spec.tool_runner(context),
+            "refresh_instructions": refresh_instructions,
+            "schedule_assessment": lambda conversation: external_brain.schedule(
+                conversation,
+                source="realtime",
+            ),
+        }
+    transport = create_voice_transport(context=context, settings=settings, **provider_wiring)
     reader: asyncio.Task[None] | None = None
     try:
         await transport.start()
         reader = asyncio.create_task(
-            _pump_provider_events(websocket, transport, context, user, course, mode)
+            _pump_provider_events(websocket, transport, context, user, course)
         )
         await websocket.send_json(
             {"type": "ready", "provider": transport.name, "session_id": context.chat_session_id}
@@ -549,9 +826,12 @@ async def _pump_provider_events(
     context: VoiceContext,
     user: User,
     course: Course,
-    mode: str,
 ) -> None:
     """Translate provider-neutral realtime events for the browser."""
+    # A transport that runs the brain against the session context already owns the
+    # conversation; writing it again here would keep a second, independently
+    # trimmed copy that drifts from the one the model actually sees.
+    writes_history = not transport.owns_history
     speaking = False
     turn_ended_at: Optional[float] = None
     pending_question = ""
@@ -583,18 +863,22 @@ async def _pump_provider_events(
                 case UserStoppedSpeaking():
                     turn_ended_at = time.perf_counter()
                     await websocket.send_json({"type": "state", "value": "thinking"})
-                case AgentAudio(pcm=pcm, rate=rate):
+                case AgentAudio(pcm=pcm, rate=rate, filler=filler):
                     if not speaking:
                         speaking = True
                         await websocket.send_json({"type": "state", "value": "speaking"})
-                        if turn_ended_at is not None:
-                            await websocket.send_json(
-                                {
-                                    "type": "latency",
-                                    "ms": round((time.perf_counter() - turn_ended_at) * 1000),
-                                }
-                            )
-                            turn_ended_at = None
+                    # The badge is the wait for an ANSWER. A progress notice plays
+                    # first when the model is slow, and timing that instead would
+                    # report the notice's latency on exactly the turns that were
+                    # slow enough to need one.
+                    if not filler and turn_ended_at is not None:
+                        await websocket.send_json(
+                            {
+                                "type": "latency",
+                                "ms": round((time.perf_counter() - turn_ended_at) * 1000),
+                            }
+                        )
+                        turn_ended_at = None
                     await websocket.send_json(
                         {
                             "type": "audio",
@@ -604,8 +888,10 @@ async def _pump_provider_events(
                     )
                 case AgentTextDelta(text=text) if text:
                     await websocket.send_json({"type": "token", "text": text})
-                case AgentFiller(text=text) if text:
-                    await websocket.send_json({"type": "filler", "text": text})
+                case AgentFiller(text=text, transient=transient) if text:
+                    await websocket.send_json(
+                        {"type": "filler", "text": text, "transient": transient}
+                    )
                 case AgentTextBoundary():
                     await websocket.send_json({"type": "text_boundary"})
                 case AgentTurnDone():
@@ -631,13 +917,16 @@ async def _pump_provider_events(
                         if replace and item_id and item_id == pending_question_id:
                             pending_question = text
                             turn_safety = SafetyGuardService().check_question(text)
-                            _replace_latest_history(context, "user", text)
+                            if writes_history:
+                                _replace_latest_history(context, "user", text)
                         elif replace and item_id and item_id == completed_question_id:
-                            _replace_latest_history(context, "user", text)
+                            if writes_history:
+                                _replace_latest_history(context, "user", text)
                             if completed_log_id:
                                 _update_logged_question(completed_log_id, text)
                         else:
-                            context.append_history({"role": "user", "content": text})
+                            if writes_history:
+                                context.append_history({"role": "user", "content": text})
                             pending_question = text
                             pending_question_id = item_id
                             turn_safety = SafetyGuardService().check_question(text)
@@ -646,7 +935,10 @@ async def _pump_provider_events(
                                 turn_tools = []
                                 turn_web_sources = []
                         if pending_answer:
-                            context.append_history({"role": "assistant", "content": pending_answer})
+                            if writes_history:
+                                context.append_history(
+                                    {"role": "assistant", "content": pending_answer}
+                                )
                             completed_log_id = _log_voice_turn(
                                 user,
                                 course,
@@ -657,7 +949,6 @@ async def _pump_provider_events(
                                 turn_web_sources,
                                 turn_safety,
                                 transport,
-                                mode,
                                 round((time.perf_counter() - turn_started_at) * 1000),
                             )
                             completed_question_id = pending_question_id
@@ -665,7 +956,8 @@ async def _pump_provider_events(
                             pending_question_id = ""
                             pending_answer = ""
                     elif pending_question:
-                        context.append_history({"role": "assistant", "content": text})
+                        if writes_history:
+                            context.append_history({"role": "assistant", "content": text})
                         completed_log_id = _log_voice_turn(
                             user,
                             course,
@@ -676,7 +968,6 @@ async def _pump_provider_events(
                             turn_web_sources,
                             turn_safety,
                             transport,
-                            mode,
                             round((time.perf_counter() - turn_started_at) * 1000),
                         )
                         completed_question_id = pending_question_id
@@ -709,6 +1000,25 @@ async def _pump_provider_events(
                             )
                 case Failed(message=message, fatal=fatal):
                     await websocket.send_json({"type": "error", "message": message})
+                    if pending_question:
+                        # The student did ask something. Losing the question because
+                        # the answer never arrived would hide the outage from the
+                        # professor and admin log screens entirely.
+                        _log_voice_turn(
+                            user,
+                            course,
+                            context,
+                            pending_question,
+                            message,
+                            turn_tools,
+                            turn_web_sources,
+                            turn_safety,
+                            transport,
+                            round((time.perf_counter() - turn_started_at) * 1000),
+                        )
+                        pending_question = ""
+                        pending_question_id = ""
+                        pending_answer = ""
                     if fatal:
                         return
                     speaking = False
@@ -733,7 +1043,6 @@ def _log_voice_turn(
     web_sources: list[str],
     safety: SafetyResult,
     transport: Transport,
-    mode: str,
     elapsed_ms: int,
 ) -> Optional[str]:
     """Persist one spoken turn; a logging failure must not drop the call."""
@@ -765,7 +1074,7 @@ def _log_voice_turn(
                 material_sources=context.last_material_sources,
                 web_sources=web_sources,
                 tools_used=tools_used,
-                mode=mode,
+                mode=TEACHING_MODE,
                 model_name=model_name,
                 response_time_ms=elapsed_ms,
                 safety=safety,

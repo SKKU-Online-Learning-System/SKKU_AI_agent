@@ -178,7 +178,7 @@ model_name, response_time_ms
 
 ```
 uploads/{material_uuid}                        원본 강의자료 (내부 파일명은 UUID)
-uploads/voice/weak-concepts.json               취약 개념 (Moss 미설정 시 로컬 폴백)
+uploads/voice/weak-concepts.json               취약 개념 (Moss 미설정 시 로컬 폴백, Moss 사용 시 미러) → 교수자·관리자 통계의 원본
 uploads/voice/trusted-sites/{course_id}.json   과목별 신뢰 도메인
 uploads/voice/web-search.jsonl                 외부 검색 감사 로그 (질의·근거·사유·시각)
 ```

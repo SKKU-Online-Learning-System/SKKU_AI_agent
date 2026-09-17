@@ -23,6 +23,8 @@ class DocumentChunkInput:
     page_number: Optional[int]
     section_title: Optional[str]
     char_count: int
+    page_image: bytes | None = None
+    page_evidence: str | None = None
     # Compatibility metadata used by the older service-oriented tests. The
     # current material pipeline passes course/material separately to storage.
     course_id: Optional[str] = None

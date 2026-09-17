@@ -50,6 +50,7 @@ def create_app() -> FastAPI:
     app.add_middleware(
         UploadRequestSizeLimitMiddleware,
         max_body_size=settings.max_upload_request_size_bytes,
+        attachment_max_body_size=settings.attachment_max_size_bytes + 1024 * 1024,
     )
 
     app.include_router(health.router, prefix="/api")

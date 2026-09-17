@@ -1,13 +1,14 @@
 """Turn an uploaded material into embedded, searchable chunks.
 
-The whole run is a single `process_material(material_id)` call so it can later
-move to a background worker without changing the API contract.
+Uploads schedule `process_material(material_id)` after the response. Explicit
+processing and reindexing reuse the same atomic publication pipeline.
 """
 
 from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Optional
 
 from sqlalchemy import select, update
@@ -15,10 +16,12 @@ from sqlalchemy.orm import Session
 
 from app.core.config import Settings, get_settings
 from app.models import CourseMaterial, CourseMaterialStatus
-from app.services.chunking_service import create_chunks
+from app.services.chunking_service import DocumentChunkInput, create_chunks
 from app.services.document_parser import DocumentParseError, parse_material
 from app.services.document_parser_service import DocumentParserService
+from app.services.document_rendering import image_data_url, render_pages
 from app.services.embedding_service import EmbeddingError, EmbeddingService
+from app.services.llm_service import LLMService
 from app.services.vector_store_service import VectorStoreService
 
 logger = logging.getLogger(__name__)
@@ -128,28 +131,37 @@ class MaterialProcessingService:
         self.session.refresh(material)
 
     def _run_pipeline(self, material: CourseMaterial) -> ProcessingOutcome:
-        if self.parser is not None:
-            document = self.parser.parse(material)
+        if self.parser is None and Path(material.storage_path).suffix.lower() in {".pdf", ".pptx", ".docx"}:
+            chunks, embeddings = [], []
+            reader = LLMService(self.settings)
+            for number, native_text, image in render_pages(material.storage_path, self.settings):
+                image_url = image_data_url(image)
+                logger.info("Reading material %s page %s", material.id, number)
+                evidence = reader.read_document_image(image_url)
+                text = native_text.strip()
+                logger.info("Read material %s page %s", material.id, number)
+                chunks.append(DocumentChunkInput(
+                    chunk_index=len(chunks), chunk_text=text, page_number=number,
+                    section_title="페이지 이미지", char_count=len(text),
+                    page_image=image, page_evidence=evidence,
+                ))
+                embeddings.append(self.embedding_service.embed_image(image_url))
         else:
-            document = parse_material(
-                material_id=material.id,
-                course_id=material.course_id,
-                title=material.original_file_name,
-                storage_path=material.storage_path,
+            document = self.parser.parse(material) if self.parser else parse_material(
+                material_id=material.id, course_id=material.course_id,
+                title=material.original_file_name, storage_path=material.storage_path,
             )
-        chunks = create_chunks(
-            document,
-            chunk_size=self.settings.chunk_size,
-            chunk_overlap=self.settings.chunk_overlap,
-            min_chunk_chars=self.settings.min_chunk_chars,
-        )
+            chunks = create_chunks(
+                document, chunk_size=self.settings.chunk_size,
+                chunk_overlap=self.settings.chunk_overlap,
+                min_chunk_chars=self.settings.min_chunk_chars,
+            )
+            embeddings = self.embedding_service.embed_texts([chunk.chunk_text for chunk in chunks])
         if not chunks:
             raise MaterialProcessingError(
-                "문서에서 저장할 수 있는 청크를 만들지 못했습니다.",
-                "DOCUMENT_TEXT_NOT_FOUND",
+                "문서에서 저장할 수 있는 청크를 만들지 못했습니다.", "DOCUMENT_TEXT_NOT_FOUND",
             )
 
-        embeddings = self.embedding_service.embed_texts([chunk.chunk_text for chunk in chunks])
         embedding_model = self.embedding_service.model_name
         self.vector_store.replace_material_chunks(
             course_id=material.course_id,
@@ -189,4 +201,21 @@ class MaterialProcessingService:
             )
         )
         self.session.commit()
-        logger.warning("Material %s processing failed (%s): %s", material.id, code, error)
+        logger.exception("Material %s processing failed (%s): %s", material.id, code, error)
+
+
+def process_uploaded_material(bind, settings: Settings, material_id: str) -> None:
+    """Run after the upload response, using a worker-owned database session.
+
+    ponytail: in-process background work; use a durable queue if multi-process
+    retry/recovery is required. Status and errors remain persisted in the DB.
+    """
+    with Session(bind=bind) as session:
+        try:
+            MaterialProcessingService(session, settings).process_material(material_id)
+        except (MaterialAlreadyProcessingError, MaterialNotFoundError):
+            # A manual retry may already own it, or the uploader may have deleted it.
+            return
+        except MaterialProcessingError:
+            # The pipeline has already saved failed status and its error.
+            logger.exception("Background material processing failed: %s", material_id)

@@ -261,12 +261,14 @@ class RagSearchResultRead(CamelModel):
     chunk_index: int
     chunk_text: str
     score: float
+    page_image_url: Optional[str] = None
 
 
 class RagSearchDebugRead(CamelModel):
     embedding_model: str
     search_mode: str
     score_threshold: float
+    text_score_threshold: float
     total_candidate_chunks: int
 
 
@@ -345,12 +347,23 @@ class ChatSessionSummaryRead(CamelModel):
     updated_at: datetime
 
 
+class ChatAttachmentRead(CamelModel):
+    """A file the student attached to a question, as the history shows it."""
+
+    id: str = ""
+    name: str
+    kind: str
+    pages: int = 0
+    size: int = 0
+
+
 class ChatHistoryLogRead(CamelModel):
     id: str
     question: str
     answer: str
     sources: list[AnswerSourceRead] = Field(default_factory=list)
     referenced_documents: list[dict[str, object]] = Field(default_factory=list)
+    attachments: list[ChatAttachmentRead] = Field(default_factory=list)
     is_grounded: bool
     answer_source_type: AnswerSourceType
     created_at: datetime

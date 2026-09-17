@@ -25,11 +25,12 @@ FRAME_BYTES = SAMPLE_RATE * FRAME_MS // 1000 * 2
 SILERO_SAMPLES = 512
 SILERO_BYTES = SILERO_SAMPLES * 2
 
-_settings = get_settings()
-SILENCE_MS = _settings.silence_ms
-PREFIX_MS = _settings.prefix_ms
-MIN_SPEECH_MS = _settings.min_speech_ms
-VAD_AGGRESSIVENESS = _settings.vad_aggressiveness  # legacy compatibility only
+# Module-level defaults are read once so tests and callers can override them,
+# but every detector re-reads the settings when it is built: freezing the tuning
+# at import time made SILENCE_MS and friends immune to configuration.
+SILENCE_MS = get_settings().silence_ms
+PREFIX_MS = get_settings().prefix_ms
+MIN_SPEECH_MS = get_settings().min_speech_ms
 
 # Onset debounce: declare SPEAKING only after 3 speech frames in the last 5.
 ONSET_FRAMES, ONSET_WINDOW = 3, 5
@@ -79,14 +80,24 @@ class SileroVad:
 class TurnDetector:
     """Detect complete speech turns from fixed-size PCM frames."""
 
-    def __init__(self, vad=None) -> None:
+    def __init__(
+        self,
+        vad=None,
+        *,
+        silence_ms: int | None = None,
+        prefix_ms: int | None = None,
+        min_speech_ms: int | None = None,
+    ) -> None:
         self.vad = vad or SileroVad()
+        self.silence_ms = SILENCE_MS if silence_ms is None else silence_ms
+        self.prefix_ms = PREFIX_MS if prefix_ms is None else prefix_ms
+        self.min_speech_ms = MIN_SPEECH_MS if min_speech_ms is None else min_speech_ms
         self.reset()
 
     def reset(self) -> None:
         self.speaking = False
         self._frames: list[bytes] = []
-        self._prefix: deque[bytes] = deque(maxlen=max(PREFIX_MS // FRAME_MS, 1))
+        self._prefix: deque[bytes] = deque(maxlen=max(self.prefix_ms // FRAME_MS, 1))
         self._onset: deque[bool] = deque(maxlen=ONSET_WINDOW)
         self._quiet_ms = 0
         self._speech_ms = 0
@@ -118,7 +129,7 @@ class TurnDetector:
         else:
             self._quiet_ms += FRAME_MS
 
-        if self._quiet_ms < SILENCE_MS:
+        if self._quiet_ms < self.silence_ms:
             return None
 
         utterance = b"".join(self._frames)
@@ -126,7 +137,7 @@ class TurnDetector:
         duration_s = len(self._frames) * FRAME_MS / 1000
         self.reset()
 
-        if speech_ms < MIN_SPEECH_MS:
+        if speech_ms < self.min_speech_ms:
             log.info("[DISCARDED] %d ms of speech — too short for a turn", speech_ms)
             return None
 

@@ -3,17 +3,22 @@
 from __future__ import annotations
 
 import re
+import time
 from collections import Counter
-from typing import Annotated, Iterable
+from typing import Annotated, Callable, Iterable
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user, require_role
+from app.api.routes.chat_logs import mask_email
+from app.core.config import Settings, get_settings
 from app.db.session import get_db
 from app.models import ChatLog, ChatSession, Course, CourseAccess, CourseMaterial, User, UserRole
+from app.services import weak_concept_stats
 from app.services.rbac_service import can_manage_course
+from app.services.voice.moss_memory import local_memory_path, read_local_memories
 
 router = APIRouter(prefix="/stats", tags=["statistics"])
 
@@ -191,4 +196,98 @@ def my_statistics(
             {"courseId": course_id, "courseName": name, "questionCount": int(count)}
             for course_id, name, count in rows
         ],
+    }
+
+
+# --------------------------------------------------------------------------
+# Weak concepts the course agent captured, seen from the teaching side.
+# --------------------------------------------------------------------------
+
+
+def _is_admin(user: User) -> bool:
+    return str(getattr(user.role, "value", user.role)) == UserRole.admin.value
+
+
+def _weak_concept_memories(settings: Settings) -> list[dict]:
+    return read_local_memories(local_memory_path(settings))
+
+
+def _student_labeler(
+    session: Session, memories: list[dict], *, reveal_identity: bool
+) -> Callable[[str], str]:
+    """Name students the way chat logs do: full identity for admins, masked for professors."""
+    ids = {str(memory.get("student_id")) for memory in memories if memory.get("student_id")}
+    users = (
+        {user.id: user for user in session.scalars(select(User).where(User.id.in_(ids)))}
+        if ids
+        else {}
+    )
+
+    def label(student_id: str) -> str:
+        user = users.get(student_id)
+        if user is None:
+            return "삭제된 사용자"
+        if reveal_identity:
+            return f"{user.name} ({user.email})"
+        return mask_email(user.email)
+
+    return label
+
+
+def _weak_concept_overview(settings: Settings, courses: Iterable[Course]) -> dict[str, object]:
+    now = time.time()
+    memories = _weak_concept_memories(settings)
+    rows: list[dict] = []
+    matched: dict[str, dict] = {}
+    for course in courses:
+        course_memories = weak_concept_stats.course_memories(memories, course.name)
+        matched.update({str(memory.get("id")): memory for memory in course_memories})
+        rows.append(
+            {
+                "courseId": course.id,
+                "courseName": course.name,
+                **weak_concept_stats.summarize_course(course_memories, now=now),
+            }
+        )
+    return {
+        "totals": weak_concept_stats.summarize_totals(rows, list(matched.values()), now=now),
+        "courses": rows,
+    }
+
+
+@router.get("/weak-concepts")
+def weak_concept_statistics(
+    session: Annotated[Session, Depends(get_db)],
+    settings: Annotated[Settings, Depends(get_settings)],
+    current_user: Annotated[User, Depends(require_role([UserRole.admin, UserRole.professor]))],
+) -> dict[str, object]:
+    """Return weak-concept totals per course: every course for admins, assigned ones for professors."""
+
+    statement = select(Course).order_by(Course.name)
+    if not _is_admin(current_user):
+        statement = statement.where(Course.professor_id == current_user.id)
+    return _weak_concept_overview(settings, session.scalars(statement))
+
+
+@router.get("/weak-concepts/courses/{course_id}")
+def course_weak_concept_statistics(
+    course_id: str,
+    session: Annotated[Session, Depends(get_db)],
+    settings: Annotated[Settings, Depends(get_settings)],
+    current_user: Annotated[User, Depends(require_role([UserRole.admin, UserRole.professor]))],
+) -> dict[str, object]:
+    """Return one course's weak concepts by concept, topic and student, plus recent captures."""
+
+    course = session.get(Course, course_id)
+    if course is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Course not found")
+    if not can_manage_course(current_user, course):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
+
+    memories = weak_concept_stats.course_memories(_weak_concept_memories(settings), course.name)
+    label_for = _student_labeler(session, memories, reveal_identity=_is_admin(current_user))
+    return {
+        "courseId": course.id,
+        "courseName": course.name,
+        **weak_concept_stats.course_detail(memories, label_for=label_for, now=time.time()),
     }

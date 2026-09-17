@@ -37,6 +37,8 @@ class FakeSyncClient:
 
 
 class FakeStreamResponse:
+    status_code = 200
+
     def __init__(self, lines: list[str]) -> None:
         self.lines = lines
 
@@ -223,3 +225,92 @@ async def test_single_forced_tool_uses_named_choice(monkeypatch):
     )
     assert fake.stream_requests[0]["json"]["tool_choice"] == {
         "type": "function", "function": {"name": "finish_turn"}}
+
+
+@pytest.mark.asyncio
+async def test_qwen_streaming_forwards_reasoning_deltas_separately_from_the_answer(monkeypatch):
+    """The text profile runs with thinking on; vLLM's reasoning parser streams the
+    thinking in its own delta field, which is shown to the student and never
+    becomes part of the reply."""
+    lines = [
+        'data: {"choices":[{"delta":{"reasoning_content":"학생은 정의를 "}}]}',
+        'data: {"choices":[{"delta":{"reasoning":"묻고 있다."}}]}',
+        'data: {"choices":[{"delta":{"content":"경사하강법은 "}}]}',
+        'data: {"choices":[{"delta":{"content":"기울기를 따라 내려가요."},"finish_reason":"stop"}]}',
+        "data: [DONE]",
+    ]
+    fake = FakeAsyncClient(lines=lines)
+    monkeypatch.setattr(llm_service, "async_client", lambda *args: fake)
+    tokens: list[str] = []
+    thoughts: list[str] = []
+
+    turn = await LLMService(settings()).stream_tool_turn(
+        system="policy",
+        messages=[{"role": "user", "content": "경사하강법이 뭐야?"}],
+        tools=[],
+        on_token=lambda token: _append(tokens, token),
+        on_reasoning=lambda text: _append(thoughts, text),
+    )
+
+    assert thoughts == ["학생은 정의를 ", "묻고 있다."]
+    assert "".join(tokens) == turn.text == "경사하강법은 기울기를 따라 내려가요."
+
+
+@pytest.mark.asyncio
+async def test_mock_provider_reasons_before_it_answers() -> None:
+    thoughts: list[str] = []
+    llm = LLMService(Settings(_env_file=None, use_mock_llm=True))
+
+    turn = await llm.stream_tool_turn(
+        system="policy",
+        messages=[{"role": "user", "content": "안녕"}],
+        tools=[],
+        on_reasoning=lambda text: _append(thoughts, text),
+    )
+
+    assert thoughts == [llm_service.MOCK_REASONING]
+    assert llm_service.MOCK_REASONING not in turn.text
+
+
+def test_text_profile_gets_its_own_completion_budget(monkeypatch) -> None:
+    """Thinking counts against max_tokens, so the text profile must not share the 1024 default."""
+    fake = FakeSyncClient({"choices": [{"message": {"content": "답"}}]})
+    monkeypatch.setattr(llm_service, "sync_client", lambda *args: fake)
+
+    LLMService(settings(llm_max_tokens=1024, text_llm_max_tokens=4096)).generate_answer(
+        [ChatMessage("user", "질문")]
+    )
+    LLMService(settings(llm_max_tokens=1024), profile="voice").generate_answer(
+        [ChatMessage("user", "질문")]
+    )
+
+    assert fake.requests[0]["json"]["max_tokens"] == 4096
+    assert fake.requests[1]["json"]["max_tokens"] == 1024
+
+
+@pytest.mark.asyncio
+async def test_truncation_is_a_distinct_error_and_thinking_can_be_turned_off_per_call(
+    monkeypatch,
+) -> None:
+    fake = FakeAsyncClient(lines=[
+        'data: {"choices":[{"delta":{"reasoning_content":"생각이 길다"},"finish_reason":"length"}]}',
+        "data: [DONE]",
+    ])
+    monkeypatch.setattr(llm_service, "async_client", lambda *args: fake)
+    llm = LLMService(settings())
+
+    with pytest.raises(llm_service.LLMTruncatedError):
+        await llm.stream_tool_turn(
+            system="policy", messages=[{"role": "user", "content": "질문"}], tools=[]
+        )
+    assert "chat_template_kwargs" not in fake.stream_requests[0]["json"]
+
+    fake.lines = ['data: {"choices":[{"delta":{"content":"짧은 답"},"finish_reason":"stop"}]}',
+                  "data: [DONE]"]
+    turn = await llm.stream_tool_turn(
+        system="policy", messages=[{"role": "user", "content": "질문"}], tools=[], thinking=False
+    )
+
+    assert turn.text == "짧은 답"
+    assert fake.stream_requests[1]["json"]["chat_template_kwargs"] == {"enable_thinking": False}
+

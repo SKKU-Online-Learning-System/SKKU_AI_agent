@@ -1,0 +1,75 @@
+[
+  {
+    "question": "MHA MQA GQA 그림에서 query와 key value 헤드 연결 구조는 어떻게 달라?",
+    "seconds": 10.77,
+    "results": [
+      {
+        "chunk_id": "4648aa85-1022-4d2a-957f-9201c28f442f",
+        "course_id": "384a5d06-f329-4e51-8b42-f817273df9c2",
+        "material_id": "79345b97-597b-4a2e-9772-67b241a9254f",
+        "document_name": "lecture06_Transformer_Part3.pdf",
+        "chunk_index": 19,
+        "page_number": 20,
+        "chunk_text": "[질문 관련 원본 이미지 판독 — Qwen/Qwen3.5-9B]\n제공된 슬라이드 이미지에서 MHA, GQA, MQA의 Query-Head 연결 구조는 다음과 같이 달라집니다.\n\n**1. Multi-Head Attention (MHA)**\n*   **구조:** Queries, Keys, Values 모두 동일한 수의 헤드 (8개) 로 구성됨.\n*   **연결:** 각 Query 헤드는 해당 인덱스의 Key 헤드와 1:1 로 연결됨.\n\n**2. Grouped-Query Attention (GQA)**\n*   **구조:** Keys/Values 는 4개의 헤드로, Queries 는 8개의 헤드로 구성됨.\n*   **연결:** 2 개의 Query 헤드가 1 개의 Key 헤드에 연결됨 (2:1 비율).\n\n**3. Multi-Query Attention (MQA)**\n*   **구조:** Keys/Values 는 1 개의 헤드로, Queries 는 8 개의 헤드로 구성됨.\n*   **연결:** 모든 8 개의 Query 헤드가 1 개의 Key 헤드에 연결됨 (8:1 비율).\n\n[문서 원문 텍스트]\nMHA, MQA, and GQA\r\nKyuhong Shim, Dept. of Intelligent Software Sequential Data Processing 2026. 4. 13. 19 / 23",
+        "score": 0.5774855977470197,
+        "has_image": true
+      }
+    ]
+  },
+  {
+    "question": "인과 마스크 그림에서 3번 행은 어느 열까지 볼 수 있어?",
+    "seconds": 6.517,
+    "results": [
+      {
+        "chunk_id": "cef61b88-89be-434c-97eb-06ce1a3aaf0c",
+        "course_id": "384a5d06-f329-4e51-8b42-f817273df9c2",
+        "material_id": "c4622540-75d0-4ed9-94ba-5806a5e2a268",
+        "document_name": "lecture06_Transformer_Part1.pdf",
+        "chunk_index": 13,
+        "page_number": 14,
+        "chunk_text": "[질문 관련 원본 이미지 판독 — Qwen/Qwen3.5-9B]\n제공된 슬라이드 텍스트에 따르면, 인과 마스크(Causal mask) 그림에서 3 번 행은 0 번 열부터 3 번 열까지 볼 수 있습니다.\n\n*   **3 번 행의 내용:** `✓ ✓ ✓ ✓ × × × ×`\n*   **해석:** `✓`는 \"보임(visible)\"을 의미하므로, 3 번 행은 열 0, 1, 2, 3 까지만 볼 수 있습니다.\n\n[문서 원문 텍스트]\nExample: Causal Mask\r\nExample\r\nBelow, ✓ means “visible” and × means “masked.”\r\nCausal attention sees only the past.\r\nCausal mask\r\n0 1 2 3 4 5 6 7\r\n0 ✓ × × × × × × ×\r\n1 ✓ ✓ × × × × × ×\r\n2 ✓ ✓ ✓ × × × × ×\r\n3 ✓ ✓ ✓ ✓ × × × ×\r\n4 ✓ ✓ ✓ ✓ ✓ × × ×\r\n5 ✓ ✓ ✓ ✓ ✓ ✓ × ×\r\n6 ✓ ✓ ✓ ✓ ✓ ✓ ✓ ×\r\n7 ✓ ✓ ✓ ✓ ✓ ✓ ✓ ✓\r\nKyuhong Shim, Dept. of Intelligent Software Sequential Data Processing 2026. 4. 1. 13 / 27",
+        "score": 0.42261450721410626,
+        "has_image": true
+      }
+    ]
+  },
+  {
+    "question": "사인 위치 인코딩 그래프에서 x축과 y축은 뭐야?",
+    "seconds": 5.063,
+    "results": [
+      {
+        "chunk_id": "ddb7bcf1-e5a2-4d93-8002-879dc5a2a9ff",
+        "course_id": "384a5d06-f329-4e51-8b42-f817273df9c2",
+        "material_id": "c4622540-75d0-4ed9-94ba-5806a5e2a268",
+        "document_name": "lecture06_Transformer_Part1.pdf",
+        "chunk_index": 22,
+        "page_number": 23,
+        "chunk_text": "[질문 관련 원본 이미지 판독 — Qwen/Qwen3.5-9B]\n제공된 슬라이드에서 사인 위치 인코딩 그래프의 축에 대한 정보는 다음과 같습니다.\n\n*   **x축 (가로축):** Depth\n*   **y축 (세로축):** Position\n\n[문서 원문 텍스트]\nSinusoidal Positional Encoding\r\n• Unlike learned absolute embeddings, sinusoidal encodings can be extended to longer\r\nsequence lengths without introducing new parameters.\r\nKyuhong Shim, Dept. of Intelligent Software Sequential Data Processing 2026. 4. 1. 22 / 27",
+        "score": 0.34194222969746,
+        "has_image": true
+      }
+    ]
+  },
+  {
+    "question": "내적 점수가 커지면 왜 학습이 어려워져?",
+    "seconds": 10.461,
+    "results": [
+      {
+        "chunk_id": "af4ce260-2a92-4c82-b041-2ef05b8bcbdc",
+        "course_id": "384a5d06-f329-4e51-8b42-f817273df9c2",
+        "material_id": "c4622540-75d0-4ed9-94ba-5806a5e2a268",
+        "document_name": "lecture06_Transformer_Part1.pdf",
+        "chunk_index": 7,
+        "page_number": 8,
+        "chunk_text": "[질문 관련 원본 이미지 판독 — Qwen/Qwen3.5-9B]\n제공된 슬라이드에는 \"내적 점수가 커지면 학습이 어려워지는 이유\"에 대한 직접적인 설명이 없습니다. 대신, 내적 점수가 커지는 현상과 그로 인한 학습의 어려움(그라디언트 소실) 사이의 인과관계를 설명하는 간접적인 증거만 포함되어 있습니다.\n\n관련 증거는 다음과 같습니다:\n\n*   **내적 점수의 분산 증가:** 키의 차원 $d_k$ 가 증가함에 따라 내적 점수 (dot-product score) 의 분산도 증가합니다.\n    *   슬라이드 텍스트: \"As the key dimension $d_k$ grows, the variance of this score also grows.\"\n*   **소프트맥스 함수의 급격한 변화:** 분산이 증가하면 소프트맥스 함수가 지나치게 날카로워질 수 있습니다.\n    *   슬라이드 텍스트: \"Then softmax can become overly sharp...\"\n*   **그라디언트 소실 (학습 어려움):** 소프트맥스가 지나치게 날카로워지면 매우 작은 그라디언트 (very small gradients) 가 발생할 수 있습니다. 이는 학습을 어렵게 만듭니다.\n    *   슬라이드 텍스트: \"...which may lead to very small gradients.\"\n\n[문서 원문 텍스트]\nScaled Dot Product\r\n• The dot-product score is a sum over d dimensions:\r\nq\r\n⊤\r\nt kk =\r\nX\r\nd\r\ni=1\r\nqt,ikk,i\r\n▶ As the key dimension dk grows, the variance of this score also grows.\r\n▶ Then softmax can become overly sharp, which may lead to very small gradients.\r\n• To stabilize training, we scale the score by √\r\nd:\r\nst,k =\r\nq\r\n⊤\r\nt kk\r\n√\r\nd\r\n(scaled dot-product (SDP))\r\nExample\r\nIf qt and kk follow N (0, I), then the scaled dot-product output also follows N (0, 1).\r\nKyuhong Shim, Dept. of Intelligent Software Sequential Data Processing 2026. 4. 1. 7 / 27",
+        "score": 0.24866933827916085,
+        "has_image": true
+      }
+    ]
+  },
+  {
+    "question": "다음 주 서울 날씨 알려줘",
+    "seconds": 3.671,
+    "results": []
+  }
+]
