@@ -5,7 +5,8 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from unittest.mock import AsyncMock, patch
+import re
+from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 
@@ -324,14 +325,78 @@ def test_speech_text_uses_hangul_pronunciation_hints() -> None:
         "softmax(소프트맥스) 함수와 virtual memory(버추얼 메모리)를 비교해요."
     ) == "소프트맥스 함수와 버추얼 메모리를 비교해요."
 
-def test_speech_text_leaves_non_acronyms_alone() -> None:
-    # Mixed case is a name or identifier, and a trailing lower-case letter makes
-    # the reading ambiguous; neither should be spelled out.
-    assert brain.for_speech("MyCPU 변수") == "MyCPU 변수"
-    assert brain.for_speech("CPUs 두 개") == "CPUs 두 개"
-    # Lower-case English prose is left to the model.
-    assert brain.for_speech("softmax 함수") == "softmax 함수"
+def test_speech_text_leaves_no_latin_for_the_voice() -> None:
+    """The voice runs in Korean mode, so Latin reaching it is mispronounced and
+    can come out as a tonal artefact. Only the spoken copy is converted; what the
+    student reads keeps its original spelling."""
+    # An identifier is said part by part rather than mangled as one word.
+    assert brain.for_speech("MyCPU 변수") == "마이씨피유 변수"
+    assert brain.for_speech("CPUs 두 개") == "씨피유스 두 개"
+    # Lower-case English prose is converted too; it used to be left to the model.
+    assert brain.for_speech("softmax 함수") == "소프트맥스 함수"
     assert brain.for_speech("가상 메모리는 큽니다.") == "가상 메모리는 큽니다."
+    spoken = brain.for_speech("gradient descent에서 learning rate가 크면 diverge합니다.")
+    assert not re.search(r"[A-Za-z]", spoken), spoken
+
+def test_speech_text_drops_a_term_written_twice() -> None:
+    """'소프트맥스 (softmax)' is one term written twice.
+
+    Once the English is converted the voice says it twice in a row, which is what
+    makes it sound odd. The prompt asks for Korean only; this is the net, and it
+    matches on what the bracket *reads as*, not on it being bracketed Latin.
+    """
+    assert brain.for_speech("소프트맥스 (softmax) 는 값을 바꿔요.") == "소프트맥스 는 값을 바꿔요."
+    assert brain.for_speech("어텐션(attention)의 핵심이에요.") == "어텐션의 핵심이에요."
+    # Bracketed Latin that is not a repeat is content: options, not a gloss.
+    assert brain.for_speech("보기 (A)와 (B) 중 무엇일까요?") == "보기 (에이)와 (비) 중 무엇일까요?"
+    assert brain.for_speech("가중치 (가장 큰 값) 를 보세요.") == "가중치 (가장 큰 값) 를 보세요."
+    assert brain.for_speech("두 확률 (2, 3) 을 비교해요.") == "두 확률 (2, 3) 을 비교해요."
+
+
+def test_speech_text_drops_math_notation() -> None:
+    """Notation cannot be read aloud, so it is dropped rather than spelled out."""
+    assert brain.for_speech("지수함수 $e^x$ 를 적용해요.") == "지수함수 를 적용해요."
+    assert brain.for_speech("지수함수 ($e^x$) 를 적용해요.") == "지수함수 를 적용해요."
+    assert brain.for_speech("\\frac{a}{b} 형태예요.") == "형태예요."
+    # No stray brackets are left where the notation used to be.
+    assert "(" not in brain.for_speech("값 ($x_1$) 을 보세요.")
+
+
+def test_speech_text_says_bare_superscripts_instead_of_dropping_them() -> None:
+    """'e^2' is part of the sentence, unlike a display formula, so it is read.
+
+    The reading ends in a consonant where the notation did not, so the Korean
+    particle after it has to come along: 'e^2와' is '이의 2제곱과', not '...제곱와'.
+    """
+    assert brain.for_speech("e^2와 e^3을 더해요.") == "이의 2제곱과 이의 3제곱을 더해요."
+    assert brain.for_speech("2^10은 1024예요.") == "2의 10제곱은 1024예요."
+    assert brain.for_speech("점수 z_1, z_2를 비교해요.") == "점수 제트 1, 제트 2를 비교해요."
+    # Ordinary Korean ending in those syllables is not a particle to rewrite.
+    assert brain.for_speech("사과와 효과를 비교해요.") == "사과와 효과를 비교해요."
+
+
+def test_answer_policy_asks_for_korean_without_notation() -> None:
+    """Both surfaces read the reply aloud, so the policy the voice path sees --
+    only the first paragraph -- has to carry these rules."""
+    voice_policy = brain.answer_instructions(make_context(), {}, voice=True)
+    assert "every term in Korean" in voice_policy
+    assert "LaTeX" in voice_policy
+
+
+def test_the_typed_reply_may_explain_at_length_while_speech_stays_short() -> None:
+    """The brevity rules exist for a spoken 220-character utterance; a reply read
+    on a screen may explain a hint properly, and the model is asked to think briefly."""
+    text_policy = brain.answer_instructions(make_context(), {})
+    voice_policy = brain.answer_instructions(make_context(), {}, voice=True)
+    assert "# 글로 답하는 방식" in text_policy and "2~5문장" in text_policy
+    assert "3단계 전에는" in text_policy  # the ladder still holds on screen
+    assert "Think in Korean and briefly" in text_policy
+    assert "# 글로 답하는 방식" not in voice_policy
+    assert "Think in Korean" not in voice_policy
+    # The text-mode note comes after the shared policy and before the stage, so the
+    # override is read with the rule it overrides.
+    assert text_policy.index("SOCRATIC" if False else "한국어 존댓말로 짧게") < text_policy.index("# 글로 답하는 방식") < text_policy.index("# 이번 턴의 지도 단계")
+
 
 def test_history_is_bounded_per_session() -> None:
     context = make_context()
@@ -353,7 +418,7 @@ def test_followup_retrieval_keeps_the_tutors_question(answer) -> None:
     query = brain.retrieval_query(context, answer)
     assert "어텐션 가중치" in query
     assert query.endswith(answer)
-    assert brain.retrieval_query(context, "새로운 주제인 경사하강법을 설명해줘") == (
+    assert brain.retrieval_query(context, "새로운 주제인 경사하강법을 설명해줘").endswith(
         "새로운 주제인 경사하강법을 설명해줘"
     )
 
@@ -361,7 +426,7 @@ def test_followup_retrieval_keeps_the_tutors_question(answer) -> None:
 def test_recent_visual_is_in_next_prompt_and_cleared_on_reset() -> None:
     context = make_context()
     context.last_visualizations = [{"kind": "formula", "latex": "a/(a+b)"}]
-    prompt = brain.answer_instructions(context, "explain", {})
+    prompt = brain.answer_instructions(context, {})
     assert "a/(a+b)" in prompt
     assert brain.SOCRATIC_PROMPT in prompt
     context.reset()
@@ -405,7 +470,10 @@ class FakeVad:
 
 FRAME = bytes(turn_detector.FRAME_BYTES)
 
-def test_turn_detector_debounces_prefix_and_endpoint() -> None:
+def test_turn_detector_debounces_prefix_and_endpoint(monkeypatch) -> None:
+    monkeypatch.setattr(turn_detector, "SILENCE_MS", 900)
+    monkeypatch.setattr(turn_detector, "PREFIX_MS", 300)
+    monkeypatch.setattr(turn_detector, "MIN_SPEECH_MS", 250)
     decisions = [False, False, True, True, True] + [True] * 10 + [False] * 45
     detector = turn_detector.TurnDetector(FakeVad(decisions))
     utterance = None
@@ -488,3 +556,86 @@ def test_local_memory_is_isolated_per_student(tmp_path) -> None:
         return await second.recall("Self-Attention")
 
     assert asyncio.run(scenario())["found"] is False
+
+
+class _ScriptedLLM:
+    def __init__(self, replies: list[str]) -> None:
+        self.turns = iter(ToolTurn(text=text, model_name="scripted", tool_calls=[]) for text in replies)
+        self.calls: list[dict] = []
+
+    async def stream_tool_turn(self, **kwargs) -> ToolTurn:
+        self.calls.append(kwargs)
+        return next(self.turns)
+
+
+def _text_turn(context, transcript: str, replies: list[str]):
+    llm = _ScriptedLLM(replies)
+    with (
+        patch.object(brain, "LLMService", return_value=llm),
+        patch.object(brain, "prefetch_context", new=AsyncMock(return_value={})),
+        patch("app.services.voice.session_store.external_brain_for", return_value=Mock()),
+    ):
+        reply, *_ = asyncio.run(brain.think(context, transcript, brain.StageTimer()))
+    return reply, llm
+
+
+def test_the_text_path_climbs_the_ladder_on_stuck_and_regenerates_a_repeated_question() -> None:
+    """answer-text has no finish_turn, so its ladder never moved and the probe came back verbatim."""
+    probe = "이름부터 볼게요. 두 벡터의 내적은 차원이 커지면 값이 어떻게 될 것 같나요?"
+    context = make_context()
+    context.history = [
+        {"role": "user", "content": "스케일드 닷 프로덕트 어텐션이 뭔지 모르겠어."},
+        {"role": "assistant", "content": probe},
+    ]
+    smaller = "괜찮아요. 2차원과 100차원 중 어느 쪽 내적이 더 클까요?"
+
+    reply, llm = _text_turn(context, "몰라", [probe, smaller])
+
+    assert reply == smaller
+    assert len(llm.calls) == 2
+    assert "두 벡터의 내적은" in llm.calls[1]["system"]
+    assert "되묻지 말고" in llm.calls[1]["system"] or "같은 질문" in llm.calls[1]["system"]
+    assert context.hint_level == 1
+
+    # A second stuck turn climbs again; a second repeat is spoken rather than failed.
+    reply, llm = _text_turn(context, "그것도 모르겠어요", [smaller, smaller])
+    assert reply == smaller
+    assert len(llm.calls) == 2
+    assert context.hint_level == 2
+
+    # A new question of its own is left to the model and moves the ladder nowhere.
+    reply, llm = _text_turn(context, "소프트맥스는 왜 써요?", ["좋은 질문이에요. 점수가 여러 개 있으면 무엇으로 바꾸고 싶을까요?"])
+    assert len(llm.calls) == 1
+    assert context.hint_level == 2
+
+
+def test_preloaded_memory_is_course_scoped_and_topic_first() -> None:
+    """The turn's own words pull the matching concept ahead of merely recent ones."""
+    memory = AsyncMock()
+    memory.all_memories.return_value = [
+        {"id": "other", "course": "소프트웨어공학", "concept": "응집도 - 결합도와의 차이",
+         "difficulty_note": "결합도와 혼동함", "last_seen_at": 40},
+        {"id": "newest", "course": "인공지능개론", "concept": "역전파 - 연쇄법칙 적용",
+         "difficulty_note": "연쇄법칙 적용을 어려워함", "last_seen_at": 30},
+        {"id": "newer", "course": "인공지능개론", "concept": "학습률 - 너무 크면 발산하는 이유",
+         "difficulty_note": "학습률과 발산을 혼동함", "last_seen_at": 20},
+        {"id": "relevant", "course": "인공지능개론", "concept": "소프트맥스 - 합이 1인 확률로 바꾸는 계산",
+         "original_question": "소프트맥스가 뭔지 모르겠어", "difficulty_note": "정의를 설명하지 못함",
+         "last_seen_at": 10},
+        {"id": "oldest", "course": "인공지능개론", "concept": "과적합 - 정규화로 완화",
+         "difficulty_note": "", "last_seen_at": 5},
+    ]
+    context = make_context(memory)
+
+    recalled = asyncio.run(
+        brain.recent_weak_concepts(context, topic="소프트맥스 다시 설명해 주세요")
+    )
+    assert [item["concept"].split(" - ")[0] for item in recalled["memories"]] == [
+        "소프트맥스", "역전파", "학습률",
+    ]
+    assert all(item["course"] == "인공지능개론" for item in recalled["memories"])
+
+    recent = asyncio.run(brain.recent_weak_concepts(context))
+    assert [item["concept"].split(" - ")[0] for item in recent["memories"]] == [
+        "역전파", "학습률", "소프트맥스",
+    ]

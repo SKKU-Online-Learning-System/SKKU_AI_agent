@@ -432,8 +432,20 @@
   background: white;
   border-top: 1px solid var(--icampus-border);
   display: flex;
+  flex-direction: column;
   gap: 8px;
   padding: 14px;
+}
+
+.voice-chat-form[data-dragging="true"] {
+  background: #f0f6fc;
+  outline: 2px dashed var(--icampus-accent);
+  outline-offset: -6px;
+}
+
+.voice-chat-form-row {
+  display: flex;
+  gap: 8px;
 }
 
 .voice-chat-form input,
@@ -452,8 +464,529 @@
   outline: 2px solid #a9ccea;
 }
 
-.voice-chat-form button {
+.voice-chat-form .voice-primary {
   width: 70px;
+}
+
+/* ---- attachments in the composer ---- */
+
+.voice-attach-button {
+  align-items: center;
+  background: white;
+  border: 1px solid #aeb9c5;
+  border-radius: 4px;
+  color: #405267;
+  display: inline-flex;
+  flex: 0 0 42px;
+  height: 42px;
+  justify-content: center;
+  width: 42px;
+}
+
+.voice-attach-button:hover:not(:disabled) {
+  border-color: var(--icampus-navy);
+  color: var(--icampus-navy);
+}
+
+.voice-attach-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.voice-attach-button .ui-icon {
+  height: 18px;
+  width: 18px;
+}
+
+.voice-attach-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.voice-attach-chip {
+  align-items: center;
+  background: #f4f7fa;
+  border: 1px solid #d7e1e9;
+  border-radius: 8px;
+  display: inline-flex;
+  gap: 8px;
+  max-width: 260px;
+  padding: 5px 6px 5px 8px;
+}
+
+.voice-attach-chip[data-status="uploading"] {
+  border-style: dashed;
+}
+
+.voice-attach-chip[data-status="error"] {
+  background: #fdf1f1;
+  border-color: #e3b7b7;
+}
+
+.voice-attach-chip[data-status="indexing"] {
+  border-style: dashed;
+}
+
+.voice-attach-chip[data-status="indexing"] .voice-attach-meta {
+  color: var(--icampus-accent);
+}
+
+/* A long PDF kept across turns: a steadier chip than a file about to be sent. */
+.voice-attach-chip[data-pinned="true"] {
+  background: #eef4f9;
+  border-color: #c9dce9;
+}
+
+.voice-attach-thumb,
+.voice-attachment-thumb {
+  border-radius: 4px;
+  flex: 0 0 auto;
+  height: 28px;
+  object-fit: cover;
+  width: 28px;
+}
+
+.voice-attach-icon,
+.voice-attachment-icon {
+  color: #5b6b7d;
+  flex: 0 0 auto;
+  height: 20px;
+  width: 20px;
+}
+
+.voice-attach-text {
+  display: grid;
+  min-width: 0;
+}
+
+.voice-attach-name,
+.voice-attachment-name {
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.voice-attach-meta,
+.voice-attachment-meta {
+  color: #6b7989;
+  font-size: 10px;
+}
+
+.voice-attach-chip[data-status="error"] .voice-attach-meta {
+  color: var(--danger);
+}
+
+.voice-attach-remove {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  border-radius: 50%;
+  color: #6b7989;
+  cursor: pointer;
+  display: inline-flex;
+  height: 22px;
+  justify-content: center;
+  padding: 0;
+  width: 22px;
+}
+
+.voice-attach-remove:hover {
+  background: #e2e9f0;
+  color: var(--icampus-text);
+}
+
+.voice-attach-remove .ui-icon {
+  height: 14px;
+  width: 14px;
+}
+
+.voice-attach-hint {
+  color: #6b7989;
+  font-size: 12px;
+  margin: 0;
+}
+
+/* ---- attachments on a sent message ---- */
+
+.voice-attachment-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  justify-content: flex-end;
+  list-style: none;
+  margin: 0 0 6px;
+  padding: 0;
+}
+
+.voice-attachment {
+  align-items: center;
+  background: white;
+  border: 1px solid #c9dce9;
+  border-radius: 8px;
+  display: inline-flex;
+  gap: 8px;
+  max-width: 260px;
+  padding: 5px 9px;
+}
+
+.voice-attachment-thumb {
+  height: 36px;
+  width: 36px;
+}
+
+/* ---- the agent's visible work above its answer ----
+   A quiet, grey, borderless line in the manner of Codex: "생각 중…" shimmers
+   while the turn runs, "N초 동안 생각함" once it is answered, and the details
+   hang off a soft vertical rule when opened. */
+
+.voice-trace {
+  margin: 2px 0 8px;
+  max-width: 100%;
+}
+
+.voice-trace-toggle {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  color: #8b95a5;
+  cursor: pointer;
+  display: inline-flex;
+  font-size: 12.5px;
+  gap: 4px;
+  margin-left: -4px;
+  padding: 3px 6px 3px 4px;
+  text-align: left;
+}
+
+.voice-trace-toggle:hover {
+  background: #f1f4f7;
+  color: #667385;
+}
+
+.voice-trace-toggle:focus-visible {
+  outline: 2px solid #a9ccea;
+  outline-offset: 1px;
+}
+
+.voice-trace-summary {
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+}
+
+/* The shimmer: a band of light sweeping across grey text, while the turn runs. */
+.voice-trace[data-state="running"] .voice-trace-summary {
+  animation: voice-trace-shimmer 2.2s linear infinite;
+  background: linear-gradient(
+    90deg,
+    #9aa3b1 0%,
+    #9aa3b1 35%,
+    #d9dee5 48%,
+    #f3f5f8 52%,
+    #d9dee5 56%,
+    #9aa3b1 69%,
+    #9aa3b1 100%
+  );
+  background-clip: text;
+  -webkit-background-clip: text;
+  background-size: 260% 100%;
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+}
+
+@keyframes voice-trace-shimmer {
+  from {
+    background-position: 130% 0;
+  }
+  to {
+    background-position: -130% 0;
+  }
+}
+
+.voice-trace[data-state="failed"] .voice-trace-toggle {
+  color: #a5834a;
+}
+
+.voice-trace-chevron {
+  color: #a9b2bf;
+  flex: 0 0 auto;
+  height: 13px;
+  transform: rotate(90deg);
+  transition: transform 0.18s ease;
+  width: 13px;
+}
+
+.voice-trace[data-open="true"] .voice-trace-chevron {
+  transform: rotate(-90deg);
+}
+
+.voice-trace-body {
+  border-left: 2px solid transparent;
+  border-image: linear-gradient(to bottom, #d5dbe3, rgba(213, 219, 227, 0.15)) 1;
+  color: #7b8594;
+  display: grid;
+  gap: 10px;
+  margin: 4px 0 0 6px;
+  padding: 2px 0 4px 14px;
+}
+
+.voice-trace-steps {
+  display: grid;
+  gap: 6px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.voice-trace-step {
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.voice-trace-mark {
+  display: inline-block;
+  flex: 0 0 auto;
+  height: 10px;
+  position: relative;
+  top: 1px;
+  width: 10px;
+}
+
+.voice-trace-step[data-state="running"] .voice-trace-mark {
+  animation: voice-trace-pulse 1.4s ease-in-out infinite;
+  background: #b6bfcb;
+  border-radius: 50%;
+  transform: scale(0.7);
+}
+
+@keyframes voice-trace-pulse {
+  0%,
+  100% {
+    opacity: 0.35;
+    transform: scale(0.6);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(0.85);
+  }
+}
+
+.voice-trace-step[data-state="done"] .voice-trace-mark::before {
+  border: solid #aab4c1;
+  border-width: 0 0 1.5px 1.5px;
+  content: "";
+  display: block;
+  height: 4px;
+  margin: 1px 0 0 1px;
+  transform: rotate(-45deg);
+  width: 7px;
+}
+
+.voice-trace-step[data-state="failed"] {
+  color: #a5834a;
+}
+
+.voice-trace-step[data-state="failed"] .voice-trace-mark::before {
+  background: #d5b76f;
+  border-radius: 50%;
+  content: "";
+  display: block;
+  height: 7px;
+  margin: 1px;
+  width: 7px;
+}
+
+.voice-trace-step[data-state="running"] .voice-trace-label {
+  color: #5f6c7d;
+}
+
+.voice-trace-text {
+  display: grid;
+  flex: 1;
+  gap: 1px;
+  min-width: 0;
+}
+
+.voice-trace-detail {
+  color: #a3acb9;
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.voice-trace-elapsed {
+  color: #b0b8c4;
+  flex: 0 0 auto;
+  font-size: 10.5px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* The thought being written right now, trailing the folded line. */
+.voice-trace-now {
+  animation: voice-trace-fade-in 0.7s ease;
+  color: #a3acb9;
+  font-size: 12px;
+  line-height: 1.5;
+  margin: -1px 0 0 2px;
+  max-width: 60ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@keyframes voice-trace-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(2px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.voice-trace-body {
+  max-height: 360px;
+  overflow: auto;
+}
+
+.voice-trace-step {
+  display: grid;
+  gap: 5px;
+}
+
+.voice-trace-step-line {
+  align-items: baseline;
+  display: flex;
+  gap: 9px;
+}
+
+/* One headline per line under the step it belongs to, a few seconds apart;
+   the newest is still forming. Each arrives with a slow fade so the eye can
+   catch it, and the raw reasoning sits behind a disclosure beneath them. */
+.voice-trace-thinking {
+  display: grid;
+  gap: 6px;
+  margin: 0 0 4px 19px;
+}
+
+.voice-trace-thoughts {
+  display: grid;
+  gap: 5px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.voice-trace-thought {
+  animation: voice-trace-fade-in 0.6s ease;
+  color: #98a2b1;
+  font-size: 12px;
+  line-height: 1.55;
+  padding-left: 12px;
+  position: relative;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.voice-trace-raw {
+  color: #a9b2bf;
+  font-size: 11.5px;
+}
+
+.voice-trace-raw summary {
+  cursor: pointer;
+  list-style: none;
+  padding-left: 12px;
+  position: relative;
+  width: fit-content;
+}
+
+.voice-trace-raw summary::-webkit-details-marker {
+  display: none;
+}
+
+.voice-trace-raw summary::before {
+  border: solid #b6bfcb;
+  border-width: 0 1.5px 1.5px 0;
+  content: "";
+  height: 4px;
+  left: 2px;
+  position: absolute;
+  top: 5px;
+  transform: rotate(-45deg);
+  transition: transform 0.15s ease;
+  width: 4px;
+}
+
+.voice-trace-raw[open] summary::before {
+  transform: rotate(45deg);
+}
+
+.voice-trace-raw summary:hover {
+  color: #7b8594;
+}
+
+.voice-trace-raw-text {
+  color: #a3acb9;
+  line-height: 1.6;
+  margin: 6px 0 2px 12px;
+  max-height: 200px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.voice-trace-thought::before {
+  background: #cfd6de;
+  border-radius: 50%;
+  content: "";
+  height: 4px;
+  left: 1px;
+  position: absolute;
+  top: 8px;
+  width: 4px;
+}
+
+.voice-trace-thought[data-current="true"] {
+  animation: voice-trace-shimmer 2.2s linear infinite;
+  background: linear-gradient(
+    90deg,
+    #98a2b1 0%,
+    #98a2b1 35%,
+    #c9d0d9 48%,
+    #e9edf2 52%,
+    #c9d0d9 56%,
+    #98a2b1 69%,
+    #98a2b1 100%
+  );
+  background-clip: text;
+  -webkit-background-clip: text;
+  background-size: 260% 100%;
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+}
+
+.voice-trace-thought[data-current="true"]::before {
+  animation: voice-trace-pulse 1.4s ease-in-out infinite;
+  background: #b6bfcb;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .voice-trace[data-state="running"] .voice-trace-summary,
+  .voice-trace-step[data-state="running"] .voice-trace-mark,
+  .voice-trace-thought[data-current="true"],
+  .voice-trace-thought[data-current="true"]::before,
+  .voice-trace-now {
+    animation: none;
+  }
 }
 
 .voice-primary,
