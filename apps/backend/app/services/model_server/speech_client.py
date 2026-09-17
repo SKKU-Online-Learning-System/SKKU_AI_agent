@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import io
 import wave
+from collections.abc import AsyncIterator
 from dataclasses import dataclass
 
 import httpx
@@ -47,10 +48,15 @@ class SpeechClient:
 
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
-        self.client = async_client(
+        self.asr_client = async_client(
             settings.speech_base_url,
             settings.model_server_api_key,
             max(settings.asr_timeout_seconds, settings.tts_timeout_seconds),
+        )
+        self.tts_client = async_client(
+            settings.tts_base_url or settings.speech_base_url,
+            settings.model_server_api_key,
+            settings.tts_timeout_seconds,
         )
 
     async def transcribe(
@@ -64,7 +70,7 @@ class SpeechClient:
             raise SpeechError("ASR 입력 오디오가 비어 있습니다.")
         wav = _wav_bytes(pcm, sample_rate)
         try:
-            response = await self.client.post(
+            response = await self.asr_client.post(
                 "v1/audio/transcriptions",
                 files={"file": ("utterance.wav", wav, "audio/wav")},
                 data={"language": language or self.settings.tts_language},
@@ -96,7 +102,7 @@ class SpeechClient:
         if not text:
             raise SpeechError("TTS 입력 텍스트가 비어 있습니다.")
         try:
-            response = await self.client.post(
+            response = await self.tts_client.post(
                 "v1/audio/speech",
                 json={
                     "input": text,
@@ -119,6 +125,61 @@ class SpeechClient:
             inference_ms=_optional_int(response.headers.get("X-Inference-Ms")),
             audio_duration_ms=_optional_int(response.headers.get("X-Audio-Duration-Ms")),
         )
+
+
+    async def synthesize_stream(
+        self,
+        text: str,
+        *,
+        speaker: str | None = None,
+        language: str | None = None,
+        hop_len: int | None = None,
+    ) -> AsyncIterator[tuple[bytes, int]]:
+        """Yield ``(pcm_chunk, sample_rate)`` as the TTS server produces them.
+
+        The non-streaming :meth:`synthesize` buffers the whole utterance, which
+        throws away the server's incremental output and pushes first-audio latency
+        out to the full synthesis time.
+        """
+        text = text.strip()
+        if not text:
+            raise SpeechError("TTS 입력 텍스트가 비어 있습니다.")
+
+        request = self.tts_client.build_request(
+            "POST",
+            "v1/audio/speech",
+            json={
+                "input": text,
+                "voice": speaker or self.settings.tts_speaker,
+                "language": language or self.settings.tts_language,
+                "response_format": "pcm",
+                "stream": True,
+                **({"hop_len": hop_len} if hop_len else {}),
+            },
+            timeout=self.settings.tts_timeout_seconds,
+        )
+        try:
+            response = await self.tts_client.send(request, stream=True)
+        except httpx.HTTPError as exc:
+            raise SpeechError("TTS 서버가 음성을 생성하지 못했습니다.") from exc
+
+        try:
+            if response.status_code >= 400:
+                await response.aread()
+                raise SpeechError(
+                    f"TTS 서버가 {response.status_code}를 반환했습니다."
+                )
+            sample_rate = int(response.headers.get("X-Audio-Sample-Rate", "24000"))
+            if sample_rate != 24000:
+                raise SpeechError(f"지원하지 않는 TTS sample rate입니다: {sample_rate}")
+            try:
+                async for chunk in response.aiter_bytes():
+                    if chunk:
+                        yield chunk, sample_rate
+            except httpx.HTTPError as exc:
+                raise SpeechError("TTS 스트림이 중간에 끊겼습니다.") from exc
+        finally:
+            await response.aclose()
 
 
 def _optional_int(value: str | None) -> int | None:
