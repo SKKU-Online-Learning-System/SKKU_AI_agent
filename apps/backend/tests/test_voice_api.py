@@ -14,6 +14,7 @@ from app.api.routes import voice as voice_routes
 from app.core.config import Settings
 from app.models import ChatLog, CourseMaterial
 from app.services.voice import brain, external_brain, trusted_sites
+from app.services.voice.filler import is_progress_notice
 from app.services.voice.session_store import get_context, reset_context
 
 
@@ -168,11 +169,32 @@ def test_text_stream_sends_filler_before_answer(
     )
 
     assert response.status_code == 200
+    # Proxies on the way (the Next.js rewrite, nginx) must pass each line through
+    # as it is written, not compress or buffer the body until the end.
+    assert response.headers["cache-control"] == "no-cache, no-transform"
+    assert response.headers["x-accel-buffering"] == "no"
     events = [json.loads(line) for line in response.text.splitlines()]
-    assert events[0] == {
-        "type": "status",
-        "text": "질문을 살펴보고 있어요. 잠시만 기다려 주세요.",
-    }
+    assert events[0]["type"] == "status"
+    # The notice is composed from the question, never from model output.
+    assert is_progress_notice(events[0]["text"])
+    assert "경사하강법" in events[0]["text"]
+    assert events[-1]["type"] == "done"
+
+
+def test_text_stream_sends_no_filler_for_a_greeting(chat_api, monkeypatch) -> None:
+    course_id = chat_api.courses["ai"]
+    reset_context(chat_api.users["student"], course_id)
+    monkeypatch.setattr(voice_routes, "SessionLocal", chat_api.session_factory)
+
+    response = chat_api.client.post(
+        f"/api/voice/courses/{course_id}/answer-text/stream",
+        headers=chat_api.headers("student"),
+        json={"text": "안녕하세요", "mode": "explain"},
+    )
+
+    assert response.status_code == 200
+    events = [json.loads(line) for line in response.text.splitlines()]
+    assert all(event["type"] != "status" for event in events)
     assert events[-1]["type"] == "done"
 
 
@@ -291,6 +313,102 @@ def test_voice_socket_restores_owned_history_and_visuals(
         assert ready["session_id"] == first["session_id"]
         assert captured[0].history[0]["content"] == "소프트맥스가 뭐야?"
         assert captured[0].last_visualizations == [visual]
+
+
+def test_a_failed_voice_turn_still_records_the_question(chat_api, monkeypatch) -> None:
+    """An outage must not erase the fact that the student asked something.
+
+    The log was only written when an agent transcript arrived, so an ASR, LLM or
+    TTS failure dropped the whole turn and the professor and admin log screens
+    showed nothing at all.
+    """
+    from app.services.voice.transport import Failed, Transcript
+
+    course_id = chat_api.courses["ai"]
+    student_id = chat_api.users["student"]
+    reset_context(student_id, course_id)
+
+    async def events():
+        yield Transcript("user", "가상 메모리가 뭐야?", item_id="local-1-user")
+        yield Failed("답변을 만들지 못했어요. 잠시 후 다시 질문해 주세요.", fatal=False)
+
+    def transport(**kwargs):
+        return SimpleNamespace(
+            name="local_cascade",
+            owns_history=True,
+            provider_name="local_qwen",
+            model_name="Qwen/Qwen3.5-9B",
+            start=AsyncMock(),
+            close=AsyncMock(),
+            events=events,
+        )
+
+    monkeypatch.setattr(voice_routes, "SessionLocal", chat_api.session_factory)
+    monkeypatch.setattr(
+        voice_routes,
+        "get_voice_availability",
+        lambda _: SimpleNamespace(enabled=True),
+    )
+    monkeypatch.setattr(voice_routes, "create_voice_transport", transport)
+    url = f"/api/voice/courses/{course_id}/stream?token={chat_api.tokens['student']}"
+    with chat_api.client.websocket_connect(url) as socket:
+        socket.receive_json()  # ready
+        # the transcript, then the error and the return to listening
+        messages = [socket.receive_json() for _ in range(3)]
+
+    assert any(message.get("type") == "error" for message in messages)
+    with chat_api.session_factory() as session:
+        log = session.scalar(select(ChatLog).where(ChatLog.course_id == course_id))
+        assert log is not None
+        assert log.question == "가상 메모리가 뭐야?"
+        assert "다시 질문해" in log.answer
+
+
+def test_the_local_transport_is_the_only_writer_of_its_conversation(
+    chat_api,
+    monkeypatch,
+) -> None:
+    """Two independently trimmed copies of one conversation would drift apart."""
+    from app.services.voice.transport import Transcript
+
+    course_id = chat_api.courses["ai"]
+    student_id = chat_api.users["student"]
+    reset_context(student_id, course_id)
+
+    async def events():
+        yield Transcript("user", "가상 메모리가 뭐야?", item_id="local-1-user")
+        yield Transcript("agent", "주소 공간을 넓히는 기법이에요.", item_id="local-1-agent")
+
+    def transport(**kwargs):
+        return SimpleNamespace(
+            name="local_cascade",
+            owns_history=True,
+            provider_name="local_qwen",
+            model_name="Qwen/Qwen3.5-9B",
+            start=AsyncMock(),
+            close=AsyncMock(),
+            events=events,
+        )
+
+    monkeypatch.setattr(voice_routes, "SessionLocal", chat_api.session_factory)
+    monkeypatch.setattr(
+        voice_routes,
+        "get_voice_availability",
+        lambda _: SimpleNamespace(enabled=True),
+    )
+    monkeypatch.setattr(voice_routes, "create_voice_transport", transport)
+    url = f"/api/voice/courses/{course_id}/stream?token={chat_api.tokens['student']}"
+    with chat_api.client.websocket_connect(url) as socket:
+        socket.receive_json()
+        for _ in range(2):
+            socket.receive_json()
+
+    # The turn is still logged, but the relayed transcripts are not replayed into
+    # the context the brain owns.
+    assert get_context(student_id, course_id, "인공지능개론").history == []
+    with chat_api.session_factory() as session:
+        log = session.scalar(select(ChatLog).where(ChatLog.course_id == course_id))
+        assert log is not None and log.question == "가상 메모리가 뭐야?"
 
 
 def test_reopening_another_learners_conversation_is_rejected(

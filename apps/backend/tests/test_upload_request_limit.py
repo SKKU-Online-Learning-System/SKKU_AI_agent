@@ -78,3 +78,25 @@ def test_upload_request_limit_does_not_affect_other_routes(monkeypatch) -> None:
 
     get_settings.cache_clear()
     assert response.status_code == 405
+
+
+def test_attachment_uploads_get_their_own_larger_limit() -> None:
+    """A student's textbook PDF may be larger than a course material; other routes are unbounded."""
+    from app.middleware.upload_request_limit import UploadRequestSizeLimitMiddleware
+
+    middleware = UploadRequestSizeLimitMiddleware(
+        lambda *_: None, max_body_size=128, attachment_max_body_size=4096
+    )
+
+    def scope(path: str, method: str = "POST") -> dict:
+        return {"type": "http", "method": method, "path": path}
+
+    assert middleware._limit_for(scope("/api/courses/c1/materials")) == 128
+    assert middleware._limit_for(scope("/api/voice/courses/c1/attachments")) == 4096
+    assert middleware._limit_for(scope("/api/voice/courses/c1/attachments/")) == 4096
+    assert middleware._limit_for(scope("/api/voice/courses/c1/attachments/a1", "DELETE")) is None
+    assert middleware._limit_for(scope("/api/chat")) is None
+    # Without a separate limit, attachments share the material limit.
+    shared = UploadRequestSizeLimitMiddleware(lambda *_: None, max_body_size=128)
+    assert shared._limit_for(scope("/api/voice/courses/c1/attachments")) == 128
+
