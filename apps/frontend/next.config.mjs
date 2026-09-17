@@ -2,6 +2,9 @@
 const nextConfig = {
   reactStrictMode: true,
   devIndicators: false,
+  // The Backend.AI app proxy serves the dev server under this host; without it
+  // Next blocks the page's own /_next/* requests as cross-origin.
+  allowedDevOrigins: ["siriuscluster.skku.edu"],
   transpilePackages: ["@skku-course-agent/shared"],
   async rewrites() {
     return [
