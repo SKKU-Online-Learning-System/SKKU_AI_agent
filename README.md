@@ -40,6 +40,9 @@
 - 소크라테스식 대화: 학생 답에 대한 피드백, 단계별 힌트, 한 번에 하나의 사고 질문
 - 강의자료 근거가 부족할 때만 교수자가 등록한 신뢰 도메인에서 SearXNG 보충 검색
 - 모든 음성·텍스트 turn은 기존 질문 로그(`ChatLog`)에 저장되어 교수자·관리자 화면에 노출
+- 교수자·관리자 대시보드의 `취약 개념 현황`: 과목별 요약과 주제·개념·학생별 상세
+  (`GET /api/stats/weak-concepts`, `GET /api/stats/weak-concepts/courses/{id}`; 교수자에게는
+  학생 이메일이 마스킹됨)
 
 학생의 질문 창구는 과목 안의 COURSE AGENT 하나입니다. 별도의 "AI 질문" 메뉴와 탭은
 없습니다. `대화 이력`에서 지난 대화를 열면 해당 과목의 COURSE AGENT가 그 대화를 다시
@@ -69,6 +72,7 @@ Browser microphone -> FastAPI WebSocket -> Silero VAD (CPU)
 회귀 비교를 위한 legacy provider로 남아 있습니다.
 
 Moss 자격 증명이 없으면 취약 개념은 `uploads/voice/weak-concepts.json`에 로컬 저장됩니다.
+Moss를 쓸 때도 같은 파일에 미러링되며, 교수자·관리자 통계는 이 파일을 읽습니다.
 
 ## 프로젝트 구조
 

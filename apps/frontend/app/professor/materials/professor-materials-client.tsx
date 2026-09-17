@@ -132,6 +132,21 @@ export function ProfessorMaterialsClient({ courseId }: { courseId?: string } = {
     };
   }, [selectedCourseId]);
 
+  const hasPendingMaterials = materials.some(
+    (material) => material.processingStatus === "pending" || material.processingStatus === "processing"
+  );
+  useEffect(() => {
+    if (!selectedCourseId || !hasPendingMaterials) return;
+    let cancelled = false;
+    const timer = window.setInterval(() => {
+      void Promise.all([listCourseMaterials(selectedCourseId), getCourseRagStatus(selectedCourseId)])
+        .then(([next, nextStatus]) => {
+          if (!cancelled) { setMaterials(next); setRagStatus(nextStatus); }
+        }).catch(() => undefined);
+    }, 5000);
+    return () => { cancelled = true; window.clearInterval(timer); };
+  }, [selectedCourseId, hasPendingMaterials]);
+
   const handleCourseChange = (event: ChangeEvent<HTMLSelectElement>) => {
     const nextCourseId = event.target.value;
     selectedCourseIdRef.current = nextCourseId;

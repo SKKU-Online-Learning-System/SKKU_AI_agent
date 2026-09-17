@@ -1,7 +1,8 @@
 "use client";
 
 import { FormEvent, useEffect, useRef, useState } from "react";
-import { ApiError, listCourses, searchRagDebug } from "../../lib/api";
+import Image from "next/image";
+import { ApiError, fetchMaterialPageImage, listCourses, searchRagDebug } from "../../lib/api";
 import type { CourseSummary, RagSearchResponse } from "../../lib/api";
 
 export function RagDebugClient({ courseId }: { courseId?: string } = {}) {
@@ -65,7 +66,7 @@ export function RagDebugClient({ courseId }: { courseId?: string } = {}) {
     <section className="rag-debug-page">
       <header>
         <h1>RAG 검색 디버그</h1>
-        <p>답변 생성 없이 과목별 검색 청크와 유사도 점수를 확인합니다.</p>
+        <p>검색된 강의 페이지와 도표 판독 근거를 원본 이미지와 함께 확인합니다.</p>
       </header>
 
       <form className="rag-debug-form" onSubmit={handleSubmit}>
@@ -122,7 +123,8 @@ export function RagDebugClient({ courseId }: { courseId?: string } = {}) {
         <dl className="rag-debug-diagnostics">
           <div><dt>임베딩 모델</dt><dd>{response.debug.embeddingModel ?? "미기록"}</dd></div>
           <div><dt>검색 모드</dt><dd>{response.debug.searchMode}</dd></div>
-          <div><dt>점수 임계값</dt><dd>{response.debug.scoreThreshold ?? "없음"}</dd></div>
+          <div><dt>이미지 점수 임계값</dt><dd>{response.debug.scoreThreshold ?? "없음"}</dd></div>
+          <div><dt>텍스트 점수 임계값</dt><dd>{response.debug.textScoreThreshold ?? "없음"}</dd></div>
           <div><dt>후보 청크</dt><dd>{response.debug.totalCandidateChunks}</dd></div>
         </dl>
       ) : null}
@@ -130,7 +132,7 @@ export function RagDebugClient({ courseId }: { courseId?: string } = {}) {
       {response ? (
         <section className="rag-debug-results" aria-live="polite">
           <h2>검색 결과 {response.results.length}개</h2>
-          {response.results.length === 0 ? <p>검색 가능한 처리 완료 청크가 없습니다.</p> : null}
+          {response.results.length === 0 ? <p>현재 질문과 관련된 자료를 찾지 못했습니다. 자료 처리 상태도 확인해 주세요.</p> : null}
           {response.results.map((result) => (
             <article key={result.chunkId}>
               <header>
@@ -143,6 +145,13 @@ export function RagDebugClient({ courseId }: { courseId?: string } = {}) {
                 <div><dt>material_id</dt><dd>{result.materialId}</dd></div>
                 <div><dt>chunk_id</dt><dd>{result.chunkId}</dd></div>
               </dl>
+              {result.pageImageUrl && result.pageNumber ? (
+                <details>
+                  <summary>원본 페이지 확인</summary>
+                  <MaterialPageImage courseId={selectedCourseId} materialId={result.materialId}
+                    page={result.pageNumber} name={result.documentName} />
+                </details>
+              ) : null}
               <details>
                 <summary>청크 텍스트 미리보기</summary>
                 <p>{result.chunkText}</p>
@@ -153,4 +162,27 @@ export function RagDebugClient({ courseId }: { courseId?: string } = {}) {
       ) : null}
     </section>
   );
+}
+
+function MaterialPageImage({ courseId, materialId, page, name }: {
+  courseId: string; materialId: string; page: number; name: string;
+}) {
+  const [url, setUrl] = useState("");
+  const [error, setError] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    let objectUrl = "";
+    void fetchMaterialPageImage(courseId, materialId, page).then((blob) => {
+      if (cancelled) return;
+      objectUrl = URL.createObjectURL(blob);
+      setUrl(objectUrl);
+    }).catch(() => { if (!cancelled) setError(true); });
+    return () => {
+      cancelled = true;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [courseId, materialId, page]);
+  if (error) return <p>원본 이미지를 불러오지 못했습니다.</p>;
+  return url ? <Image src={url} alt={`${name} ${page}페이지`} width={1600} height={900}
+    unoptimized style={{ width: "100%", height: "auto" }} /> : <p>이미지 불러오는 중...</p>;
 }

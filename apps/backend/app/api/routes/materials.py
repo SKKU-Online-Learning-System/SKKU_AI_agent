@@ -2,8 +2,8 @@ import logging
 from pathlib import Path
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
-from fastapi.responses import FileResponse
+from fastapi import APIRouter, BackgroundTasks, Body, Depends, File, Form, HTTPException, UploadFile, status
+from fastapi.responses import FileResponse, Response
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 from starlette.concurrency import run_in_threadpool
@@ -22,9 +22,12 @@ from app.services.material_processing_service import (
     MaterialNotFoundError,
     MaterialProcessingError,
     MaterialProcessingService,
+    process_uploaded_material,
 )
 from app.services.material_service import MaterialValidationError, remove_stored_file, save_upload
 from app.services.vector_store_service import VectorStoreService
+from app.services.rag_service import RagService
+from app.services.llm_service import LLMError
 
 router = APIRouter(tags=["materials"])
 logger = logging.getLogger(__name__)
@@ -54,6 +57,7 @@ async def list_materials(
     status_code=status.HTTP_201_CREATED,
 )
 async def upload_material(
+    background_tasks: BackgroundTasks,
     course: Annotated[Course, Depends(require_course_manage_permission)],
     current_user: Annotated[User, Depends(get_current_user)],
     session: Annotated[Session, Depends(get_db)],
@@ -92,6 +96,7 @@ async def upload_material(
         session.rollback()
         await run_in_threadpool(remove_stored_file, stored.storage_path)
         raise
+    background_tasks.add_task(process_uploaded_material, session.get_bind(), settings, material.id)
     return response
 
 
@@ -246,6 +251,48 @@ async def read_material_content(
         filename=material.original_file_name,
         content_disposition_type="inline",
     )
+
+
+@router.get("/courses/{course_id}/materials/{material_id}/pages/{page_number}/image")
+def read_material_page_image(
+    course: Annotated[Course, Depends(require_course_access)],
+    material_id: str,
+    page_number: int,
+    session: Annotated[Session, Depends(get_db)],
+) -> Response:
+    _load_course_material(session, course.id, material_id)
+    image = session.scalar(select(DocumentChunk.page_image).where(
+        DocumentChunk.course_id == course.id,
+        DocumentChunk.material_id == material_id,
+        DocumentChunk.page_number == page_number,
+        DocumentChunk.page_image.is_not(None),
+    ).limit(1))
+    if image is None:
+        raise HTTPException(status_code=404, detail="Processed page image not found")
+    return Response(image, media_type="image/jpeg", headers={"Cache-Control": "private, no-store"})
+
+
+@router.post("/courses/{course_id}/materials/{material_id}/pages/{page_number}/inspect")
+def inspect_material_page(
+    course: Annotated[Course, Depends(require_course_access)],
+    material_id: str,
+    page_number: int,
+    session: Annotated[Session, Depends(get_db)],
+    settings: Annotated[Settings, Depends(get_settings)],
+    question: Annotated[str, Body(embed=True, min_length=1, max_length=2000)],
+) -> dict:
+    """Explicit source inspection; never part of automatic per-turn retrieval."""
+    material = _load_course_material(session, course.id, material_id)
+    try:
+        evidence = RagService(session, settings).inspect_page(
+            course.id, material_id, page_number, question,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except LLMError as exc:
+        raise HTTPException(status_code=503, detail="Page inspection unavailable") from exc
+    return {"material_id": material_id, "file": material.original_file_name,
+            "page": page_number, "evidence": evidence}
 
 
 @router.delete(

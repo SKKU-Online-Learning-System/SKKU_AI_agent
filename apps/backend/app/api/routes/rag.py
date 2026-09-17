@@ -22,6 +22,7 @@ from app.schemas import (
 )
 from app.services.embedding_service import EmbeddingError
 from app.services.rag_service import RagService
+from app.services.llm_service import LLMError
 
 router = APIRouter(tags=["rag"])
 logger = logging.getLogger(__name__)
@@ -46,10 +47,10 @@ async def search_course_documents(
     try:
         # Embedding the question can call an external API, so keep it off the event loop.
         outcome = await run_in_threadpool(service.retrieve, course.id, question, payload.top_k)
-    except EmbeddingError as exc:
+    except (EmbeddingError, LLMError) as exc:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail={"code": "RAG_SEARCH_FAILED", "message": "Embedding unavailable"},
+            detail={"code": "RAG_SEARCH_FAILED", "message": "Document inference unavailable"},
         ) from exc
     except Exception as exc:
         logger.exception("RAG search failed")
@@ -71,6 +72,7 @@ async def search_course_documents(
                 chunk_index=result.chunk_index,
                 chunk_text=result.chunk_text,
                 score=result.score,
+                page_image_url=result.page_image_url,
             )
             for result in outcome.results
         ],
@@ -78,6 +80,7 @@ async def search_course_documents(
             embedding_model=outcome.summary.embedding_model,
             search_mode=outcome.summary.search_mode,
             score_threshold=outcome.summary.score_threshold,
+            text_score_threshold=settings.rag_text_score_threshold,
             total_candidate_chunks=outcome.summary.total_candidate_chunks,
         )
         if payload.debug

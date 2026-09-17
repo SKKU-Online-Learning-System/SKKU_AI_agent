@@ -79,7 +79,11 @@ def add_user(session: Session, email: str, role: UserRole) -> User:
 
 
 @pytest.fixture
-def material_api(tmp_path: Path) -> Generator[MaterialApiContext, None, None]:
+def material_api(tmp_path: Path, monkeypatch) -> Generator[MaterialApiContext, None, None]:
+    # These cases drive /process explicitly; automatic upload work is tested separately.
+    monkeypatch.setattr(
+        "app.api.routes.materials.process_uploaded_material", lambda *args: None,
+    )
     engine = create_engine(
         "sqlite://",
         connect_args={"check_same_thread": False},
@@ -126,6 +130,9 @@ def material_api(tmp_path: Path) -> Generator[MaterialApiContext, None, None]:
 
     upload_dir = tmp_path / "uploads"
     settings = Settings(
+        embedding_provider="mock",
+        rag_text_score_threshold=0.1,
+        rag_score_threshold=0.1,
         upload_dir=str(upload_dir), max_upload_size_bytes=4, mock_embedding_dim=128
     )
     token_service = JWTService(
@@ -625,6 +632,7 @@ def test_processing_claim_is_visible_and_rejects_concurrent_request(
     with material_api.session_factory() as session:
         result = MaterialProcessingService(
             session,
+            settings=Settings(embedding_provider="mock"),
             parser=ObservingParser(),
         ).process_material(material_api.courses["owned"], uploaded["id"])
 

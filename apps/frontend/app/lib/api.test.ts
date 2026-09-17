@@ -232,24 +232,24 @@ describe("api client", () => {
   it("requests debug search and normalizes source metadata", async () => {
     const fetchMock = vi.fn<typeof fetch>(async () =>
       Response.json({
-        course_id: "course-1",
+        courseId: "course-1",
         question: "경사하강법이 뭐야?",
-        top_k: 3,
+        topK: 3,
         results: [
           {
-            chunk_id: "chunk-1",
-            material_id: "material-1",
-            document_name: "ai.txt",
-            page_number: null,
-            chunk_index: 2,
-            chunk_text: "경사하강법은 손실 함수를 줄인다.",
+            chunkId: "chunk-1",
+            materialId: "material-1",
+            documentName: "ai.txt",
+            pageNumber: null,
+            chunkIndex: 2,
+            chunkText: "경사하강법은 손실 함수를 줄인다.",
             score: 0.87
           }
         ],
         debug: {
-          embedding_model: "local-hash",
-          search_mode: "local_cosine",
-          total_candidate_chunks: 8
+          embeddingModel: "local-hash",
+          searchMode: "local_cosine",
+          totalCandidateChunks: 8
         }
       })
     );
