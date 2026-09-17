@@ -964,15 +964,52 @@ async def think(
 # --------------------------------------------------------------------------
 
 
+# Latin letters read out one at a time, in Korean. The TTS model mispronounces
+# upper-case acronyms and can emit a tonal artefact on them, and unlike prose the
+# correct reading is fully determined, so spell them for speech only.
+_LETTER_HANGUL = {
+    "A": "에이", "B": "비", "C": "씨", "D": "디", "E": "이", "F": "에프",
+    "G": "지", "H": "에이치", "I": "아이", "J": "제이", "K": "케이", "L": "엘",
+    "M": "엠", "N": "엔", "O": "오", "P": "피", "Q": "큐", "R": "알",
+    "S": "에스", "T": "티", "U": "유", "V": "브이", "W": "더블유", "X": "엑스",
+    "Y": "와이", "Z": "제트",
+}
+# Acronyms conventionally read as a word rather than letter by letter. Anything
+# not listed here falls through to the letter table, which is already correct for
+# the likes of HTTP or SQL.
+_SPOKEN_AS_WORD = {"RAM": "램", "ROM": "롬", "JSON": "제이슨", "REST": "레스트"}
+# A Korean particle attaches directly to the acronym ("GPU로", "API를"), so a
+# trailing \b never matches; bound on Latin characters instead.
+_ACRONYM = re.compile(r"(?<![A-Za-z0-9])[A-Z][A-Z0-9]{1,5}(?![A-Za-z0-9])")
+# Written with a slash, so the acronym pattern cannot reach it.
+_SLASHED = {"I/O": "아이오"}
+
+
+def _spell_acronym(match: re.Match[str]) -> str:
+    token = match.group(0)
+    if token in _SPOKEN_AS_WORD:
+        return _SPOKEN_AS_WORD[token]
+    if not any(character.isalpha() for character in token):
+        return token
+    return "".join(_LETTER_HANGUL.get(character, character) for character in token)
+
+
 def for_speech(text: str) -> str:
-    """Remove URLs from speech while keeping them in screen text."""
+    """Adapt screen text for the TTS model without changing what is displayed.
+
+    URLs are dropped and upper-case acronyms are spelled out in Hangul; both read
+    badly aloud but must stay intact on screen.
+    """
     text = re.sub(
         r"\s*외부 출처\s*:?\s*(?:https?://\S+\s*,?\s*)+$",
         "",
         text,
         flags=re.IGNORECASE,
     )
-    return re.sub(r"https?://\S+", "", text).strip()
+    text = re.sub(r"https?://\S+", "", text)
+    for written, spoken in _SLASHED.items():
+        text = text.replace(written, spoken)
+    return _ACRONYM.sub(_spell_acronym, text).strip()
 
 
 # Kept under the original private name so ported tests keep passing.
