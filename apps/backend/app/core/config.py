@@ -78,6 +78,7 @@ class Settings(BaseSettings):
     voice_provider: Literal["grok", "local_cascade"] = "local_cascade"
     voice_trace_content: bool = False
     speech_base_url: str = "http://localhost:8010"
+    tts_base_url: Optional[str] = None
     asr_timeout_seconds: float = Field(default=30.0, gt=0)
     tts_timeout_seconds: float = Field(default=30.0, gt=0)
     tts_speaker: str = "Sohee"
@@ -86,6 +87,31 @@ class Settings(BaseSettings):
     # the complete response waveform has been generated. Sentence boundaries
     # are preferred; this limit only splits unusually long sentences further.
     tts_chunk_max_chars: int = Field(default=80, ge=20, le=300)
+    # Knobs for the first request of a turn. Both were measured against
+    # CosyVoice3-0.5B on an A5000 and are neutral by default: first-audio latency
+    # is gated by how fast the LLM completes its first sentence, not by chunk
+    # size, and a smaller decoder hop trades more throughput than it saves
+    # (token2wav costs ~600ms almost regardless of token count). Kept tunable
+    # because a faster TTS backend shifts that balance.
+    tts_first_chunk_max_chars: int = Field(default=80, ge=10, le=300)
+    # 0 keeps the TTS server's own hop length.
+    tts_first_chunk_hop_len: int = Field(default=0, ge=0, le=100)
+    # Waiting for the first full sentence costs ~800ms of the turn. Once the
+    # TTS backend answers in ~170ms, that wait dominates, so release the first
+    # chunk at a word boundary this far in instead.
+    #
+    # This speaks before the round is known to be an answer round rather than a
+    # tool round. Measured against Qwen3.5-9B on vLLM, tool rounds emit zero
+    # content characters before the tool call, so the fragment is safe there;
+    # set 0 to restore strict sentence-at-a-time synthesis if a model does emit
+    # preamble before calling tools.
+    #
+    # Do not lower this much: TTS pacing degrades sharply on very short input.
+    # Over 8 runs per size, the spoken duration of the same fragment had a
+    # coefficient of variation of 0.23 at 12 characters versus 0.07 at 20+, which
+    # is audible as uneven delivery, and a short fragment also leaves the playback
+    # buffer too thin to absorb the packet after it.
+    tts_first_chunk_min_chars: int = Field(default=24, ge=0, le=200)
 
     xai_api_key: Optional[str] = None
     xai_realtime_url: str = "wss://api.x.ai/v1/realtime"
@@ -132,6 +158,7 @@ class Settings(BaseSettings):
             self.voice_llm_base_url.strip()
             and self.voice_llm_model.strip()
             and self.speech_base_url.strip()
+            and (self.tts_base_url or self.speech_base_url).strip()
         )
 
     @model_validator(mode="after")

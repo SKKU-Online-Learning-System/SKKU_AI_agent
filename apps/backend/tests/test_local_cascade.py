@@ -52,6 +52,12 @@ class FakeSpeech:
             audio_duration_ms=50,
         )
 
+    async def synthesize_stream(self, text: str, **kwargs):
+        self.synthesize_calls += 1
+        self.synthesized_texts.append(text)
+        yield b"\x01\x02" * 50, 24000
+        yield b"\x01\x02" * 50, 24000
+
 
 class AsrFailure(FakeSpeech):
     async def transcribe(self, pcm: bytes, *, sample_rate: int) -> TranscriptionResult:
@@ -61,6 +67,10 @@ class AsrFailure(FakeSpeech):
 class TtsFailure(FakeSpeech):
     async def synthesize(self, text: str, **kwargs) -> SynthesisResult:
         raise SpeechError("tts down")
+
+    async def synthesize_stream(self, text: str, **kwargs):
+        raise SpeechError("tts down")
+        yield b"", 24000  # pragma: no cover - keeps this an async generator
 
 
 class BlockingTts(FakeSpeech):
@@ -76,14 +86,22 @@ class BlockingTts(FakeSpeech):
         await self.release.wait()
         return SynthesisResult(b"old-audio", sample_rate=24000)
 
+    async def synthesize_stream(self, text: str, **kwargs):
+        self.synthesize_calls += 1
+        self.synthesized_texts.append(text)
+        self.started.set()
+        await self.release.wait()
+        yield b"old-audio", 24000
 
-def settings() -> Settings:
+
+def settings(**overrides) -> Settings:
     return Settings(
         _env_file=None,
         llm_provider="local_qwen",
         voice_provider="local_cascade",
         voice_llm_model="Qwen/Qwen3.5-9B",
         speech_base_url="http://speech:8010",
+        **overrides,
     )
 
 
@@ -96,11 +114,21 @@ def context() -> VoiceContext:
     )
 
 
-async def fake_brain(ctx, transcript, timer, mode, on_token=None) -> VoiceBrainResult:
+async def fake_brain(
+    ctx,
+    transcript,
+    timer,
+    mode,
+    on_token=None,
+    on_speech_delta=None,
+    on_speech_rollback=None,
+) -> VoiceBrainResult:
     timer.timings_ms["llm_ttft"] = 12
     timer.timings_ms["llm"] = 40
     if on_token:
         await on_token("보조 기억장치예요.")
+    if on_speech_delta:
+        await on_speech_delta("보조 기억장치예요.")
     return VoiceBrainResult(
         reply="보조 기억장치예요.",
         tools=["search_course_materials"],
@@ -110,12 +138,23 @@ async def fake_brain(ctx, transcript, timer, mode, on_token=None) -> VoiceBrainR
     )
 
 
-async def multi_sentence_brain(ctx, transcript, timer, mode, on_token=None) -> VoiceBrainResult:
+async def multi_sentence_brain(
+    ctx,
+    transcript,
+    timer,
+    mode,
+    on_token=None,
+    on_speech_delta=None,
+    on_speech_rollback=None,
+) -> VoiceBrainResult:
     reply = "첫 번째 설명입니다. 두 번째 설명입니다! 마지막 설명인가요?"
     timer.timings_ms["llm_ttft"] = 12
     timer.timings_ms["llm"] = 40
     if on_token:
         await on_token(reply)
+    if on_speech_delta:
+        for token in reply.split(" "):
+            await on_speech_delta(token + " ")
     return VoiceBrainResult(
         reply=reply,
         tools=[],
@@ -184,12 +223,16 @@ async def test_multi_sentence_reply_is_synthesized_and_emitted_as_audio_chunks()
     observed = await _through_turn_done(events)
     audio_events = [event for event in observed if isinstance(event, AgentAudio)]
 
+    # The first sentence goes out on its own so speech starts early; the rest are
+    # merged into one request to avoid paying the TTS first-packet cost per
+    # sentence.
     assert speech.synthesized_texts == [
         "첫 번째 설명입니다.",
-        "두 번째 설명입니다!",
-        "마지막 설명인가요?",
+        "두 번째 설명입니다! 마지막 설명인가요?",
     ]
-    assert len(audio_events) == 3
+    # Audio is forwarded per streamed server chunk rather than per sentence.
+    assert len(audio_events) == 4
+    assert all(event.rate == 24000 for event in audio_events)
     await transport.close()
 
 
@@ -340,6 +383,170 @@ async def test_barge_in_cancels_old_tts_and_no_old_audio_is_emitted_after_start(
 
     assert seen_start is True
     assert audio_after_start is False
+
+
+@pytest.mark.asyncio
+async def test_tool_round_preamble_is_not_spoken() -> None:
+    """Text streamed during a tool round never reaches the final reply, so it
+    must be rolled back instead of synthesized."""
+    speech = FakeSpeech()
+
+    async def tool_round_brain(
+        ctx,
+        transcript,
+        timer,
+        mode,
+        on_token=None,
+        on_speech_delta=None,
+        on_speech_rollback=None,
+    ) -> VoiceBrainResult:
+        timer.timings_ms["llm_ttft"] = 12
+        timer.timings_ms["llm"] = 40
+        # Round 1: model emits preamble, then calls a tool.
+        if on_speech_delta:
+            await on_speech_delta("자료를 먼저 찾아볼게요. ")
+        if on_speech_rollback:
+            await on_speech_rollback()
+        # Round 2: the real answer.
+        reply = "가상 메모리는 주소 공간을 넓혀 줍니다."
+        if on_token:
+            await on_token(reply)
+        if on_speech_delta:
+            await on_speech_delta(reply)
+        return VoiceBrainResult(
+            reply=reply,
+            tools=["search_trusted_web"],
+            sources=[],
+            visualizations=[],
+            model_name="Qwen/Qwen3.5-9B",
+        )
+
+    transport = LocalCascadeTransport(
+        context=context(),
+        mode="explain",
+        # Strict mode: no speech until a sentence completes, so a tool round can
+        # always be rolled back before anything is spoken.
+        settings=settings(tts_first_chunk_min_chars=0),
+        speech_client=speech,  # type: ignore[arg-type]
+        detector=FakeDetector(),  # type: ignore[arg-type]
+        brain_runner=tool_round_brain,
+    )
+    await transport.start()
+    events = transport.events()
+    await _next(events)
+    await transport.send_text("가상 메모리")
+    await _through_turn_done(events)
+
+    assert speech.synthesized_texts == ["가상 메모리는 주소 공간을 넓혀 줍니다."]
+    await transport.close()
+
+
+@pytest.mark.asyncio
+async def test_urls_are_stripped_from_speech_but_kept_in_transcript() -> None:
+    speech = FakeSpeech()
+
+    async def sourced_brain(
+        ctx,
+        transcript,
+        timer,
+        mode,
+        on_token=None,
+        on_speech_delta=None,
+        on_speech_rollback=None,
+    ) -> VoiceBrainResult:
+        reply = "자세한 내용은 https://example.edu/os 를 참고하세요."
+        timer.timings_ms["llm"] = 10
+        if on_token:
+            await on_token(reply)
+        if on_speech_delta:
+            await on_speech_delta(reply)
+        return VoiceBrainResult(
+            reply=reply,
+            tools=[],
+            sources=[],
+            visualizations=[],
+            model_name="Qwen/Qwen3.5-9B",
+        )
+
+    transport = LocalCascadeTransport(
+        context=context(),
+        mode="explain",
+        settings=settings(),
+        speech_client=speech,  # type: ignore[arg-type]
+        detector=FakeDetector(),  # type: ignore[arg-type]
+        brain_runner=sourced_brain,
+    )
+    await transport.start()
+    events = transport.events()
+    await _next(events)
+    await transport.send_text("참고 자료")
+    observed = await _through_turn_done(events)
+
+    assert not any("http" in text for text in speech.synthesized_texts)
+    agent = [e for e in observed if isinstance(e, Transcript) and e.who == "agent"]
+    assert "https://example.edu/os" in agent[0].text
+    await transport.close()
+
+
+@pytest.mark.asyncio
+async def test_first_chunk_is_released_at_a_clause_boundary() -> None:
+    """The opening chunk may be released before its sentence ends, but only at a
+    clause boundary: each TTS request is generated independently, so a seam inside
+    a word is audible as a click."""
+    speech = FakeSpeech()
+
+    async def slow_sentence_brain(
+        ctx,
+        transcript,
+        timer,
+        mode,
+        on_token=None,
+        on_speech_delta=None,
+        on_speech_rollback=None,
+    ) -> VoiceBrainResult:
+        reply = (
+            "소프트맥스 연산은 각 입력값에 지수함수를 적용한 후, "
+            "모든 값의 합을 나누어 확률 분포를 만드는 과정이에요."
+        )
+        timer.timings_ms["llm"] = 10
+        for token in reply.split(" "):
+            if on_token:
+                await on_token(token + " ")
+            if on_speech_delta:
+                await on_speech_delta(token + " ")
+        return VoiceBrainResult(
+            reply=reply,
+            tools=[],
+            sources=[],
+            visualizations=[],
+            model_name="Qwen/Qwen3.5-9B",
+        )
+
+    transport = LocalCascadeTransport(
+        context=context(),
+        mode="explain",
+        settings=settings(tts_first_chunk_min_chars=12),
+        speech_client=speech,  # type: ignore[arg-type]
+        detector=FakeDetector(),  # type: ignore[arg-type]
+        brain_runner=slow_sentence_brain,
+    )
+    await transport.start()
+    events = transport.events()
+    await _next(events)
+    await transport.send_text("가상 메모리")
+    await _through_turn_done(events)
+
+    assert len(speech.synthesized_texts) == 2
+    opening = speech.synthesized_texts[0]
+    # Released early (the sentence is longer) but ending on the clause boundary,
+    # not mid-word after "적용한".
+    assert opening == "소프트맥스 연산은 각 입력값에 지수함수를 적용한 후,"
+    # Nothing is dropped or duplicated across the seam.
+    assert "".join(speech.synthesized_texts).replace(" ", "") == (
+        "소프트맥스 연산은 각 입력값에 지수함수를 적용한 후, "
+        "모든 값의 합을 나누어 확률 분포를 만드는 과정이에요."
+    ).replace(" ", "")
+    await transport.close()
 
 
 async def _next(events):

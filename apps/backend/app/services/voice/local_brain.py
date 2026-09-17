@@ -49,6 +49,8 @@ async def think_voice(
     timer: brain.StageTimer,
     mode: str,
     on_token: Callable[[str], Awaitable[None]] | None = None,
+    on_speech_delta: Callable[[str], Awaitable[None]] | None = None,
+    on_speech_rollback: Callable[[], Awaitable[None]] | None = None,
 ) -> VoiceBrainResult:
     """Run the existing brain policy with the Qwen voice profile."""
     context.append_history({"role": "user", "content": transcript})
@@ -80,6 +82,8 @@ async def think_voice(
         started_at = time.perf_counter()
         first_token_seen = False
 
+        round_speakable = True
+
         async def stream_token(token: str) -> None:
             nonlocal first_token_seen
             if not first_token_seen:
@@ -90,12 +94,23 @@ async def think_voice(
                 )
             if on_token:
                 await on_token(token)
+            # Only this round's text is a speech candidate, and only until the
+            # round reveals itself as a tool round.
+            if round_speakable and on_speech_delta:
+                await on_speech_delta(token)
+
+        async def tool_call_started() -> None:
+            nonlocal round_speakable
+            round_speakable = False
+            if on_speech_rollback:
+                await on_speech_rollback()
 
         turn = await llm.stream_tool_turn(
             system=system,
             messages=[*brain._conversation(context.history), *tool_messages],
             tools=tools,
             on_token=stream_token,
+            on_tool_call_started=tool_call_started,
         )
         elapsed_ms = round((time.perf_counter() - started_at) * 1000)
         timer.timings_ms["llm"] = timer.timings_ms.get("llm", 0) + elapsed_ms

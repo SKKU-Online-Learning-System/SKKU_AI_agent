@@ -196,6 +196,7 @@ class LLMService:
         tools: Sequence[dict],
         force_tools: Sequence[str] = (),
         on_token: Optional[Callable[[str], Awaitable[None]]] = None,
+        on_tool_call_started: Optional[Callable[[], Awaitable[None]]] = None,
         max_tokens: Optional[int] = None,
     ) -> ToolTurn:
         """Run one tool turn with OpenAI function shape as the canonical form.
@@ -215,6 +216,8 @@ class LLMService:
             )
             if on_token and turn.text:
                 await on_token(turn.text)
+            if turn.tool_calls and on_tool_call_started:
+                await on_tool_call_started()
             return turn
         if self.provider == "anthropic":
             return await self._anthropic_tool_turn(
@@ -223,6 +226,7 @@ class LLMService:
                 tools=canonical_tools,
                 force_tools=force_tools,
                 on_token=on_token,
+                on_tool_call_started=on_tool_call_started,
                 max_tokens=max_tokens,
             )
         return await self._qwen_tool_turn(
@@ -231,6 +235,7 @@ class LLMService:
             tools=canonical_tools,
             force_tools=force_tools,
             on_token=on_token,
+            on_tool_call_started=on_tool_call_started,
             max_tokens=max_tokens,
         )
 
@@ -242,6 +247,7 @@ class LLMService:
         tools: Sequence[dict],
         force_tools: Sequence[str],
         on_token: Optional[Callable[[str], Awaitable[None]]],
+        on_tool_call_started: Optional[Callable[[], Awaitable[None]]],
         max_tokens: Optional[int],
     ) -> ToolTurn:
         request = self._qwen_request(
@@ -286,6 +292,11 @@ class LLMService:
                         if on_token:
                             await on_token(text)
                     for item in delta.get("tool_calls") or []:
+                        if not tool_parts and on_tool_call_started:
+                            # The round is producing a tool call, so any content
+                            # streamed above is preamble that will not survive into
+                            # the final reply. Let callers stop speaking it.
+                            await on_tool_call_started()
                         index = int(item.get("index", 0))
                         current = tool_parts.setdefault(index, {"id": "", "name": "", "arguments": ""})
                         if item.get("id"):
@@ -317,6 +328,7 @@ class LLMService:
         tools: Sequence[dict],
         force_tools: Sequence[str],
         on_token: Optional[Callable[[str], Awaitable[None]]],
+        on_tool_call_started: Optional[Callable[[], Awaitable[None]]],
         max_tokens: Optional[int],
     ) -> ToolTurn:
         client = self._require_anthropic_client()
@@ -332,10 +344,19 @@ class LLMService:
             if on_token is None:
                 message = await client.messages.create(**request)
             else:
+                seen_tool_use = False
                 async with client.messages.stream(**request) as stream:
                     async for event in stream:
                         if event.type == "text" and event.text:
                             await on_token(event.text)
+                        elif (
+                            not seen_tool_use
+                            and on_tool_call_started
+                            and event.type == "content_block_start"
+                            and getattr(event.content_block, "type", None) == "tool_use"
+                        ):
+                            seen_tool_use = True
+                            await on_tool_call_started()
                     message = await stream.get_final_message()
         except Exception as exc:
             raise LLMError("Claude 답변 생성에 실패했습니다.") from exc
