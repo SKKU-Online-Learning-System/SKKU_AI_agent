@@ -46,5 +46,7 @@ fi
 
 # ponytail: kill 0 tears down the whole process group; fine for one dev shell
 trap 'kill 0' EXIT
-"$UV" run --locked --all-packages --extra dev --extra voice uvicorn app.main:app --reload --app-dir apps/backend --port 8000 &
+# Watch only the backend source. The default watches the whole repo, so a package
+# write into .venv-app (or a Windows rescan of it) restarts the API mid-startup.
+"$UV" run --locked --all-packages --extra dev --extra voice uvicorn app.main:app --reload --reload-dir apps/backend --app-dir apps/backend --port 8000 &
 npm run dev:frontend
