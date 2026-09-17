@@ -6,6 +6,7 @@ from typing import Optional
 from uuid import uuid4
 
 from sqlalchemy import (
+    LargeBinary,
     JSON,
     BigInteger,
     Boolean,
@@ -306,6 +307,8 @@ class DocumentChunk(Base):
     section_title: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     char_count: Mapped[int] = mapped_column(Integer, nullable=False)
     embedding: Mapped[Optional[list[float]]] = mapped_column(JSON, nullable=True)
+    page_evidence: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    page_image: Mapped[Optional[bytes]] = mapped_column(LargeBinary, nullable=True, deferred=True)
     embedding_model: Mapped[Optional[str]] = mapped_column(String(120), nullable=True)
     embedded_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True),

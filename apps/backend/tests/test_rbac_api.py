@@ -106,7 +106,7 @@ def rbac_api(tmp_path: Path) -> Generator[RBACApiContext, None, None]:
         else set()
     )
     upload_dir = tmp_path / "uploads"
-    settings = Settings(upload_dir=str(upload_dir), _env_file=None)
+    settings = Settings(upload_dir=str(upload_dir), _env_file=None, embedding_provider="mock")
     token_service = JWTService(
         settings.jwt_secret,
         settings.jwt_algorithm,

@@ -177,10 +177,21 @@ class SpeechClient:
             sample_rate = int(response.headers.get("X-Audio-Sample-Rate", "24000"))
             if sample_rate != 24000:
                 raise SpeechError(f"지원하지 않는 TTS sample rate입니다: {sample_rate}")
+            # The body is raw PCM16 and aiter_bytes splits it wherever the
+            # transport happens to, which is not necessarily between samples. A
+            # consumer handed half a sample either drops it -- shifting every
+            # following sample by one byte, which is white noise -- or refuses the
+            # buffer outright, so the odd byte waits here for the rest of itself.
+            remainder = b""
             try:
                 async for chunk in response.aiter_bytes():
-                    if chunk:
-                        yield chunk, sample_rate
+                    if not chunk:
+                        continue
+                    chunk = remainder + chunk
+                    aligned = len(chunk) - len(chunk) % 2
+                    remainder = chunk[aligned:]
+                    if aligned:
+                        yield chunk[:aligned], sample_rate
             except httpx.HTTPError as exc:
                 raise SpeechError("TTS 스트림이 중간에 끊겼습니다.") from exc
         finally:

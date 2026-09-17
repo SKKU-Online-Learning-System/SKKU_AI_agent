@@ -126,7 +126,7 @@ def stage2_api(tmp_path: Path) -> Generator[Stage2Api, None, None]:
             yield session
 
     upload_dir = tmp_path / "uploads"
-    settings = Settings(upload_dir=str(upload_dir), max_upload_size_bytes=4)
+    settings = Settings(upload_dir=str(upload_dir), max_upload_size_bytes=4, embedding_provider="mock")
     app.dependency_overrides.clear()
     app.dependency_overrides[get_db] = override_get_db
     app.dependency_overrides[get_settings] = lambda: settings
@@ -244,7 +244,7 @@ def test_stage2_admin_professor_student_flow(stage2_api: Stage2Api) -> None:
     with stage2_api.session_factory() as session:
         stored_material = session.get(CourseMaterial, material["id"])
         assert stored_material is not None
-        assert stored_material.processing_status == CourseMaterialStatus.pending
+        assert stored_material.processing_status == CourseMaterialStatus.completed
         storage_path = Path(stored_material.storage_path)
         assert storage_path.is_file()
         assert stored_material.file_name != stored_material.original_file_name

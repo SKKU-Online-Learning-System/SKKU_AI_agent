@@ -46,13 +46,22 @@ def get_voice_availability(settings: Settings | None = None) -> VoiceAvailabilit
     )
 
 
+def uses_grok(settings: Settings | None = None) -> bool:
+    """Whether the legacy realtime provider, and its prompt/tool wiring, is selected.
+
+    Only Grok is driven by a provider-side persona, tool schema and dispatcher.
+    The local cascade runs the brain itself, so the route can skip building any
+    of that -- including the learner-memory prefetch it depends on.
+    """
+    return (settings or get_settings()).voice_provider == "grok"
+
+
 def create_voice_transport(
     *,
     context: VoiceContext,
-    mode: str,
-    instructions: str,
-    tools: list[dict],
-    run_tool: Callable[[str, dict], Awaitable[object]],
+    instructions: str = "",
+    tools: list[dict] | None = None,
+    run_tool: Callable[[str, dict], Awaitable[object]] | None = None,
     refresh_instructions: Callable[[], Awaitable[str]] | None = None,
     schedule_assessment: Callable[[list[dict]], object] | None = None,
     settings: Settings | None = None,
@@ -62,7 +71,7 @@ def create_voice_transport(
     if settings.voice_provider == "grok":
         transport = GrokTransport(
             instructions=instructions,
-            tools=tools,
+            tools=tools or [],
             run_tool=run_tool,
             refresh_instructions=refresh_instructions,
             schedule_assessment=schedule_assessment,
@@ -71,8 +80,4 @@ def create_voice_transport(
         transport.provider_name = "xai"  # type: ignore[attr-defined]
         transport.model_name = settings.grok_voice_model  # type: ignore[attr-defined]
         return transport
-    return LocalCascadeTransport(
-        context=context,
-        mode=mode,
-        settings=settings,
-    )
+    return LocalCascadeTransport(context=context, settings=settings)

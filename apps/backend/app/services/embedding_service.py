@@ -1,13 +1,17 @@
-"""Deterministic local embeddings for document chunks and questions."""
+"""Qwen multimodal embeddings; deterministic hashing is explicit test mode only."""
 
 from __future__ import annotations
 
 import hashlib
 import logging
+import math
+
+import httpx
 import re
 from typing import Sequence
 
 from app.core.config import Settings
+from app.services.model_server.client import sync_client
 
 logger = logging.getLogger(__name__)
 
@@ -21,39 +25,77 @@ class EmbeddingError(Exception):
 
 
 class EmbeddingService:
-    """Turns text into vectors without an external embedding API."""
-
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
 
     @property
     def model_name(self) -> str:
-        return f"{MOCK_MODEL_PREFIX}-{self.settings.mock_embedding_dim}"
+        if self.settings.embedding_provider == "mock":
+            return f"{MOCK_MODEL_PREFIX}-{self.settings.mock_embedding_dim}"
+        return f"{self.settings.embedding_model}:{self.settings.embedding_dimension}"
 
     def embed_text(self, text: str) -> list[float]:
-        return self.embed_texts([text])[0]
+        return self._embed(text, query=True)
 
     def embed_texts(self, texts: Sequence[str]) -> list[list[float]]:
-        if not texts:
-            return []
+        return [self._embed(text) for text in texts]
 
-        prepared = [self._truncate(text) for text in texts]
-        total_chars = sum(len(text) for text in prepared)
-        logger.info(
-            "Embedding %d text(s) with %s (%d chars total)",
-            len(prepared),
-            self.model_name,
-            total_chars,
+    def embed_image(self, image_url: str) -> list[float]:
+        return self._embed("", image_url=image_url)
+
+    def _embed(
+        self, text: str, *, query: bool = False, image_url: str | None = None,
+    ) -> list[float]:
+        if len(text) > self.settings.embedding_max_chars:
+            raise EmbeddingError("EMBEDDING_INPUT_TOO_LONG")
+        if self.settings.embedding_provider == "mock":
+            if image_url:
+                raise EmbeddingError("Mock embeddings do not support images")
+            return _hash_embedding(text, self.settings.mock_embedding_dim)
+        content = []
+        if image_url:
+            if not image_url.startswith("data:image/"):
+                raise EmbeddingError("Only inline document images are supported")
+            content.append({"type": "image_url", "image_url": {"url": image_url}})
+        if text.strip():
+            content.append({"type": "text", "text": text})
+        if not content:
+            raise EmbeddingError("EMBEDDING_INPUT_EMPTY")
+        instruction = (
+            "Retrieve lecture pages relevant to the student's question or conversation."
+            if query else "Represent the user's input."
         )
-
-        return [self._mock_embedding(text) for text in prepared]
-
-    def _truncate(self, text: str) -> str:
-        limit = self.settings.embedding_max_chars
-        return text if len(text) <= limit else text[:limit]
-
-    def _mock_embedding(self, text: str) -> list[float]:
-        return _hash_embedding(text, self.settings.mock_embedding_dim)
+        try:
+            response = sync_client(
+                self.settings.embedding_base_url, self.settings.model_server_api_key,
+                self.settings.embedding_timeout_seconds,
+            ).post("embeddings", json={
+                "model": self.settings.embedding_model,
+                "messages": [
+                    {"role": "system", "content": instruction},
+                    {"role": "user", "content": content},
+                ],
+                "add_generation_prompt": True,
+                # Qwen VL pools the terminal <|endoftext|> added by its tokenizer.
+                # vLLM chat defaults omit it, producing a different embedding space.
+                "add_special_tokens": True,
+                "encoding_format": "float",
+            })
+            response.raise_for_status()
+            data = response.json()["data"]
+            if len(data) != 1 or data[0]["index"] != 0:
+                raise ValueError("Invalid embedding response count/index")
+            vector = data[0]["embedding"]
+            if not isinstance(vector, list) or len(vector) != 2048:
+                raise ValueError("Unexpected Qwen embedding dimension")
+            if not all(isinstance(x, (int, float)) and math.isfinite(x) for x in vector):
+                raise ValueError("Invalid embedding values")
+            vector = vector[:self.settings.embedding_dimension]
+            if not any(vector):
+                raise ValueError("Zero embedding")
+            return normalize(vector)
+        except (httpx.HTTPError, ValueError, KeyError, IndexError, TypeError) as exc:
+            raise EmbeddingError("Qwen 임베딩 서버 응답을 확인할 수 없습니다.") from exc
 
 
 class LocalHashEmbeddingService:
@@ -94,12 +136,8 @@ class LocalHashEmbeddingService:
         return [_hash_embedding(text, self.dimension) for text in texts]
 
 
-def create_embedding_service(settings: Settings) -> LocalHashEmbeddingService:
-    """Return the deterministic local provider; no external embedding key is needed."""
-    return LocalHashEmbeddingService(
-        dimension=settings.mock_embedding_dim,
-        max_input_chars=settings.embedding_max_chars,
-    )
+def create_embedding_service(settings: Settings) -> EmbeddingService:
+    return EmbeddingService(settings)
 
 
 def _hash_embedding(text: str, dimension: int) -> list[float]:

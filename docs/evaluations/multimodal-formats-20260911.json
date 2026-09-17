@@ -1,0 +1,72 @@
+[
+  {
+    "index": "scan.pdf",
+    "chunks": 1,
+    "seconds": 0.692
+  },
+  {
+    "index": "chart.pptx",
+    "chunks": 1,
+    "seconds": 2.026
+  },
+  {
+    "index": "chart.docx",
+    "chunks": 1,
+    "seconds": 2.181
+  },
+  {
+    "index": "unrelated.txt",
+    "chunks": 1,
+    "seconds": 0.08
+  },
+  {
+    "course": "charts",
+    "seconds": 2.015,
+    "results": [
+      {
+        "chunk_id": "493ed68b-2b03-40fc-95de-bbfe65e87bb8",
+        "course_id": "charts",
+        "material_id": "scan.pdf",
+        "document_name": "scan.pdf",
+        "chunk_index": 0,
+        "page_number": 1,
+        "chunk_text": "[질문 관련 원본 이미지 판독 — Qwen/Qwen3.5-9B]\n제공된 이미지에는 학습률(learning rate)과 손실(loss)의 관계를 보여주는 막대 그래프가 있습니다.\n\n그림에 따르면, 학습률(rate)이 **0.10**일 때의 손실(loss) 값은 **1.2**입니다.\n\n[문서 원문 텍스트]\n[이미지 페이지 — 검색 시 원본 판독 필요]",
+        "score": 0.5839189492788649,
+        "has_image": true
+      }
+    ]
+  },
+  {
+    "course": "office",
+    "seconds": 3.185,
+    "results": [
+      {
+        "chunk_id": "eb25f0c1-8496-4449-beec-66f4329631bf",
+        "course_id": "office",
+        "material_id": "chart.pptx",
+        "document_name": "chart.pptx",
+        "chunk_index": 0,
+        "page_number": 1,
+        "chunk_text": "[질문 관련 원본 이미지 판독 — Qwen/Qwen3.5-9B]\n제공된 이미지에는 학습률(learning rate)과 손실(loss)의 관계를 보여주는 막대 그래프가 있습니다.\n\n학습률(rate)이 0.10일 때, 해당 막대 옆에 표시된 손실 값은 **1.2**입니다.\n\n[문서 원문 텍스트]\n[이미지 페이지 — 검색 시 원본 판독 필요]",
+        "score": 0.5769459533140106,
+        "has_image": true
+      },
+      {
+        "chunk_id": "2b7c9e3c-26e6-4ad8-a3cf-5012cfed8a38",
+        "course_id": "office",
+        "material_id": "chart.docx",
+        "document_name": "chart.docx",
+        "chunk_index": 0,
+        "page_number": 1,
+        "chunk_text": "[질문 관련 원본 이미지 판독 — Qwen/Qwen3.5-9B]\n제공된 페이지는 학습률 (learning rate) 과 손실 (loss) 간의 관계를 보여주는 'Training results'입니다.\n\n학습률 (rate) 이 0.10 일 때의 손실 값은 **1.2**입니다.\n\n[문서 원문 텍스트]\nTraining results",
+        "score": 0.49682954371189597,
+        "has_image": true
+      }
+    ]
+  },
+  {
+    "course": "other",
+    "seconds": 0.083,
+    "results": []
+  }
+]

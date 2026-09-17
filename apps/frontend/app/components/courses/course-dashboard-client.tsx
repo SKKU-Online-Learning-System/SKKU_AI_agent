@@ -18,6 +18,7 @@ import type {
   ServiceStatistics
 } from "../../lib/api";
 import { UiIcon } from "../ui/ui-icon";
+import { WeakConceptStatisticsPanel } from "./weak-concept-statistics";
 
 type DashboardAudience = "admin" | "professor" | "student";
 type DashboardStatistics = ServiceStatistics | ProfessorStatistics | MyStatistics;
@@ -218,7 +219,10 @@ export function CourseDashboardClient({ audience }: { audience: DashboardAudienc
 
       {errorMessage ? <p className="admin-alert" role="alert">{errorMessage}</p> : null}
       {!isLoading && !errorMessage && statistics ? (
-        <StatisticsPanel audience={audience} statistics={statistics} />
+        <>
+          <StatisticsPanel audience={audience} statistics={statistics} />
+          {audience !== "student" ? <WeakConceptStatisticsPanel audience={audience} /> : null}
+        </>
       ) : null}
 
       <div className="canvas-dashboard-layout">
