@@ -30,11 +30,16 @@ function fileExtension(fileName: string): string {
   return fileName.split(".").pop()?.toLowerCase() ?? "";
 }
 
+function describeFailures(failures: { name: string; message: string }[]): string {
+  return failures.map((failure) => `${failure.name}: ${failure.message}`).join(" / ");
+}
+
 export function ProfessorMaterialsClient({ courseId }: { courseId?: string } = {}) {
   const [courses, setCourses] = useState<CourseSummary[]>([]);
   const [selectedCourseId, setSelectedCourseId] = useState("");
   const [materials, setMaterials] = useState<CourseMaterial[]>([]);
-  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
+  const [uploadProgress, setUploadProgress] = useState<string | null>(null);
   const [selectedWeek, setSelectedWeek] = useState(1);
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -42,6 +47,7 @@ export function ProfessorMaterialsClient({ courseId }: { courseId?: string } = {
     null
   );
   const [processingMaterialId, setProcessingMaterialId] = useState<string | null>(null);
+  const [batchProgress, setBatchProgress] = useState<string | null>(null);
   const [ragStatus, setRagStatus] = useState<CourseRagStatus | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -51,7 +57,7 @@ export function ProfessorMaterialsClient({ courseId }: { courseId?: string } = {
     isSubmitting || deletingMaterialId !== null || processingMaterialId !== null;
 
   const resetSelectedFile = () => {
-    setSelectedFile(null);
+    setSelectedFiles([]);
     if (fileInputRef.current) {
       fileInputRef.current.value = "";
     }
@@ -147,6 +153,11 @@ export function ProfessorMaterialsClient({ courseId }: { courseId?: string } = {
     return () => { cancelled = true; window.clearInterval(timer); };
   }, [selectedCourseId, hasPendingMaterials]);
 
+  const unprocessedCount = materials.filter(
+    (material) =>
+      material.processingStatus === "pending" || material.processingStatus === "failed"
+  ).length;
+
   const handleCourseChange = (event: ChangeEvent<HTMLSelectElement>) => {
     const nextCourseId = event.target.value;
     selectedCourseIdRef.current = nextCourseId;
@@ -159,50 +170,76 @@ export function ProfessorMaterialsClient({ courseId }: { courseId?: string } = {
   };
 
   const handleFileChange = (event: ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0] ?? null;
+    const files = Array.from(event.target.files ?? []);
     setErrorMessage(null);
+    setUploadProgress(null);
 
-    if (!file) {
+    if (files.length === 0) {
       resetSelectedFile();
       return;
     }
-    if (!allowedFileExtensions.has(fileExtension(file.name))) {
+    // One bad file rejects the whole selection: a partly-accepted list is worse to reason about.
+    if (files.some((file) => !allowedFileExtensions.has(fileExtension(file.name)))) {
       resetSelectedFile();
       setErrorMessage("지원하지 않는 파일 형식입니다.");
       return;
     }
-    if (file.size > maxFileSize) {
+    if (files.some((file) => file.size > maxFileSize)) {
       resetSelectedFile();
       setErrorMessage("파일 크기는 20MB 이하여야 합니다.");
       return;
     }
 
-    setSelectedFile(file);
+    setSelectedFiles(files);
   };
 
   const handleUpload = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (!selectedCourseId || !selectedFile) return;
+    if (!selectedCourseId || selectedFiles.length === 0) return;
 
     const operationCourseId = selectedCourseIdRef.current;
-    const operationFile = selectedFile;
+    const operationFiles = selectedFiles;
     setErrorMessage(null);
     setIsSubmitting(true);
-    try {
-      const uploadedMaterial = await uploadCourseMaterial(
-        operationCourseId,
-        operationFile,
-        selectedWeek
-      );
-      if (selectedCourseIdRef.current !== operationCourseId) return;
-      setMaterials((current) => [uploadedMaterial, ...current]);
-      resetSelectedFile();
-    } catch (error) {
-      if (selectedCourseIdRef.current !== operationCourseId) return;
-      setErrorMessage(apiErrorMessage(error, "강의자료 업로드에 실패했습니다."));
-    } finally {
-      setIsSubmitting(false);
+    // Sequential: the server processes each upload in a background task, and a parallel
+    // burst would start as many page-reading pipelines at once.
+    const failures: { name: string; message: string }[] = [];
+    for (const [index, file] of operationFiles.entries()) {
+      if (selectedCourseIdRef.current !== operationCourseId) break;
+      if (operationFiles.length > 1) {
+        setUploadProgress(`${index + 1}/${operationFiles.length} 업로드 중`);
+      }
+      try {
+        const uploadedMaterial = await uploadCourseMaterial(
+          operationCourseId,
+          file,
+          selectedWeek
+        );
+        if (selectedCourseIdRef.current !== operationCourseId) break;
+        setMaterials((current) => [uploadedMaterial, ...current]);
+      } catch (error) {
+        if (selectedCourseIdRef.current !== operationCourseId) break;
+        failures.push({
+          name: file.name,
+          message: apiErrorMessage(error, "강의자료 업로드에 실패했습니다.")
+        });
+      }
     }
+    setUploadProgress(null);
+    setIsSubmitting(false);
+    if (selectedCourseIdRef.current !== operationCourseId) return;
+    if (failures.length === operationFiles.length) {
+      setErrorMessage(
+        operationFiles.length === 1
+          ? failures[0].message
+          : `강의자료 업로드에 실패했습니다. (${describeFailures(failures)})`
+      );
+      return;
+    }
+    if (failures.length > 0) {
+      setErrorMessage(`일부 파일을 업로드하지 못했습니다. (${describeFailures(failures)})`);
+    }
+    resetSelectedFile();
   };
 
   const handleDelete = async (material: CourseMaterial) => {
@@ -269,6 +306,57 @@ export function ProfessorMaterialsClient({ courseId }: { courseId?: string } = {
     }
   };
 
+  // Upload already queues processing per file; this is for the ones that failed or were
+  // left pending, so a batch upload needs one click to finish instead of one per row.
+  const handleProcessAll = async () => {
+    const queue = materials.filter(
+      (material) =>
+        material.processingStatus === "pending" || material.processingStatus === "failed"
+    );
+    if (queue.length === 0) return;
+    if (processingMaterialIdRef.current || isSubmitting || deletingMaterialId || isLoading) {
+      return;
+    }
+
+    const operationCourseId = selectedCourseIdRef.current;
+    setErrorMessage(null);
+    const failures: { name: string; message: string }[] = [];
+    for (const [index, material] of queue.entries()) {
+      if (selectedCourseIdRef.current !== operationCourseId) break;
+      processingMaterialIdRef.current = material.id;
+      setProcessingMaterialId(material.id);
+      setBatchProgress(`${index + 1}/${queue.length} 처리 중`);
+      try {
+        await (material.processingStatus === "failed"
+          ? reprocessCourseMaterial(operationCourseId, material.id)
+          : processCourseMaterial(operationCourseId, material.id));
+      } catch (error) {
+        failures.push({
+          name: material.originalFileName,
+          message: apiErrorMessage(error, "자료 처리에 실패했습니다.")
+        });
+      }
+    }
+    processingMaterialIdRef.current = null;
+    setProcessingMaterialId(null);
+    setBatchProgress(null);
+    if (selectedCourseIdRef.current !== operationCourseId) return;
+    try {
+      const [materialList, nextRagStatus] = await Promise.all([
+        listCourseMaterials(operationCourseId),
+        getCourseRagStatus(operationCourseId)
+      ]);
+      if (selectedCourseIdRef.current !== operationCourseId) return;
+      setMaterials(materialList);
+      setRagStatus(nextRagStatus);
+    } catch {
+      // Keep current rows; a processing failure below is the more useful message.
+    }
+    if (failures.length > 0) {
+      setErrorMessage(`자료 처리에 실패했습니다. (${describeFailures(failures)})`);
+    }
+  };
+
   const handleRefresh = async () => {
     if (!selectedCourseId || isLoading || isMutationActive) return;
     const operationCourseId = selectedCourseIdRef.current;
@@ -293,7 +381,7 @@ export function ProfessorMaterialsClient({ courseId }: { courseId?: string } = {
     <section className="material-manager">
       <header>
         <h1>강의자료 관리</h1>
-        <p>주차를 선택해 업로드한 뒤 RAG 처리를 시작하세요.</p>
+        <p>주차를 선택해 파일을 한 번에 업로드하면 순서대로 RAG 처리가 시작됩니다.</p>
       </header>
 
       {!courseId ? (
@@ -335,6 +423,7 @@ export function ProfessorMaterialsClient({ courseId }: { courseId?: string } = {
           <input
             accept=".pdf,.pptx,.docx,.txt"
             disabled={!selectedCourseId || isLoading || isMutationActive}
+            multiple
             onChange={handleFileChange}
             ref={fileInputRef}
             type="file"
@@ -343,15 +432,19 @@ export function ProfessorMaterialsClient({ courseId }: { courseId?: string } = {
         <button
           disabled={
             !selectedCourseId ||
-            !selectedFile ||
+            selectedFiles.length === 0 ||
             isLoading ||
             isMutationActive
           }
           type="submit"
         >
-          {isSubmitting ? "업로드 중..." : "업로드"}
+          {isSubmitting
+            ? uploadProgress ?? "업로드 중..."
+            : selectedFiles.length > 1
+              ? `${selectedFiles.length}개 업로드`
+              : "업로드"}
         </button>
-        <p>PDF, PPTX, DOCX, TXT 파일을 최대 20MB까지 업로드할 수 있습니다.</p>
+        <p>PDF, PPTX, DOCX, TXT 파일을 한 번에 여러 개, 각각 최대 20MB까지 업로드할 수 있습니다.</p>
       </form>
 
       {errorMessage ? (
@@ -377,6 +470,15 @@ export function ProfessorMaterialsClient({ courseId }: { courseId?: string } = {
           >
             상태 새로고침
           </button>
+          {unprocessedCount > 0 ? (
+            <button
+              disabled={isLoading || isMutationActive}
+              onClick={() => void handleProcessAll()}
+              type="button"
+            >
+              {batchProgress ?? `미처리 자료 ${unprocessedCount}개 모두 처리`}
+            </button>
+          ) : null}
         </div>
       ) : null}
 
