@@ -154,6 +154,8 @@ Sungkyunkwan University student.
 # Language and speaking style
 Speak in Korean unless asked otherwise. Use natural, polite spoken Korean as if
 talking with the student face to face. Avoid textbook or report-like prose.
+Never use Latin letters in a Korean answer. Write every English term phonetically
+in Hangul, for example `softmax` as `소프트맥스` and `cross entropy` as `크로스 엔트로피`.
 
 # Tool workflow
 Learner memory and course materials are preloaded by the server before every
@@ -978,8 +980,13 @@ _LETTER_HANGUL = {
 # not listed here falls through to the letter table, which is already correct for
 # the likes of HTTP or SQL.
 _SPOKEN_AS_WORD = {"RAM": "램", "ROM": "롬", "JSON": "제이슨", "REST": "레스트"}
-# A Korean particle attaches directly to the acronym ("GPU로", "API를"), so a
-# trailing \b never matches; bound on Latin characters instead.
+# LLM-authored pronunciation hints stay visible on screen, while TTS reads only
+# their Hangul side so mixed-language terms do not inherit Korean-mode English.
+_PRONUNCIATION = re.compile(
+    r"(?<![A-Za-z])(?:[A-Za-z][A-Za-z0-9+.#/-]*(?: +[A-Za-z][A-Za-z0-9+.#/-]*)*)"
+    r"\(([가-힣]+(?: +[가-힣]+)*)\)"
+)
+# Korean particles attach directly to acronyms, so bound on Latin characters.
 _ACRONYM = re.compile(r"(?<![A-Za-z0-9])[A-Z][A-Z0-9]{1,5}(?![A-Za-z0-9])")
 # Written with a slash, so the acronym pattern cannot reach it.
 _SLASHED = {"I/O": "아이오"}
@@ -997,8 +1004,8 @@ def _spell_acronym(match: re.Match[str]) -> str:
 def for_speech(text: str) -> str:
     """Adapt screen text for the TTS model without changing what is displayed.
 
-    URLs are dropped and upper-case acronyms are spelled out in Hangul; both read
-    badly aloud but must stay intact on screen.
+    URLs are dropped, pronunciation hints select their Hangul reading, and acronyms
+    are spelled out in Hangul. Original spelling stays intact on screen.
     """
     text = re.sub(
         r"\s*외부 출처\s*:?\s*(?:https?://\S+\s*,?\s*)+$",
@@ -1007,6 +1014,7 @@ def for_speech(text: str) -> str:
         flags=re.IGNORECASE,
     )
     text = re.sub(r"https?://\S+", "", text)
+    text = _PRONUNCIATION.sub(r"\1", text)
     for written, spoken in _SLASHED.items():
         text = text.replace(written, spoken)
     return _ACRONYM.sub(_spell_acronym, text).strip()

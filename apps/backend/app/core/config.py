@@ -88,7 +88,7 @@ class Settings(BaseSettings):
     # are preferred; this limit only splits unusually long sentences further.
     tts_chunk_max_chars: int = Field(default=80, ge=20, le=300)
     # Knobs for the first request of a turn. Both were measured against
-    # CosyVoice3-0.5B on an A5000 and are neutral by default: first-audio latency
+    # the current streaming backend and are neutral by default: first-audio latency
     # is gated by how fast the LLM completes its first sentence, not by chunk
     # size, and a smaller decoder hop trades more throughput than it saves
     # (token2wav costs ~600ms almost regardless of token count). Kept tunable
@@ -112,6 +112,20 @@ class Settings(BaseSettings):
     # is audible as uneven delivery, and a short fragment also leaves the playback
     # buffer too thin to absorb the packet after it.
     tts_first_chunk_min_chars: int = Field(default=24, ge=0, le=200)
+    # Each TTS request is generated independently, so concatenating two of them
+    # loses most of the pause a speaker leaves at the boundary and the seam is
+    # heard as one sentence running into the next.
+    #
+    # Sized from the voice itself rather than from a rule of thumb. Measured over
+    # 5 replies synthesized as a single request, this speaker pauses a median of
+    # 523ms at a sentence end and 256ms at a comma. The TTS server already keeps
+    # `QWEN_TTS_SILENCE_KEEP_MS` of its own trailing silence and trims the next
+    # request's leading silence to a pre-roll, which left the seam at 352ms; these
+    # values top that back up to the speaker's natural pause. A seam that pauses
+    # for less than a real sentence boundary while the delivery changes across it
+    # is what reads as abrupt, so under-shooting here is worse than over-shooting.
+    tts_sentence_gap_ms: int = Field(default=350, ge=0, le=1000)
+    tts_clause_gap_ms: int = Field(default=90, ge=0, le=1000)
 
     xai_api_key: Optional[str] = None
     xai_realtime_url: str = "wss://api.x.ai/v1/realtime"

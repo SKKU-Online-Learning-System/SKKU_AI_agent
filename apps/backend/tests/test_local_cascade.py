@@ -37,6 +37,7 @@ class FakeSpeech:
         self.transcribe_calls = 0
         self.synthesize_calls = 0
         self.synthesized_texts: list[str] = []
+        self.synthesized_languages: list[str | None] = []
 
     async def transcribe(self, pcm: bytes, *, sample_rate: int) -> TranscriptionResult:
         self.transcribe_calls += 1
@@ -55,6 +56,7 @@ class FakeSpeech:
     async def synthesize_stream(self, text: str, **kwargs):
         self.synthesize_calls += 1
         self.synthesized_texts.append(text)
+        self.synthesized_languages.append(kwargs.get("language"))
         yield b"\x01\x02" * 50, 24000
         yield b"\x01\x02" * 50, 24000
 
@@ -71,6 +73,7 @@ class TtsFailure(FakeSpeech):
     async def synthesize_stream(self, text: str, **kwargs):
         raise SpeechError("tts down")
         yield b"", 24000  # pragma: no cover - keeps this an async generator
+        self.synthesized_languages.append(kwargs.get("language"))
 
 
 class BlockingTts(FakeSpeech):
@@ -89,6 +92,7 @@ class BlockingTts(FakeSpeech):
     async def synthesize_stream(self, text: str, **kwargs):
         self.synthesize_calls += 1
         self.synthesized_texts.append(text)
+        self.synthesized_languages.append(kwargs.get("language"))
         self.started.set()
         await self.release.wait()
         yield b"old-audio", 24000
@@ -147,7 +151,7 @@ async def multi_sentence_brain(
     on_speech_delta=None,
     on_speech_rollback=None,
 ) -> VoiceBrainResult:
-    reply = "첫 번째 설명입니다. 두 번째 설명입니다! 마지막 설명인가요?"
+    reply = "첫 번째 문장은 이 정도로 충분히 길게 만들었습니다. 두 번째 설명입니다! 마지막 설명인가요?"
     timer.timings_ms["llm_ttft"] = 12
     timer.timings_ms["llm"] = 40
     if on_token:
@@ -165,13 +169,25 @@ async def multi_sentence_brain(
 
 
 def test_tts_chunks_prefer_sentence_boundaries_and_cap_long_segments() -> None:
-    assert _tts_chunks("첫 문장입니다. 둘째 문장입니다!", 80) == [
-        "첫 문장입니다.",
-        "둘째 문장입니다!",
+    # Every internal split is a sentence boundary and carries the sentence pause;
+    # the final chunk inherits the gap the caller asked for.
+    assert _tts_chunks(
+        "첫 문장입니다. 둘째 문장입니다!", 80, sentence_gap_ms=180, tail_gap_ms=90
+    ) == [
+        ("첫 문장입니다.", 180),
+        ("둘째 문장입니다!", 90),
     ]
-    chunks = _tts_chunks("가나다라마바사 아자차카타파하 가나다라마바사 아자차카타파하", 20)
+    chunks = _tts_chunks(
+        "가나다라마바사 아자차카타파하 가나다라마바사 아자차카타파하",
+        20,
+        sentence_gap_ms=180,
+        tail_gap_ms=180,
+    )
     assert chunks
-    assert all(len(chunk) <= 20 for chunk in chunks)
+    assert all(len(text) <= 20 for text, _ in chunks)
+    # Word-boundary splits inside one sentence are mid-phrase: no pause until the
+    # end, where the caller's boundary actually is.
+    assert [gap for _, gap in chunks] == [0] * (len(chunks) - 1) + [180]
 
 
 @pytest.mark.asyncio
@@ -201,6 +217,7 @@ async def test_audio_turn_runs_vad_asr_voice_brain_tts() -> None:
     assert any(isinstance(event, AgentAudio) and event.rate == 24000 for event in observed)
     assert speech.transcribe_calls == 1
     assert speech.synthesize_calls == 1
+    assert speech.synthesized_languages == ["Korean"]
     await transport.close()
 
 
@@ -227,12 +244,69 @@ async def test_multi_sentence_reply_is_synthesized_and_emitted_as_audio_chunks()
     # merged into one request to avoid paying the TTS first-packet cost per
     # sentence.
     assert speech.synthesized_texts == [
-        "첫 번째 설명입니다.",
+        "첫 번째 문장은 이 정도로 충분히 길게 만들었습니다.",
         "두 번째 설명입니다! 마지막 설명인가요?",
     ]
-    # Audio is forwarded per streamed server chunk rather than per sentence.
-    assert len(audio_events) == 4
+    # Audio is forwarded per streamed server chunk rather than per sentence: two
+    # chunks per request, plus one silent chunk re-inserting the sentence pause
+    # that the seam between the two independent requests would otherwise delete.
+    assert len(audio_events) == 5
     assert all(event.rate == 24000 for event in audio_events)
+    gap = audio_events[2]
+    assert set(gap.pcm) == {0}
+    assert len(gap.pcm) == 2 * round(24000 * settings().tts_sentence_gap_ms / 1000)
+    await transport.close()
+
+
+async def short_opener_brain(
+    ctx,
+    transcript,
+    timer,
+    mode,
+    on_token=None,
+    on_speech_delta=None,
+    on_speech_rollback=None,
+) -> VoiceBrainResult:
+    reply = "안녕하세요! 가상 메모리는 물리 메모리를 확장하는 기법이에요. 덕분에 큰 프로그램도 실행됩니다."
+    timer.timings_ms["llm_ttft"] = 12
+    timer.timings_ms["llm"] = 40
+    if on_token:
+        await on_token(reply)
+    if on_speech_delta:
+        for token in reply.split(" "):
+            await on_speech_delta(token + " ")
+    return VoiceBrainResult(
+        reply=reply, tools=[], sources=[], visualizations=[], model_name="Qwen/Qwen3.5-9B"
+    )
+
+
+@pytest.mark.asyncio
+async def test_short_opening_sentence_is_not_synthesized_on_its_own() -> None:
+    """A greeting alone is too little audio to cover the request after it.
+
+    "네!" on its own is a 2-character request worth about 200ms of playback, while
+    the next packet cannot arrive for roughly 650ms, so playback stalled just
+    after the greeting. tts_first_chunk_min_chars was already meant to prevent
+    this but was only enforced on the clause path.
+    """
+    speech = FakeSpeech()
+    transport = LocalCascadeTransport(
+        context=context(),
+        mode="explain",
+        settings=settings(),
+        speech_client=speech,  # type: ignore[arg-type]
+        detector=FakeDetector(),  # type: ignore[arg-type]
+        brain_runner=short_opener_brain,
+    )
+    await transport.start()
+    events = transport.events()
+    await _next(events)
+    await transport.send_text("안녕")
+    await _through_turn_done(events)
+
+    first = speech.synthesized_texts[0]
+    assert first.startswith("안녕하세요!")
+    assert len(first) >= settings().tts_first_chunk_min_chars
     await transport.close()
 
 
@@ -257,6 +331,7 @@ async def test_send_text_skips_asr_and_uses_same_tts_pipeline() -> None:
     assert isinstance(observed[0], UserStoppedSpeaking)
     assert speech.transcribe_calls == 0
     assert speech.synthesize_calls == 1
+    assert speech.synthesized_languages == ["Korean"]
     assert any(isinstance(event, AgentAudio) for event in observed)
     await transport.close()
 
