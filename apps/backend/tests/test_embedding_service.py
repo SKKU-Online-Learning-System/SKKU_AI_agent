@@ -5,6 +5,7 @@ import pytest
 from app.core.config import Settings
 from app.services.embedding_service import (
     EmbeddingError,
+    EmbeddingService,
     LocalHashEmbeddingService,
     create_embedding_service,
 )
@@ -25,11 +26,11 @@ def test_local_embedding_is_deterministic_normalized_and_batch_capable() -> None
     assert service.model_name == "local-hash-128"
 
 
-def test_factory_uses_local_embedding_without_external_api_key() -> None:
+def test_factory_defaults_to_real_qwen_embeddings() -> None:
     service = create_embedding_service(Settings(_env_file=None))
 
-    assert isinstance(service, LocalHashEmbeddingService)
-    assert service.embed_text("lecture")
+    assert isinstance(service, EmbeddingService)
+    assert service.model_name == "Qwen/Qwen3-VL-Embedding-2B:2048"
 
 
 def test_embedding_rejects_oversized_input() -> None:

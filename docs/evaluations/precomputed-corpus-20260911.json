@@ -1,0 +1,45 @@
+{
+  "materials": [
+    {
+      "original_file_name": "lecture06_Transformer_Part3.pdf",
+      "processing_status": "completed",
+      "pages": 24,
+      "readings": 24,
+      "max_chars": 1168,
+      "completed_at": "2026-09-11 05:17:53.833446"
+    },
+    {
+      "original_file_name": "lecture06_Transformer_Part1.pdf",
+      "processing_status": "completed",
+      "pages": 28,
+      "readings": 28,
+      "max_chars": 2346,
+      "completed_at": "2026-09-11 04:52:28.225109"
+    },
+    {
+      "original_file_name": "lecture06_Transformer_Part2.pdf",
+      "processing_status": "completed",
+      "pages": 30,
+      "readings": 30,
+      "max_chars": 3235,
+      "completed_at": "2026-09-11 04:56:51.062031"
+    }
+  ],
+  "examples": [
+    {
+      "original_file_name": "lecture06_Transformer_Part1.pdf",
+      "page_number": 14,
+      "page_evidence": "제공된 이미지(강의 슬라이드)의 텍스트, 표, 및 다이어그램 정보를 그대로 전사합니다.\n\n---\n\n**[Header]**\nExample: Causal Mask\nSUNGKYUNKWAN UNIVERSITY (SKKU)\n\n**[Main Content]**\n**Example**\nBelow, $\\checkmark$ means \"visible\" and $\\times$ means \"masked.\"\nCausal attention sees only the past.\n\n**Causal mask**\n\n| | 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 |\n| :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |\n| **0** | $\\checkmark$ | $\\times$ | $\\times$ | $\\times$ | $\\times$ | $\\times$ | $\\times$ | $\\times$ |\n| **1** | $\\checkmark$ | $\\checkmark$ | $\\times$ | $\\times$ | $\\times$ | $\\times$ | $\\times$ | $\\times$ |\n| **2** | $\\checkmark$ | $\\checkmark$ | $\\checkmark$ | $\\times$ | $\\times$ | $\\times$ | $\\times$ | $\\times$ |\n| **3** | $\\checkmark$ | $\\checkmark$ | $\\checkmark$ | $\\checkmark$ | $\\times$ | $\\times$ | $\\times$ | $\\times$ |\n| **4** | $\\checkmark$ | $\\checkmark$ | $\\checkmark$ | $\\checkmark$ | $\\checkmark$ | $\\times$ | $\\times$ | $\\times$ |\n| **5** | $\\checkmark$ | $\\checkmark$ | $\\checkmark$ | $\\checkmark$ | $\\checkmark$ | $\\checkmark$ | $\\times$ | $\\times$ |\n| **6** | $\\checkmark$ | $\\checkmark$ | $\\checkmark$ | $\\checkmark$ | $\\checkmark$ | $\\checkmark$ | $\\checkmark$ | $\\times$ |\n| **7** | $\\checkmark$ | $\\checkmark$ | $\\checkmark$ | $\\checkmark$ | $\\checkmark$ | $\\checkmark$ | $\\checkmark$ | $\\checkmark$ |\n\n**[Footer]**\nKyuhong Shim, Dept. of Intelligent Software\nSequential Data Processing\n2026. 4. 1.\n13 / 27"
+    },
+    {
+      "original_file_name": "lecture06_Transformer_Part1.pdf",
+      "page_number": 23,
+      "page_evidence": "이 강의 슬라이드는 시계열 데이터 처리 (Sequential Data Processing) 강의의 22 페이지입니다.\n\n**Slide Title:** Sinusoidal Positional Encoding\n**University Logo:** SUNGKYUNKWAN UNIVERSITY (SKKU)\n\n**Main Content:**\n*   **Heatmap Chart:**\n    *   **X-axis:** Depth (0 ~ 120+)\n    *   **Y-axis:** Position (0 ~ 50)\n    *   **Color Bar (Right):**\n        *   Range: -1.00 (Red) to 1.00 (Blue)\n        *   Labels: -1.00, -0.75, -0.50, -0.25, 0.00, 0.25, 0.50, 0.75, 1.00\n    *   **Visual Pattern:**\n        *   Left side (low Depth): Chaotic mix of red and blue pixels.\n        *   Middle (Depth ~40-60): Transition to vertical blue stripes.\n        *   Right side (high Depth): Regular, high-frequency vertical blue stripes.\n\n**Text Body:**\n*   Unlike learned absolute embeddings, sinusoidal encodings can be extended to longer sequence lengths without introducing new parameters.\n\n**Footer:**\n*   **Left:** Kyuhong Shim, Dept. of Intelligent Software\n*   **Center:** Sequential Data Processing\n*   **Right:** 2026. 4. 1. 22 / 27"
+    },
+    {
+      "original_file_name": "lecture06_Transformer_Part3.pdf",
+      "page_number": 20,
+      "page_evidence": "# MHA, MQA, and GQA\n\n## Multi-Head Attention (MHA)\n- **Values**: 8 개의 수직 막대 (각 막대 내부에 대각선 줄무늬)\n- **Keys**: 8 개의 수직 막대 (각 막대 내부에 대각선 줄무늬)\n- **Queries**: 8 개의 수직 막대 (흰색 내부)\n- **연결**: Values, Keys, Queries 각각의 대응하는 막대들 사이에 점선으로 연결됨\n\n## Grouped-Query Attention (GQA)\n- **Values**: 4 개의 수직 막대 (각 막대 내부에 대각선 줄무늬)\n- **Keys**: 4 개의 수직 막대 (각 막대 내부에 대각선 줄무늬)\n- **Queries**: 8 개의 수직 막대 (흰색 내부)\n- **연결**: 각 Value-Key 쌍은 2 개의 Query 막대에 연결됨 (점선으로 표시)\n\n## Multi-Query Attention (MQA)\n- **Values**: 1 개의 수직 막대 (내부에 대각선 줄무늬)\n- **Keys**: 1 개의 수직 막대 (내부에 대각선 줄무늬)\n- **Queries**: 8 개의 수직 막대 (흰색 내부)\n- **연결**: Value-Key 쌍은 모든 8 개의 Query 막대에 연결됨 (점선으로 표시)\n\n---\n\n**하단 정보:**\n- Kyuhong Shim, Dept. of Intelligent Software\n- Sequential Data Processing\n- 2026. 4. 13.\n- 19 / 23"
+    }
+  ]
+}

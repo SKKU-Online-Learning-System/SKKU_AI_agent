@@ -51,6 +51,27 @@ function apiErrorMessage(error: unknown, fallback: string): string {
   return error instanceof ApiError ? error.message : fallback;
 }
 
+type LoggedAttachment = { name: string; kind: string; pages: number };
+
+/** Files the student attached to the logged question, as recorded by the COURSE AGENT. */
+function loggedAttachments(detail: ChatLogDetail): LoggedAttachment[] {
+  const records = detail.retrievalResult.attachments;
+  if (!Array.isArray(records)) return [];
+  return records
+    .filter((record): record is Record<string, unknown> => typeof record === "object" && !!record)
+    .map((record) => ({
+      kind: String(record.kind ?? "image"),
+      name: String(record.name ?? "첨부 파일"),
+      pages: Number(record.pages ?? 0)
+    }));
+}
+
+/** The retrieval summary without the attachments' extracted text, which is shown by name above. */
+function retrievalSummary(detail: ChatLogDetail): Record<string, unknown> {
+  const { attachments: _attachments, ...rest } = detail.retrievalResult;
+  return rest;
+}
+
 function formatDateTime(value: string): string {
   const parsed = new Date(value);
   return Number.isNaN(parsed.getTime()) ? "-" : parsed.toLocaleString("ko-KR");
@@ -326,10 +347,25 @@ export function ChatLogClient({ audience }: ChatLogClientProps) {
                 </ul>
               )}
             </dd>
+            {loggedAttachments(detail).length ? (
+              <>
+                <dt>첨부 파일</dt>
+                <dd>
+                  <ul>
+                    {loggedAttachments(detail).map((attachment, index) => (
+                      <li key={`${attachment.name}-${index}`}>
+                        {attachment.name} (
+                        {attachment.kind === "pdf" ? `PDF, ${attachment.pages}쪽` : "이미지"})
+                      </li>
+                    ))}
+                  </ul>
+                </dd>
+              </>
+            ) : null}
             <dt>안전 검사</dt>
             <dd>{JSON.stringify(detail.safetyResult)}</dd>
             <dt>검색 요약</dt>
-            <dd>{JSON.stringify(detail.retrievalResult)}</dd>
+            <dd>{JSON.stringify(retrievalSummary(detail))}</dd>
             <dt>모델</dt>
             <dd>{detail.modelName ?? "-"}</dd>
             <dt>응답 시간</dt>

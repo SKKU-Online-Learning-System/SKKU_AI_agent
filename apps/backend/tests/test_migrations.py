@@ -76,6 +76,8 @@ def test_alembic_upgrade_and_downgrade_full_schema(tmp_path: Path) -> None:
         "char_count",
         "embedding",
         "embedding_model",
+        "page_image",
+        "page_evidence",
         "embedded_at",
         "created_at",
         "updated_at",

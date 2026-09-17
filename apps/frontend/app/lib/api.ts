@@ -131,6 +131,7 @@ export type RagSearchResult = {
   chunkIndex: number;
   chunkText: string;
   score: number;
+  pageImageUrl?: string | null;
 };
 
 export type RagSearchResponse = {
@@ -142,6 +143,7 @@ export type RagSearchResponse = {
     embeddingModel?: string | null;
     searchMode: string;
     scoreThreshold?: number | null;
+    textScoreThreshold?: number | null;
     totalCandidateChunks: number;
   };
 };
@@ -187,11 +189,21 @@ export type ChatSessionSummary = {
   updatedAt: string;
 };
 
+export type ChatHistoryAttachment = {
+  id: string;
+  name: string;
+  kind: string;
+  pages: number;
+  size: number;
+};
+
 export type ChatHistoryLog = {
   id: string;
   question: string;
   answer: string;
   sources: AnswerSource[];
+  /** Files the student attached to this question, without their extracted text. */
+  attachments?: ChatHistoryAttachment[];
   isGrounded: boolean;
   answerSourceType: AnswerSourceType;
   createdAt: string;
@@ -286,6 +298,76 @@ export type MyStatistics = {
   sessionCount: number;
   questionsByDate: DateStatistic[];
   courses: Array<Pick<CourseStatistic, "courseId" | "courseName" | "questionCount">>;
+};
+
+/** Weak concepts the course agent captured, aggregated for the teaching side. */
+export type WeakConceptStatus = "new" | "practicing" | "mastered";
+export type WeakConceptStatusCounts = Record<WeakConceptStatus, number>;
+
+export type WeakConceptCourseSummary = {
+  courseId: string;
+  courseName: string;
+  recordCount: number;
+  conceptCount: number;
+  studentCount: number;
+  statusCounts: WeakConceptStatusCounts;
+  averageMastery: number;
+  dueReviewCount: number;
+  lastActivityAt: string | null;
+};
+
+export type WeakConceptStatistics = {
+  totals: Omit<WeakConceptCourseSummary, "courseId" | "courseName"> & { courseCount: number };
+  courses: WeakConceptCourseSummary[];
+};
+
+export type WeakConceptConceptRow = {
+  concept: string;
+  topic: string;
+  detail: string;
+  studentCount: number;
+  failureCount: number;
+  successCount: number;
+  statusCounts: WeakConceptStatusCounts;
+  averageMastery: number;
+  lastSeenAt: string | null;
+  sampleNotes: string[];
+};
+
+export type WeakConceptTopicRow = {
+  topic: string;
+  conceptCount: number;
+  studentCount: number;
+  failureCount: number;
+  averageMastery: number;
+};
+
+export type WeakConceptStudentRow = {
+  studentId: string;
+  label: string;
+  conceptCount: number;
+  statusCounts: WeakConceptStatusCounts;
+  averageMastery: number;
+  dueReviewCount: number;
+  lastSeenAt: string | null;
+  weakestConcepts: string[];
+};
+
+export type WeakConceptCapture = {
+  concept: string;
+  status: WeakConceptStatus;
+  difficultyNote: string;
+  studentLabel: string;
+  masteryPercent: number;
+  lastSeenAt: string | null;
+};
+
+export type CourseWeakConceptStatistics = WeakConceptCourseSummary & {
+  concepts: WeakConceptConceptRow[];
+  topics: WeakConceptTopicRow[];
+  students: WeakConceptStudentRow[];
+  savedByDate: DateStatistic[];
+  recentCaptures: WeakConceptCapture[];
 };
 
 export class ApiError extends Error {
@@ -399,10 +481,17 @@ export function uploadCourseMaterial(
   });
 }
 
-export async function downloadCourseMaterial(
-  courseId: string,
-  materialId: string
+export function downloadCourseMaterial(courseId: string, materialId: string): Promise<Blob> {
+  return fetchAuthorizedBlob(`/api/courses/${courseId}/materials/${materialId}/download`);
+}
+
+export function fetchMaterialPageImage(
+  courseId: string, materialId: string, page: number
 ): Promise<Blob> {
+  return fetchAuthorizedBlob(`/api/courses/${courseId}/materials/${materialId}/pages/${page}/image`);
+}
+
+async function fetchAuthorizedBlob(path: string): Promise<Blob> {
   const token = readAccessToken();
   const headers = new Headers();
   if (token) headers.set("Authorization", `Bearer ${token}`);
@@ -410,7 +499,7 @@ export async function downloadCourseMaterial(
   let response: Response;
   try {
     response = await fetch(
-      `${getApiBaseUrl()}/api/courses/${courseId}/materials/${materialId}/download`,
+      `${getApiBaseUrl()}${path}`,
       { headers }
     );
   } catch {
@@ -459,57 +548,15 @@ export function getCourseRagStatus(courseId: string): Promise<CourseRagStatus> {
   return apiRequest<CourseRagStatus>(`/api/courses/${courseId}/rag/status`);
 }
 
-export async function searchRagDebug(
+export function searchRagDebug(
   courseId: string,
   question: string,
   topK: number
 ): Promise<RagSearchResponse> {
-  const response = await apiRequest<{
-    course_id: string;
-    question: string;
-    top_k: number;
-    results: Array<{
-      chunk_id: string;
-      material_id: string;
-      document_name: string;
-      page_number?: number | null;
-      chunk_index: number;
-      chunk_text: string;
-      score: number;
-    }>;
-    debug?: {
-      embedding_model?: string | null;
-      search_mode: string;
-      score_threshold?: number | null;
-      total_candidate_chunks: number;
-    } | null;
-  }>("/api/rag/search", {
+  return apiRequest<RagSearchResponse>("/api/rag/search", {
     method: "POST",
     body: JSON.stringify({ course_id: courseId, question, top_k: topK, debug: true })
   });
-
-  return {
-    courseId: response.course_id,
-    question: response.question,
-    topK: response.top_k,
-    results: response.results.map((result) => ({
-      chunkId: result.chunk_id,
-      materialId: result.material_id,
-      documentName: result.document_name,
-      pageNumber: result.page_number,
-      chunkIndex: result.chunk_index,
-      chunkText: result.chunk_text,
-      score: result.score
-    })),
-    debug: response.debug
-      ? {
-          embeddingModel: response.debug.embedding_model,
-          searchMode: response.debug.search_mode,
-          scoreThreshold: response.debug.score_threshold,
-          totalCandidateChunks: response.debug.total_candidate_chunks
-        }
-      : undefined
-  };
 }
 
 export function askCourseAgent(payload: ChatAskPayload): Promise<ChatAnswer> {
@@ -577,6 +624,18 @@ export function getProfessorStatistics(): Promise<ProfessorStatistics> {
 
 export function getMyStatistics(): Promise<MyStatistics> {
   return apiRequest<MyStatistics>("/api/stats/me");
+}
+
+export function getWeakConceptStatistics(): Promise<WeakConceptStatistics> {
+  return apiRequest<WeakConceptStatistics>("/api/stats/weak-concepts");
+}
+
+export function getCourseWeakConceptStatistics(
+  courseId: string
+): Promise<CourseWeakConceptStatistics> {
+  return apiRequest<CourseWeakConceptStatistics>(
+    `/api/stats/weak-concepts/courses/${encodeURIComponent(courseId)}`
+  );
 }
 
 export function getCourseChatLog(logId: string): Promise<ChatLogDetail> {

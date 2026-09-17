@@ -19,7 +19,8 @@ object with: needed, kind, title, caption, latex, labels, file, page. kind must 
 none, formula, flow, pdf. Use formula for an equation or variable relationship, flow
 for a process or structure, and pdf only when an exact filename and page already appear
 in context. Keep the caption as a clue, not a final answer. Never invent a PDF location.
-Write every user-visible title, caption and label in natural Korean.
+Write every user-visible title, caption and label in natural Korean, and never gloss
+a term in English or in brackets: '소프트맥스', not '소프트맥스 (Softmax)'.
 When no visual helps, return needed=false, kind=none, empty strings, labels=[], page=0.
 """.strip()
 
@@ -74,12 +75,10 @@ async def decide_visualization(
     if not current_user:
         return VisualDecision(False)
     settings = get_settings()
-    fallback = _fallback_visualization(current_user, recent_conversation)
     if settings.use_mock_llm:
-        log.info(
-            "visual decision using local fallback needed=%s kind=%s", fallback.needed, fallback.kind
-        )
-        return fallback
+        demo = _demo_visualization(current_user, recent_conversation)
+        log.info("visual decision using demo stub needed=%s kind=%s", demo.needed, demo.kind)
+        return demo
     try:
         payload = await asyncio.wait_for(
             LLMService(settings, profile="voice").generate_json(
@@ -100,14 +99,17 @@ async def decide_visualization(
         log.warning("visual decision timed out")
     except Exception:
         log.exception("visual decision failed")
-    return fallback
+    # A visual is an optional aid, so an unavailable router degrades to no visual.
+    # Substituting a canned diagram would put a clue no model chose in front of a
+    # student and into the ChatLog, indistinguishable from a real decision.
+    return VisualDecision(False)
 
 
-def _fallback_visualization(
+def _demo_visualization(
     current_user: str,
     recent_conversation: list[dict],
 ) -> VisualDecision:
-    """Keep core course visuals available when the decision model is offline or mocked."""
+    """Canned clues so the mock provider can demo visuals with no model server."""
     context = " ".join(
         [str(item.get("content", "")) for item in recent_conversation[-4:]] + [current_user]
     ).casefold()

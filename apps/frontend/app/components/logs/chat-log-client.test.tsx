@@ -130,7 +130,14 @@ describe("ChatLogClient", () => {
           score: 0.87
         }
       ],
-      retrievalResult: { result_count: 1 },
+      retrievalResult: {
+        result_count: 1,
+        attachments: [
+          { id: "att-1", name: "문제 사진.png", kind: "image", pages: 1, size: 2048,
+            text: "손실 함수 그래프가 그려져 있다." },
+          { id: "att-2", name: "notes.pdf", kind: "pdf", pages: 3, size: 4096, text: "정리 노트" }
+        ]
+      },
       safetyResult: { category: "normal", blocked: false },
       isGrounded: true,
       answerSourceType: "rag",
@@ -144,6 +151,12 @@ describe("ChatLogClient", () => {
     expect(await screen.findByText("로그 상세")).toBeInTheDocument();
     expect(screen.getByText("lecture1.pdf (p.12)")).toBeInTheDocument();
     expect(screen.getByText("mock-llm")).toBeInTheDocument();
+    // The files the student attached are listed by name; the text read from them
+    // stays out of the raw retrieval summary so the detail stays readable.
+    expect(screen.getByText("문제 사진.png (이미지)")).toBeInTheDocument();
+    expect(screen.getByText("notes.pdf (PDF, 3쪽)")).toBeInTheDocument();
+    expect(screen.getByText('{"result_count":1}')).toBeInTheDocument();
+    expect(screen.queryByText(/손실 함수 그래프가 그려져 있다/)).not.toBeInTheDocument();
   });
 
   it("shows an empty state when there is nothing to review", async () => {

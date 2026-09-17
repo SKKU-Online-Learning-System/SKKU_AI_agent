@@ -26,6 +26,53 @@ export type VoiceMaterialSource = {
   score: number;
 };
 
+/** How far the private index of a long PDF is; only such files carry one. */
+export type VoiceAttachmentIndex = {
+  status: "indexing" | "ready" | "failed";
+  pages: number;
+  pages_done: number;
+  chunks?: number;
+  message?: string | null;
+};
+
+/** A file the student attached to a typed question: an image or a PDF. */
+export type VoiceAttachment = {
+  id: string;
+  name: string;
+  kind: "image" | "pdf";
+  size: number;
+  pages: number;
+  /** Characters read from the file; 0 until the turn that carries it has run. */
+  chars: number;
+  /**
+   * "inline": the whole file goes into the turn as text. "excerpt": a long PDF,
+   * indexed after upload; each question pulls only the pages that match it.
+   * "vision": the image itself was handed to the text model.
+   */
+  mode?: "inline" | "excerpt" | "vision";
+  /** Pages of an excerpted PDF that the last turn actually used. */
+  pages_used?: number[];
+  index?: VoiceAttachmentIndex | null;
+};
+
+/**
+ * One line of the agent's work while it answers. The server addresses a step by
+ * `key`: the first event with a key adds the line, later ones update it in place,
+ * so "searching…" becomes "found 3" where it was.
+ */
+export type VoiceTraceStep = {
+  key: string;
+  stage: string;
+  state: "running" | "done" | "failed";
+  label: string;
+  detail?: string;
+  elapsed_ms?: number;
+  /** The model's raw reasoning that streamed while this step ran (client-side accumulation). */
+  thinking?: string;
+  /** Paced one-line headlines of that reasoning, in Korean (client-side accumulation). */
+  thoughts?: string[];
+};
+
 export type VoiceAnswer = {
   transcript: string;
   reply: string;
@@ -40,8 +87,42 @@ export type VoiceAnswer = {
     reason?: string | null;
     redirect_type?: string | null;
   };
+  attachments: VoiceAttachment[];
   session_id: string;
   log_id: string;
+};
+
+export type VoiceQuestionPayload = {
+  text: string;
+  mode: VoiceMode;
+  chat_session_id?: string | null;
+  attachment_ids?: string[];
+};
+
+/** Callbacks for the events a streamed turn emits before and around the answer. */
+export type VoiceStreamHandlers = {
+  /** A delta of the answer text. */
+  onToken: (token: string) => void;
+  /** The progress notice composed from the question. */
+  onStatus?: (message: string) => void;
+  /** A trace step added or updated. */
+  onStep?: (step: VoiceTraceStep) => void;
+  /**
+   * A delta of the model's own reasoning; shown, never part of the answer.
+   * `stepKey` names the step (a model round) the thought belongs to.
+   */
+  onThinking?: (text: string, stepKey?: string) => void;
+  /** One headline of what the model is doing now, keyed to its step. */
+  onThought?: (text: string, stepKey?: string) => void;
+  /** The answer text streamed so far was a discarded draft; the next tokens replace it. */
+  onRewind?: () => void;
+};
+
+export type VoiceServiceStatus = {
+  enabled: boolean;
+  provider: string;
+  services: Record<string, { available?: boolean; detail?: string }>;
+  detail: string;
 };
 
 export type VoiceConfig = {
@@ -49,6 +130,9 @@ export type VoiceConfig = {
   course_name: string;
   term: string;
   voice_enabled: boolean;
+  /** Which realtime transport the backend selected; the UI stays provider-neutral. */
+  voice_provider: string;
+  voice_status: VoiceServiceStatus;
   material_count: number;
   is_search_ready: boolean;
   can_manage: boolean;
@@ -118,6 +202,28 @@ export function voiceStreamUrl(courseId: string, sessionId?: string | null): str
   return `${base}/api/voice/courses/${courseId}/stream?${params}`;
 }
 
+/** Upload one image or PDF for the learner's next typed question. */
+export function uploadVoiceAttachment(courseId: string, file: File): Promise<VoiceAttachment> {
+  const body = new FormData();
+  body.set("file", file);
+  return apiRequest<VoiceAttachment>(`/api/voice/courses/${courseId}/attachments`, {
+    body,
+    method: "POST"
+  });
+}
+
+/** How an uploaded file stands; polled while a long PDF is being indexed. */
+export function getVoiceAttachment(courseId: string, attachmentId: string): Promise<VoiceAttachment> {
+  return apiRequest<VoiceAttachment>(`/api/voice/courses/${courseId}/attachments/${attachmentId}`);
+}
+
+/** Forget an attachment the learner removed before sending. */
+export function deleteVoiceAttachment(courseId: string, attachmentId: string): Promise<void> {
+  return apiRequest<void>(`/api/voice/courses/${courseId}/attachments/${attachmentId}`, {
+    method: "DELETE"
+  });
+}
+
 export async function fetchVoicePdfUrl(courseId: string, materialId: string): Promise<string> {
   const token = readAccessToken();
   const headers = new Headers();
@@ -133,15 +239,16 @@ export async function fetchVoicePdfUrl(courseId: string, materialId: string): Pr
 }
 
 /**
- * Stream one typed question. Answer tokens arrive through `onToken` as they are
- * generated; the resolved value is the final `done` event.
+ * Stream one typed question. Trace steps, the model's reasoning and answer
+ * tokens arrive through the handlers as they are generated; the resolved value
+ * is the final `done` event.
  */
 export async function streamVoiceAnswer(
   courseId: string,
-  payload: { text: string; mode: VoiceMode; chat_session_id?: string | null },
-  onToken: (token: string) => void,
-  onStatus?: (message: string) => void
+  payload: VoiceQuestionPayload,
+  handlers: VoiceStreamHandlers
 ): Promise<VoiceAnswer> {
+  const { onToken, onStatus, onStep, onThinking, onThought, onRewind } = handlers;
   const token = readAccessToken();
   const headers = new Headers({ "Content-Type": "application/json" });
   if (token) headers.set("Authorization", `Bearer ${token}`);
@@ -179,6 +286,20 @@ export async function streamVoiceAnswer(
         onToken(String(event.text ?? ""));
       } else if (event.type === "status") {
         onStatus?.(String(event.text ?? ""));
+      } else if (event.type === "step") {
+        onStep?.(event as unknown as VoiceTraceStep);
+      } else if (event.type === "thinking") {
+        onThinking?.(
+          String(event.text ?? ""),
+          typeof event.key === "string" ? event.key : undefined
+        );
+      } else if (event.type === "thought") {
+        onThought?.(
+          String(event.text ?? ""),
+          typeof event.key === "string" ? event.key : undefined
+        );
+      } else if (event.type === "rewind") {
+        onRewind?.();
       } else if (event.type === "done") {
         result = event as unknown as VoiceAnswer;
       } else if (event.type === "error") {

@@ -29,6 +29,10 @@ class UserStoppedSpeaking:
 class AgentAudio:
     pcm: bytes
     rate: int = AGENT_RATE
+    # Audio of a progress notice rather than of the answer. The agent is audibly
+    # speaking either way, but only the answer is what the student is waiting for,
+    # so latency is measured against the answer.
+    filler: bool = False
 
 
 @dataclass(frozen=True)
@@ -39,6 +43,10 @@ class AgentTextDelta:
 @dataclass(frozen=True)
 class AgentFiller:
     text: str
+    # True for a fixed progress notice that the answer replaces on screen. False
+    # for a filler the provider generated itself, which is a real turn and stays
+    # in the transcript.
+    transient: bool = False
 
 
 @dataclass(frozen=True)
@@ -91,6 +99,10 @@ Event = (
 
 class Transport(ABC):
     name = "transport"
+    # True when the transport already writes the turn into the shared
+    # ``VoiceContext``; the route then relays transcripts without writing a
+    # second, independently trimmed copy of the same conversation.
+    owns_history = False
 
     @abstractmethod
     async def start(self) -> None:
