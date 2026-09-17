@@ -59,11 +59,11 @@ Frontend -> FastAPI -> RAG / Tools / SAFE -> LLMService
 
 Hands-free voice
 Browser microphone -> FastAPI WebSocket -> Silero VAD (CPU)
- -> Qwen3-ASR (:8010)
+ -> Qwen3-ASR (:8004, Backend.AI preopen port)
  -> existing COURSE AGENT Brain / RAG / Tools / SAFE / Memory
  -> Qwen/Qwen3.5-9B (:8002/v1, thinking disabled, compact validated finish_turn)
  -> TTS starts while a separate 9B visual worker renders optional visuals asynchronously
- -> Qwen3-TTS Sohee/Korean (:8010)
+ -> Qwen3-TTS Sohee/Korean (:8012, streaming, localhost)
  -> PCM16 mono 24 kHz -> Browser speaker
 ```
 
@@ -95,22 +95,22 @@ docs                제품·기술 문서
 
 ```dotenv
 LLM_PROVIDER=local_qwen
-TEXT_LLM_BASE_URL=https://siriuscluster.skku.edu:102xx/v1
+TEXT_LLM_BASE_URL=http://localhost:8001/v1
 TEXT_LLM_MODEL=Qwen/Qwen3.8-27B
-VOICE_LLM_BASE_URL=https://siriuscluster.skku.edu:102yy/v1
+VOICE_LLM_BASE_URL=http://localhost:8002/v1
 VOICE_LLM_MODEL=Qwen/Qwen3.5-9B
-SPEECH_BASE_URL=https://siriuscluster.skku.edu:102zz
-TTS_BASE_URL=https://siriuscluster.skku.edu:102zz
+SPEECH_BASE_URL=http://localhost:8004
+TTS_BASE_URL=http://localhost:8012
+EMBEDDING_BASE_URL=http://localhost:8003/v1
 MODEL_SERVER_API_KEY=서버와_동일한_키
 VOICE_PROVIDER=local_cascade
-TTS_SPEAKER=Sohee
+TTS_SPEAKER=ryan
 TTS_LANGUAGE=Korean
 SEARXNG_URL=http://SEARXNG_SERVER:8080
 ```
 
-`102xx`, `102yy`, `102zz`는 Backend.AI에서 각각 preopen port `8001`, `8002`,
-`8010` 앱을 공개로 열었을 때 표시되는 실제 포트로 바꿉니다. 모델 서버 세션은
-살아 있어야 하며, 세 앱 모두 주소 노출만으로 호출되지 않도록 같은 API 키를 사용합니다.
+위 값은 모델 서버와 이 앱이 같은 Backend.AI 세션에서 돌 때의 기본값입니다. Speech API만
+이 세션의 preopen port에 맞춰 `8010`이 아닌 `8004`에 있고, 나머지는 main과 같습니다.
 
 그 뒤 저장소 루트에서 실행합니다.
 
@@ -125,6 +125,27 @@ bash run.sh
 - API 문서: <http://localhost:8000/docs>
 - 앱 상태: <http://localhost:8000/api/health>
 - Model Server 상태: <http://localhost:8000/api/health/model-server>
+
+### Backend.AI preopen port
+
+이 세션의 preopen port는 `8000`, `8001`, `8002`, `8004`입니다(`echo $BACKENDAI_PREOPEN_PORTS`).
+앱이 모델 서버를 localhost로 호출하므로 모델 포트(`8001`, `8002`, `8004`)와 preopen port가 아닌
+TTS `8012`, Embedding `8003`은 공개할 필요가 없습니다. 브라우저가 닿아야 하는 것은 두 가지입니다.
+
+| 대상 | 포트 | 방법 |
+|---|---:|---|
+| 웹 UI (Next.js) | `3000` | preopen port가 아니고 이미지가 `ipython` pty 서비스 포트로 예약한 포트입니다. SSH 터널이나 VS Code 포트 포워딩으로 열거나, 남는 preopen port에서 `PORT=<port> npm run dev:frontend`로 띄운 뒤 그 앱을 **Open app to public**으로 엽니다. |
+| API (uvicorn) | `8000` | `run.sh`가 `0.0.0.0`에 바인딩합니다. Docker가 없는 Backend.AI 세션에서는 `run.sh`가 `NEXT_PUBLIC_API_BASE_URL=""`를 내보내 브라우저가 웹 UI와 같은 origin의 `/api` rewrite(WebSocket 포함)로 API를 호출하므로 공개하지 않아도 됩니다. 브라우저가 API를 직접 호출하게 하려면 8000 앱을 공개로 열고 `NEXT_PUBLIC_API_BASE_URL`을 그 HTTPS 주소로, `BACKEND_CORS_ORIGINS`에 웹 UI origin을 추가합니다. |
+
+웹 UI를 `siriuscluster.skku.edu` 주소로 열 수 있도록 `apps/frontend/next.config.mjs`의
+`allowedDevOrigins`에 그 호스트가 등록돼 있습니다.
+
+앱을 세션 밖(예: 노트북)에서 돌리면 모델 서버 포트 다섯 개(`8001`, `8002`, `8004`, `8012`,
+`8003`)를 각각 공개로 열고, 발급된 HTTPS 주소를 `TEXT_LLM_BASE_URL`, `VOICE_LLM_BASE_URL`,
+`SPEECH_BASE_URL`, `TTS_BASE_URL`, `EMBEDDING_BASE_URL`에 넣습니다(LLM·Embedding 주소에만 `/v1`).
+preopen port가 네 개뿐이면 하나가 부족합니다. 선택지는 `SKKU_AI_model_server/README.md`의
+"Backend.AI Preopen Ports"에 있습니다. 모든 주소는 같은 `MODEL_SERVER_API_KEY`로 보호되며
+세션이 살아 있는 동안만 유지됩니다.
 
 ### Model Server endpoint contract
 
@@ -183,7 +204,8 @@ uv run --all-packages --extra dev --extra voice python scripts/test_model_server
 | `LLM_PROVIDER` | `local_qwen`(기본), `mock`, `anthropic` |
 | `TEXT_LLM_BASE_URL` / `TEXT_LLM_MODEL` | typed/External Brain Qwen endpoint와 model |
 | `VOICE_LLM_BASE_URL` / `VOICE_LLM_MODEL` | realtime cascade의 Voice Qwen endpoint와 model |
-| `SPEECH_BASE_URL` / `TTS_BASE_URL` | Qwen ASR/TTS endpoint. 3-port 구성에서는 둘 다 8010 앱 주소 |
+| `SPEECH_BASE_URL` / `TTS_BASE_URL` | Qwen ASR endpoint(Backend.AI 세션에서는 `8004`) / 스트리밍 TTS endpoint(`8012`) |
+| `EMBEDDING_BASE_URL` / `EMBEDDING_MODEL` | 멀티모달 임베딩 endpoint(`8003`)와 model |
 | `MODEL_SERVER_API_KEY` | optional Model Server bearer key |
 | `VOICE_PROVIDER` | `local_cascade`(기본) 또는 legacy `grok` |
 | `TTS_SPEAKER` / `TTS_LANGUAGE` | 기본 `Sohee` / `Korean` |
