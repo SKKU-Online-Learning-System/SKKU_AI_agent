@@ -20,6 +20,7 @@ const apiMocks = vi.hoisted(() => ({
   listCourseMaterials: vi.fn(),
   listCourses: vi.fn(),
   processCourseMaterial: vi.fn(),
+  reprocessCourseMaterial: vi.fn(),
   uploadCourseMaterial: vi.fn()
 }));
 
@@ -32,6 +33,7 @@ vi.mock("../../lib/api", async () => {
     listCourseMaterials: apiMocks.listCourseMaterials,
     listCourses: apiMocks.listCourses,
     processCourseMaterial: apiMocks.processCourseMaterial,
+    reprocessCourseMaterial: apiMocks.reprocessCourseMaterial,
     uploadCourseMaterial: apiMocks.uploadCourseMaterial
   };
 });
@@ -158,6 +160,54 @@ describe("ProfessorMaterialsClient", () => {
     expect(await screen.findByText("week-2.txt")).toBeInTheDocument();
     expect(screen.getByText("처리 대기")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "week-2.txt 처리 시작" })).toBeEnabled();
+  });
+
+  it("uploads every selected file and processes the leftovers in one click", async () => {
+    arrangeLoadedMaterials();
+    const first = new File(["one"], "week-2a.txt", { type: "text/plain" });
+    const second = new File(["two"], "week-2b.txt", { type: "text/plain" });
+    apiMocks.uploadCourseMaterial
+      .mockResolvedValueOnce({
+        ...material,
+        id: "material-2",
+        originalFileName: first.name,
+        processingStatus: "pending",
+        chunkCount: 0,
+        week: 2
+      })
+      .mockResolvedValueOnce({
+        ...material,
+        id: "material-3",
+        originalFileName: second.name,
+        processingStatus: "failed",
+        chunkCount: 0,
+        week: 2
+      });
+    render(<ProfessorMaterialsClient />);
+    await screen.findByText("lecture.txt");
+    fireEvent.change(screen.getByRole("combobox", { name: "주차" }), {
+      target: { value: "2" }
+    });
+
+    fireEvent.change(screen.getByLabelText("강의자료 파일"), {
+      target: { files: [first, second] }
+    });
+    fireEvent.click(screen.getByRole("button", { name: "2개 업로드" }));
+
+    await waitFor(() =>
+      expect(apiMocks.uploadCourseMaterial).toHaveBeenCalledTimes(2)
+    );
+    expect(apiMocks.uploadCourseMaterial).toHaveBeenNthCalledWith(1, "course-1", first, 2);
+    expect(apiMocks.uploadCourseMaterial).toHaveBeenNthCalledWith(2, "course-1", second, 2);
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: "미처리 자료 2개 모두 처리" })
+    );
+
+    await waitFor(() =>
+      expect(apiMocks.processCourseMaterial).toHaveBeenCalledWith("course-1", "material-2")
+    );
+    expect(apiMocks.reprocessCourseMaterial).toHaveBeenCalledWith("course-1", "material-3");
   });
 
   it("keeps a row until delete succeeds and blocks duplicate deletion", async () => {
