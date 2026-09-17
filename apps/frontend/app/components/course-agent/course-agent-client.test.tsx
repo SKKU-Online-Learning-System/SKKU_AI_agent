@@ -85,12 +85,12 @@ describe("CourseAgentClient microphone fallback", () => {
   it("keeps realtime open and sends typed turns when no microphone exists", async () => {
     render(<CourseAgentClient courseId="course-1" />);
 
-    const start = await screen.findByRole("button", { name: "음성 대화 시작" });
+    const start = await screen.findByRole("button", { name: "음성으로 질문하기" });
     await waitFor(() => expect(start).toBeEnabled());
     fireEvent.click(start);
 
     expect(
-      await screen.findByText("마이크 없음 · 채팅창에 입력해 음성 에이전트 테스트")
+      await screen.findByText("마이크 없음 · 채팅창에 입력해 대화하세요")
     ).toBeInTheDocument();
     expect(MockWebSocket.instances).toHaveLength(1);
 

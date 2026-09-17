@@ -534,63 +534,374 @@
 
 .voice-panel {
   align-self: start;
-  text-align: center;
 }
 
 .voice-panel .icampus-card-body {
-  padding: 28px 18px;
+  align-items: center;
+  display: flex;
+  flex-direction: column;
+  padding: 22px 19px 20px;
 }
 
+/* ---------------------------------------------------------------------------
+   Voice orb. The sphere is kept, but pitched at the same volume as the i-Campus
+   card it sits in: a flat tonal ring instead of a drop shadow and glow, a small
+   linear gradient instead of a lit 3D sphere, and motion small enough to read
+   as feedback rather than ornament.
+   --------------------------------------------------------------------------- */
+
 .voice-orb {
-  background: var(--icampus-navy);
+  --orb-size: 104px;
+  /* 0s keeps the ripple keyframes inert until a state below opts in. */
+  --ripple-duration: 0s;
+  background: none;
   border: 0;
-  border-radius: 50%;
-  box-shadow: 0 0 0 9px #e7f0f7;
-  color: white;
   display: grid;
-  font-weight: 700;
-  height: 116px;
-  margin: 9px auto 16px;
+  height: var(--orb-size);
+  padding: 0;
   place-items: center;
-  transition: 0.2s;
-  width: 116px;
+  width: var(--orb-size);
+}
+
+.voice-orb > * {
+  grid-area: 1 / 1;
+}
+
+.voice-orb-ripple {
+  animation: voice-orb-ripple var(--ripple-duration) ease-out infinite;
+  border: 1px solid rgba(0, 102, 79, 0.32);
+  border-radius: 50%;
+  height: 100%;
+  opacity: 0;
+  width: 100%;
+}
+
+.voice-orb-ripple--late {
+  animation-delay: calc(var(--ripple-duration) / -2);
+}
+
+.voice-orb-body {
+  background: linear-gradient(
+    155deg,
+    var(--course-agent-green) 0%,
+    var(--course-agent-primary-green) 52%,
+    var(--course-agent-deep-green) 100%
+  );
+  border-radius: 50%;
+  box-shadow: 0 0 0 8px #e9f2ee;
+  height: 84%;
+  transition: box-shadow 0.15s ease;
+  width: 84%;
+}
+
+.voice-orb-face {
+  align-items: center;
+  color: white;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  justify-content: center;
+}
+
+.voice-orb-mic {
+  height: 21px;
+  width: 21px;
+}
+
+.voice-orb-label {
+  font-size: 12px;
+  font-weight: 700;
+}
+
+/* Per-state motion. */
+
+.voice-orb[data-state="listening"] .voice-orb-body {
+  animation: voice-orb-breathe 3.6s ease-in-out infinite;
+}
+
+.voice-orb[data-state="connecting"] .voice-orb-body {
+  animation: voice-orb-breathe 1.4s ease-in-out infinite;
+}
+
+.voice-orb[data-state="thinking"] .voice-orb-body {
+  animation: voice-orb-breathe 2s ease-in-out infinite;
+}
+
+.voice-orb[data-state="hearing"] .voice-orb-body {
+  animation: voice-orb-throb 2.2s ease-in-out infinite;
+}
+
+.voice-orb[data-state="speaking"] .voice-orb-body {
+  animation: voice-orb-throb 1.5s ease-in-out infinite;
+}
+
+.voice-orb[data-state="connecting"] {
+  --ripple-duration: 2.2s;
+}
+
+.voice-orb[data-state="listening"] {
+  --ripple-duration: 3.2s;
 }
 
 .voice-orb[data-state="hearing"] {
-  background: #3385c6;
-  box-shadow: 0 0 0 13px #dcecf8;
-  transform: scale(1.03);
-}
-
-.voice-orb[data-state="thinking"] {
-  background: #72579c;
-  box-shadow: 0 0 0 9px #ece6f4;
+  --ripple-duration: 1.8s;
 }
 
 .voice-orb[data-state="speaking"] {
-  background: var(--success);
-  box-shadow: 0 0 0 13px #e3efdc;
+  --ripple-duration: 2s;
+}
+
+.voice-orb:not(:disabled):hover .voice-orb-body {
+  box-shadow: 0 0 0 10px #dfece7;
+}
+
+.voice-orb:focus-visible {
+  border-radius: 50%;
+  outline: 2px solid var(--icampus-accent);
+  outline-offset: 3px;
 }
 
 .voice-orb:disabled {
   cursor: default;
 }
 
-.voice-status {
-  color: #40546b;
-  font-weight: 600;
+/* Only a missing voice configuration greys the orb out — an orb disabled
+   because the call is already running still has to look alive. */
+.voice-stage[data-ready="false"] .voice-orb-body {
+  background: var(--icampus-soft);
+  box-shadow: 0 0 0 8px var(--icampus-border-soft);
+  color: var(--icampus-muted);
+}
+
+.voice-stage[data-ready="false"] .voice-orb-face {
+  color: var(--icampus-muted);
+}
+
+.voice-stage[data-muted="true"] .voice-orb-body {
+  filter: saturate(0.35);
+}
+
+/* Live level meter inside the orb, shown only while a call is running. */
+
+.voice-level {
+  --wave-duration: 1.2s;
+  align-items: center;
+  display: flex;
+  gap: 3px;
+  height: 16px;
+  justify-content: center;
+}
+
+.voice-level i {
+  animation: voice-wave-bar var(--wave-duration) ease-in-out infinite;
+  background: rgba(255, 255, 255, 0.92);
+  border-radius: 999px;
+  display: block;
+  height: 22%;
+  width: 3px;
+}
+
+.voice-level i:nth-child(1) {
+  animation-delay: calc(var(--wave-duration) * -0.1);
+}
+
+.voice-level i:nth-child(2) {
+  animation-delay: calc(var(--wave-duration) * -0.45);
+}
+
+.voice-level i:nth-child(3) {
+  animation-delay: calc(var(--wave-duration) * -0.75);
+}
+
+.voice-level i:nth-child(4) {
+  animation-delay: calc(var(--wave-duration) * -0.3);
+}
+
+.voice-level i:nth-child(5) {
+  animation-delay: calc(var(--wave-duration) * -0.6);
+}
+
+.voice-level[data-state="connecting"] {
+  --wave-duration: 2.2s;
+}
+
+.voice-level[data-state="listening"] {
+  --wave-duration: 1.7s;
+}
+
+.voice-level[data-state="hearing"] {
+  --wave-duration: 0.75s;
+}
+
+.voice-level[data-state="thinking"] {
+  --wave-duration: 1.3s;
+}
+
+.voice-level[data-state="speaking"] {
+  --wave-duration: 0.6s;
+}
+
+.voice-stage[data-muted="true"] .voice-level i {
+  background: rgba(255, 255, 255, 0.4);
+}
+
+/* Matches the .icampus-term-badge idiom used elsewhere on the page. */
+.voice-state {
+  align-items: center;
+  background: #f2f8fc;
+  border: 1px solid #a9c6df;
+  border-radius: 4px;
+  color: var(--icampus-navy);
+  display: inline-flex;
+  font-size: 12px;
+  margin: 16px 0 12px;
+  padding: 5px 9px;
+  text-align: center;
+  white-space: nowrap;
+}
+
+.voice-stage[data-state="listening"] .voice-state,
+.voice-stage[data-state="hearing"] .voice-state,
+.voice-stage[data-state="speaking"] .voice-state {
+  background: #edf6f1;
+  border-color: #a9d7c1;
+  color: #0b5a43;
+}
+
+.voice-stage[data-state="thinking"] .voice-state {
+  background: #f6f3e4;
+  border-color: #ddd7ab;
+  color: #6b6221;
+}
+
+.voice-stage[data-muted="true"] .voice-state {
+  background: #fdf1f1;
+  border-color: #e5c2c2;
+  color: #9d3838;
 }
 
 .voice-help {
   color: var(--icampus-muted);
   font-size: 12px;
-  margin: 8px 0 16px;
+  line-height: 1.55;
+  margin: 0;
+  text-align: center;
 }
 
 .voice-controls {
   display: flex;
   gap: 7px;
   justify-content: center;
+}
+
+.voice-call-controls {
+  gap: 12px;
+}
+
+.voice-round-button {
+  align-items: center;
+  background: white;
+  border: 1px solid #c6d2cd;
+  border-radius: 50%;
+  color: #33564b;
+  display: inline-flex;
+  height: 44px;
+  justify-content: center;
+  transition:
+    background 0.15s ease,
+    border-color 0.15s ease,
+    color 0.15s ease;
+  width: 44px;
+}
+
+.voice-round-button:hover {
+  background: #eff5f2;
+}
+
+.voice-round-button[data-variant="mic"][aria-pressed="true"] {
+  background: var(--course-agent-deep-green);
+  border-color: var(--course-agent-deep-green);
+  color: white;
+}
+
+.voice-round-button[data-variant="end"] {
+  background: var(--danger);
+  border-color: var(--danger);
+  color: white;
+}
+
+.voice-round-button[data-variant="end"]:hover {
+  background: #a93232;
+  border-color: #a93232;
+}
+
+@keyframes voice-orb-breathe {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.025);
+  }
+}
+
+/* The "throb": the circle gives up its perfect roundness for a moment, the way
+   the ChatGPT voice blob nudges itself while a turn is being spoken. Kept small
+   so it reads as a pulse rather than a wobbling ornament. */
+@keyframes voice-orb-throb {
+  0% {
+    border-radius: 50%;
+    transform: scale(1);
+  }
+  25% {
+    border-radius: 54% 46% 51% 49% / 48% 52% 48% 52%;
+    transform: scale(1.035);
+  }
+  50% {
+    border-radius: 47% 53% 46% 54% / 53% 47% 53% 47%;
+    transform: scale(1.008);
+  }
+  75% {
+    border-radius: 52% 48% 55% 45% / 46% 54% 46% 54%;
+    transform: scale(1.03);
+  }
+  100% {
+    border-radius: 50%;
+    transform: scale(1);
+  }
+}
+
+@keyframes voice-orb-ripple {
+  0% {
+    opacity: 0.35;
+    transform: scale(0.9);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.3);
+  }
+}
+
+@keyframes voice-wave-bar {
+  0%,
+  100% {
+    height: 22%;
+  }
+  50% {
+    height: 100%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .voice-orb-body,
+  .voice-orb-ripple,
+  .voice-level i {
+    animation: none !important;
+  }
+
+  .voice-level i {
+    height: 60%;
+  }
 }
 
 .voice-visualization {
