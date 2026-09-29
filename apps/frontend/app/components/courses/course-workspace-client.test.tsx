@@ -86,7 +86,7 @@ describe("CourseWorkspaceClient", () => {
     );
 
     const navigation = await screen.findByRole("navigation", { name: "과목 메뉴" });
-    ["수업 계획서", "공지", "게시판", "과제 및 평가", "시험 및 설문", "출결현황", "학습 활동 현황", "성적"].forEach(
+    ["수업 계획서", "공지", "게시판", "과제 및 평가", "출결현황", "학습 활동 분석", "사용자 및 그룹", "성적", "GradeScope"].forEach(
       (label) => {
         expect(within(navigation).getByText(label)).toBeInTheDocument();
         expect(within(navigation).queryByRole("link", { name: label })).not.toBeInTheDocument();

@@ -65,6 +65,10 @@ class Settings(BaseSettings):
     # backwards-compatible override for the deterministic test/development mode.
     llm_provider: Literal["mock", "anthropic", "local_qwen"] = "local_qwen"
     use_mock_llm: bool = False
+    # One Backend.AI app proxy for the whole model server, e.g.
+    # https://siriuscluster.skku.edu:10241/proxy. Set, it derives every *_BASE_URL
+    # below from the fixed preopen ports, so a new session is a one-line change.
+    model_server_proxy: Optional[str] = None
     text_llm_base_url: str = "http://localhost:8001/v1"
     text_llm_model: str = "Qwen/Qwen3.8-27B"
     voice_llm_base_url: str = "http://localhost:8002/v1"
@@ -246,6 +250,18 @@ class Settings(BaseSettings):
             and self.speech_base_url.strip()
             and (self.tts_base_url or self.speech_base_url).strip()
         )
+
+    @model_validator(mode="after")
+    def derive_model_server_urls(self) -> "Settings":
+        proxy = (self.model_server_proxy or "").strip().rstrip("/")
+        if proxy:
+            self.text_llm_base_url = f"{proxy}/8001/v1"
+            self.voice_llm_base_url = f"{proxy}/8002/v1"
+            self.vision_llm_base_url = f"{proxy}/8002/v1"
+            self.embedding_base_url = f"{proxy}/8003/v1"
+            self.speech_base_url = f"{proxy}/8010"
+            self.tts_base_url = f"{proxy}/8012"
+        return self
 
     @model_validator(mode="after")
     def validate_chunk_overlap(self) -> "Settings":

@@ -852,11 +852,6 @@
   }
 }
 
-.voice-trace-body {
-  max-height: 360px;
-  overflow: auto;
-}
-
 .voice-trace-step {
   display: grid;
   gap: 5px;
@@ -940,8 +935,15 @@
   margin: 6px 0 2px 12px;
   max-height: 200px;
   overflow: auto;
+  padding-right: 8px;
+  scrollbar-color: transparent transparent;
+  scrollbar-width: thin;
   white-space: pre-wrap;
   word-break: break-word;
+}
+
+.voice-trace-raw-text:hover {
+  scrollbar-color: #d5dbe3 transparent;
 }
 
 .voice-trace-thought::before {

@@ -22,6 +22,7 @@ from app.services.material_processing_service import (
     MaterialNotFoundError,
     MaterialProcessingError,
     MaterialProcessingService,
+    page_progress,
     process_uploaded_material,
 )
 from app.services.material_service import MaterialValidationError, remove_stored_file, save_upload
@@ -46,7 +47,9 @@ async def list_materials(
         .order_by(CourseMaterial.created_at.desc())
     )
     return [
-        CourseMaterialRead.model_validate(material).model_copy(update={"chunk_count": chunk_count})
+        CourseMaterialRead.model_validate(material).model_copy(
+            update={"chunk_count": chunk_count, "page_progress": page_progress(material.id)}
+        )
         for material, chunk_count in rows
     ]
 

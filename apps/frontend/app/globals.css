@@ -382,6 +382,16 @@ p {
   width: 16px;
 }
 
+/* i-Campus nests 과제 및 평가 / 성적 under the entry above, with a dot for an icon. */
+.icampus-nav-bullet {
+  background: currentColor;
+  border-radius: 50%;
+  flex: none;
+  height: 4px;
+  margin: 0 6px 0 16px;
+  width: 4px;
+}
+
 .icampus-context-nav nav a:hover {
   background: #e7edf3;
   color: var(--icampus-navy);
@@ -1277,6 +1287,20 @@ p {
   line-height: 1.45;
 }
 
+.material-upload-progress {
+  color: var(--icampus-muted);
+  display: grid;
+  font-size: 12px;
+  gap: 6px;
+  grid-column: 1 / -1;
+}
+
+.material-upload-progress progress {
+  accent-color: var(--icampus-teal);
+  height: 6px;
+  width: 100%;
+}
+
 .material-status {
   background: #f6f7f8;
   border: 1px solid #d7dde2;
@@ -1488,6 +1512,12 @@ p {
 
 .material-processing-summary small {
   color: var(--icampus-muted);
+}
+
+.material-processing-progress {
+  accent-color: var(--icampus-teal);
+  height: 6px;
+  width: 100%;
 }
 
 .material-processing-summary .material-processing-error {
