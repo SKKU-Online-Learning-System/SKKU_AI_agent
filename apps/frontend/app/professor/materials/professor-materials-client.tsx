@@ -39,7 +39,9 @@ export function ProfessorMaterialsClient({ courseId }: { courseId?: string } = {
   const [selectedCourseId, setSelectedCourseId] = useState("");
   const [materials, setMaterials] = useState<CourseMaterial[]>([]);
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
-  const [uploadProgress, setUploadProgress] = useState<string | null>(null);
+  const [uploadProgress, setUploadProgress] = useState<
+    { index: number; total: number; name: string; fraction: number } | null
+  >(null);
   const [selectedWeek, setSelectedWeek] = useState(1);
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -149,7 +151,7 @@ export function ProfessorMaterialsClient({ courseId }: { courseId?: string } = {
         .then(([next, nextStatus]) => {
           if (!cancelled) { setMaterials(next); setRagStatus(nextStatus); }
         }).catch(() => undefined);
-    }, 5000);
+    }, 2000);
     return () => { cancelled = true; window.clearInterval(timer); };
   }, [selectedCourseId, hasPendingMaterials]);
 
@@ -206,14 +208,14 @@ export function ProfessorMaterialsClient({ courseId }: { courseId?: string } = {
     const failures: { name: string; message: string }[] = [];
     for (const [index, file] of operationFiles.entries()) {
       if (selectedCourseIdRef.current !== operationCourseId) break;
-      if (operationFiles.length > 1) {
-        setUploadProgress(`${index + 1}/${operationFiles.length} 업로드 중`);
-      }
+      const progress = { index, total: operationFiles.length, name: file.name, fraction: 0 };
+      setUploadProgress(progress);
       try {
         const uploadedMaterial = await uploadCourseMaterial(
           operationCourseId,
           file,
-          selectedWeek
+          selectedWeek,
+          (fraction) => setUploadProgress({ ...progress, fraction })
         );
         if (selectedCourseIdRef.current !== operationCourseId) break;
         setMaterials((current) => [uploadedMaterial, ...current]);
@@ -439,12 +441,28 @@ export function ProfessorMaterialsClient({ courseId }: { courseId?: string } = {
           type="submit"
         >
           {isSubmitting
-            ? uploadProgress ?? "업로드 중..."
+            ? "업로드 중..."
             : selectedFiles.length > 1
               ? `${selectedFiles.length}개 업로드`
               : "업로드"}
         </button>
-        <p>PDF, PPTX, DOCX, TXT 파일을 한 번에 여러 개, 각각 최대 20MB까지 업로드할 수 있습니다.</p>
+        {uploadProgress ? (
+          <div className="material-upload-progress" role="status">
+            <span>
+              {uploadProgress.total > 1
+                ? `${uploadProgress.index + 1}/${uploadProgress.total} · `
+                : ""}
+              {uploadProgress.name} · {Math.round(uploadProgress.fraction * 100)}%
+            </span>
+            <progress
+              aria-label="업로드 진행률"
+              max={1}
+              value={(uploadProgress.index + uploadProgress.fraction) / uploadProgress.total}
+            />
+          </div>
+        ) : (
+          <p>PDF, PPTX, DOCX, TXT 파일을 한 번에 여러 개, 각각 최대 20MB까지 업로드할 수 있습니다.</p>
+        )}
       </form>
 
       {errorMessage ? (

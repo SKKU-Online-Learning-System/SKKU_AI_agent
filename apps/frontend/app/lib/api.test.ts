@@ -159,18 +159,54 @@ describe("api client", () => {
     expect(fetchMock.mock.calls[0][1]?.method).toBeUndefined();
   });
 
-  it("uploads a material with FormData without forcing JSON content type", async () => {
-    const fetchMock = vi.fn<typeof fetch>(async () => Response.json({}));
-    vi.stubGlobal("fetch", fetchMock);
+  it("uploads a material over XHR, reporting byte progress and the server's error detail", async () => {
+    const sent: { method?: string; url?: string; headers: Record<string, string>; body?: unknown } = {
+      headers: {}
+    };
+    class FakeXhr {
+      status = 0;
+      statusText = "";
+      responseText = "";
+      upload: { onprogress: ((event: ProgressEvent) => void) | null } = { onprogress: null };
+      onload: (() => void) | null = null;
+      onerror: (() => void) | null = null;
+      open(method: string, url: string) {
+        sent.method = method;
+        sent.url = url;
+      }
+      setRequestHeader(name: string, value: string) {
+        sent.headers[name] = value;
+      }
+      send(body: unknown) {
+        sent.body = body;
+        this.upload.onprogress?.({ lengthComputable: true, loaded: 5, total: 10 } as ProgressEvent);
+        this.status = FakeXhr.nextStatus;
+        this.responseText = FakeXhr.nextBody;
+        this.onload?.();
+      }
+      static nextStatus = 201;
+      static nextBody = JSON.stringify({ id: "m-1" });
+    }
+    vi.stubGlobal("XMLHttpRequest", FakeXhr);
     const file = new File(["notes"], "week1.txt", { type: "text/plain" });
+    const onProgress = vi.fn();
 
-    await uploadCourseMaterial("course-1", file, 4);
+    const result = await uploadCourseMaterial("course-1", file, 4, onProgress);
 
-    const [, options] = fetchMock.mock.calls[0];
-    expect(options?.method).toBe("POST");
-    expect(options?.body).toBeInstanceOf(FormData);
-    expect((options?.body as FormData).get("week")).toBe("4");
-    expect(new Headers(options?.headers).has("Content-Type")).toBe(false);
+    expect(sent.method).toBe("POST");
+    expect(sent.url).toContain("/api/courses/course-1/materials");
+    expect(sent.body).toBeInstanceOf(FormData);
+    expect((sent.body as FormData).get("week")).toBe("4");
+    expect(sent.headers["Content-Type"]).toBeUndefined();
+    expect(onProgress).toHaveBeenCalledWith(0.5);
+    expect(result).toEqual({ id: "m-1" });
+
+    FakeXhr.nextStatus = 422;
+    FakeXhr.nextBody = JSON.stringify({ detail: "Uploaded file must not be empty" });
+    await expect(uploadCourseMaterial("course-1", file, 4)).rejects.toMatchObject({
+      status: 422,
+      message: "Uploaded file must not be empty"
+    });
   });
 
   it("deletes a material from a course", async () => {

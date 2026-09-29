@@ -214,8 +214,17 @@ class LLMService:
             response.raise_for_status()
             choice = response.json()["choices"][0]
             answer = choice["message"]["content"]
-            if choice.get("finish_reason") != "stop" or not isinstance(answer, str) or not answer.strip():
-                raise ValueError(f"Incomplete page reading: finish_reason={choice.get('finish_reason')}")
+            finish_reason = choice.get("finish_reason")
+            if not isinstance(answer, str) or not answer.strip():
+                raise ValueError(f"Incomplete page reading: finish_reason={finish_reason}")
+            if finish_reason == "length" and not question:
+                # A dense page (or a model that started repeating itself) ran out of budget.
+                # At ingestion a partial transcription is still evidence; failing here used to
+                # fail the whole material on one page.
+                logger.warning("Page reading truncated at max_tokens; keeping the partial text")
+                return answer.strip() + "\n(이하 페이지 판독 생략)"
+            if finish_reason != "stop":
+                raise ValueError(f"Incomplete page reading: finish_reason={finish_reason}")
             return answer.strip()
         except (httpx.HTTPError, ValueError, KeyError, IndexError, TypeError) as exc:
             raise LLMError("강의 자료 이미지 판독에 실패했습니다.") from exc

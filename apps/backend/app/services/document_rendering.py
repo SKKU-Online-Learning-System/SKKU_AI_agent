@@ -70,7 +70,7 @@ def material_pdf(path: Path, settings: Settings):
 
 
 def render_pages(storage_path: str, settings: Settings):
-    """Yield (page number, native text, JPEG bytes); never discard image-only pages."""
+    """Yield (page number, page count, native text, JPEG bytes); never discard image-only pages."""
     import pypdfium2 as pdfium
 
     try:
@@ -93,7 +93,7 @@ def render_pages(storage_path: str, settings: Settings):
                                 with bitmap.to_pil().convert("RGB") as image:
                                     output = BytesIO()
                                     image.save(output, format="JPEG", quality=95)
-                    yield index + 1, text, output.getvalue()
+                    yield index + 1, count, text, output.getvalue()
             finally:
                 with _PDFIUM_LOCK:
                     pdf.close()

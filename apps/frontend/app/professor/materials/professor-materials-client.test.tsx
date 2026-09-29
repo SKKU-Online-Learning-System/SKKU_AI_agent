@@ -155,7 +155,7 @@ describe("ProfessorMaterialsClient", () => {
     fireEvent.click(screen.getByRole("button", { name: "업로드" }));
 
     await waitFor(() =>
-      expect(apiMocks.uploadCourseMaterial).toHaveBeenCalledWith("course-1", file, 2)
+      expect(apiMocks.uploadCourseMaterial).toHaveBeenCalledWith("course-1", file, 2, expect.any(Function))
     );
     expect(await screen.findByText("week-2.txt")).toBeInTheDocument();
     expect(screen.getByText("처리 대기")).toBeInTheDocument();
@@ -197,8 +197,8 @@ describe("ProfessorMaterialsClient", () => {
     await waitFor(() =>
       expect(apiMocks.uploadCourseMaterial).toHaveBeenCalledTimes(2)
     );
-    expect(apiMocks.uploadCourseMaterial).toHaveBeenNthCalledWith(1, "course-1", first, 2);
-    expect(apiMocks.uploadCourseMaterial).toHaveBeenNthCalledWith(2, "course-1", second, 2);
+    expect(apiMocks.uploadCourseMaterial).toHaveBeenNthCalledWith(1, "course-1", first, 2, expect.any(Function));
+    expect(apiMocks.uploadCourseMaterial).toHaveBeenNthCalledWith(2, "course-1", second, 2, expect.any(Function));
 
     fireEvent.click(
       await screen.findByRole("button", { name: "미처리 자료 2개 모두 처리" })

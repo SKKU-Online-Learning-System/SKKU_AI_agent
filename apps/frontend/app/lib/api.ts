@@ -77,6 +77,8 @@ export type CourseMaterial = {
   processingStatus: "pending" | "processing" | "completed" | "failed";
   processingError?: string | null;
   chunkCount?: number;
+  /** "12/40" pages read while processing a page-rendered document. */
+  pageProgress?: string | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -467,17 +469,46 @@ export function listCourseMaterials(courseId: string): Promise<CourseMaterial[]>
   return apiRequest<CourseMaterial[]>(`/api/courses/${courseId}/materials`);
 }
 
+// fetch cannot report upload progress, so this one request goes through XMLHttpRequest;
+// the server streams the body straight to disk, so bytes sent is the whole wait.
 export function uploadCourseMaterial(
   courseId: string,
   file: File,
-  week: number
+  week: number,
+  onProgress?: (fraction: number) => void
 ): Promise<CourseMaterial> {
   const body = new FormData();
   body.set("file", file);
   body.set("week", String(week));
-  return apiRequest<CourseMaterial>(`/api/courses/${courseId}/materials`, {
-    body,
-    method: "POST"
+  return new Promise<CourseMaterial>((resolve, reject) => {
+    const request = new XMLHttpRequest();
+    request.open("POST", `${getApiBaseUrl()}/api/courses/${courseId}/materials`);
+    const token = readAccessToken();
+    if (token) request.setRequestHeader("Authorization", `Bearer ${token}`);
+    request.upload.onprogress = (event) => {
+      if (event.lengthComputable) onProgress?.(event.loaded / event.total);
+    };
+    request.onerror = () => reject(new ApiError(0, apiConnectionErrorMessage));
+    request.onload = () => {
+      let parsed: unknown = null;
+      try {
+        parsed = JSON.parse(request.responseText) as unknown;
+      } catch {
+        parsed = null;
+      }
+      if (request.status >= 200 && request.status < 300) {
+        resolve(parsed as CourseMaterial);
+        return;
+      }
+      const detail = (parsed as { detail?: unknown } | null)?.detail;
+      reject(
+        new ApiError(
+          request.status,
+          typeof detail === "string" ? detail : request.statusText || "API request failed"
+        )
+      );
+    };
+    request.send(body);
   });
 }
 

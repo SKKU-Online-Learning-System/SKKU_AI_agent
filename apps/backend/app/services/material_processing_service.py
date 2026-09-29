@@ -26,6 +26,16 @@ from app.services.vector_store_service import VectorStoreService
 
 logger = logging.getLogger(__name__)
 
+# ponytail: in-process map of (pages read, page count) per material being processed.
+# Background tasks run in this process, so the list route reads it directly; goes to a
+# column if the API ever runs more than one worker.
+PAGE_PROGRESS: dict[str, tuple[int, int]] = {}
+
+
+def page_progress(material_id: str) -> str | None:
+    done_total = PAGE_PROGRESS.get(material_id)
+    return f"{done_total[0]}/{done_total[1]}" if done_total else None
+
 RESTARTABLE_STATUSES = (
     CourseMaterialStatus.pending,
     CourseMaterialStatus.failed,
@@ -131,10 +141,17 @@ class MaterialProcessingService:
         self.session.refresh(material)
 
     def _run_pipeline(self, material: CourseMaterial) -> ProcessingOutcome:
+        try:
+            return self._process(material)
+        finally:
+            PAGE_PROGRESS.pop(material.id, None)
+
+    def _process(self, material: CourseMaterial) -> ProcessingOutcome:
         if self.parser is None and Path(material.storage_path).suffix.lower() in {".pdf", ".pptx", ".docx"}:
             chunks, embeddings = [], []
             reader = LLMService(self.settings)
-            for number, native_text, image in render_pages(material.storage_path, self.settings):
+            for number, count, native_text, image in render_pages(material.storage_path, self.settings):
+                PAGE_PROGRESS[material.id] = (number - 1, count)
                 image_url = image_data_url(image)
                 logger.info("Reading material %s page %s", material.id, number)
                 evidence = reader.read_document_image(image_url)

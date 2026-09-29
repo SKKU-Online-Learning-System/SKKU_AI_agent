@@ -141,17 +141,16 @@ bash run.sh
   시점까지 지연**됩니다(9B 150토큰: 직접 0.14초 → 프록시 3.9초, 이후 청크는 정상 간격). 첫 토큰·첫
   음성까지의 시간이 그만큼 늘어나므로 음성 지연이 중요하면 포트별 앱 주소를 씁니다.
 
-2. 주소를 `.env`에 넣습니다. LLM·Embedding 주소에만 `/v1`을 붙입니다. 아래는 VS Code 앱 경로
-   프록시 형태의 예입니다.
+2. 주소를 `.env`에 넣습니다. VS Code 앱 경로 프록시라면 `MODEL_SERVER_PROXY` 한 줄이면 됩니다.
+   다섯 `*_BASE_URL`은 preopen port로 여기서 파생되므로 세션이 바뀌어도 이 줄의 포트만 고칩니다.
 
    ```dotenv
-   TEXT_LLM_BASE_URL=https://siriuscluster.skku.edu:10245/proxy/8001/v1
-   VOICE_LLM_BASE_URL=https://siriuscluster.skku.edu:10245/proxy/8002/v1
-   EMBEDDING_BASE_URL=https://siriuscluster.skku.edu:10245/proxy/8003/v1
-   SPEECH_BASE_URL=https://siriuscluster.skku.edu:10245/proxy/8010
-   TTS_BASE_URL=https://siriuscluster.skku.edu:10245/proxy/8012
+   MODEL_SERVER_PROXY=https://siriuscluster.skku.edu:10241/proxy
    MODEL_SERVER_API_KEY=모델_서버와_동일한_키
    ```
+
+   포트별 앱은 주소가 서로 다르므로 `MODEL_SERVER_PROXY`를 비우고 다섯 `*_BASE_URL`에 각각 넣습니다.
+   LLM·Embedding 주소에만 `/v1`을 붙입니다.
 
 3. `bash run.sh`로 앱을 띄우고 <http://localhost:8000/api/health/model-server>에서 다섯 endpoint가
    모두 `ok`인지 확인합니다.

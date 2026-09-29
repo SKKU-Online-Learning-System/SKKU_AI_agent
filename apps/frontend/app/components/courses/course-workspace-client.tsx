@@ -21,7 +21,8 @@ type WorkspaceCourse = {
 type CourseNavigationItem = {
   /** null renders the menu entry greyed out, as i-Campus does for unused tools. */
   href: string | null;
-  icon: IconName | "agent-symbol";
+  /** "bullet" is the dot i-Campus draws for an entry nested under the one above. */
+  icon: IconName | "agent-symbol" | "bullet";
   label: string;
 };
 
@@ -50,11 +51,12 @@ function navigationItems(role: CourseWorkspaceRole, courseId: string): CourseNav
     { href: null, icon: "message", label: "공지" },
     { href: null, icon: "message", label: "게시판" },
     { href: `${coursePath}/materials`, icon: "content", label: "강의콘텐츠" },
-    { href: null, icon: "check", label: "과제 및 평가" },
-    { href: null, icon: "question", label: "시험 및 설문" },
+    { href: null, icon: "bullet", label: "과제 및 평가" },
     { href: null, icon: "attendance", label: "출결현황" },
-    { href: null, icon: "chart", label: "학습 활동 현황" },
-    { href: null, icon: "grade", label: "성적" },
+    { href: null, icon: "chart", label: "학습 활동 분석" },
+    { href: null, icon: "group", label: "사용자 및 그룹" },
+    { href: null, icon: "bullet", label: "성적" },
+    { href: null, icon: "grade", label: "GradeScope" },
     ...roleSpecific,
     { href: `${coursePath}/course-agent`, icon: "agent-symbol", label: "COURSE AGENT" }
   ];
@@ -174,6 +176,8 @@ export function CourseWorkspaceClient({
                 >
                   {item.icon === "agent-symbol" ? (
                     <CourseAgentSymbol size={16} state="presence" />
+                  ) : item.icon === "bullet" ? (
+                    <i aria-hidden="true" className="icampus-nav-bullet" />
                   ) : (
                     <UiIcon name={item.icon} />
                   )}
@@ -181,7 +185,11 @@ export function CourseWorkspaceClient({
                 </Link>
               ) : (
                 <span key={item.label} title="이 MVP에서는 제공하지 않는 메뉴입니다.">
-                  <UiIcon name={item.icon as IconName} />
+                  {item.icon === "bullet" ? (
+                    <i aria-hidden="true" className="icampus-nav-bullet" />
+                  ) : (
+                    <UiIcon name={item.icon as IconName} />
+                  )}
                   <span>{item.label}</span>
                 </span>
               )

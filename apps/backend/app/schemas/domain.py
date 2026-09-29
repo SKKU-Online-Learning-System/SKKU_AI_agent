@@ -105,6 +105,7 @@ class CourseMaterialRead(CamelModel):
     processing_status: CourseMaterialStatus
     processing_error: Optional[str] = None
     chunk_count: int = 0
+    page_progress: Optional[str] = None
     created_at: datetime
     updated_at: datetime
 
