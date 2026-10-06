@@ -288,6 +288,45 @@ export type ServiceStatistics = {
   courses: CourseStatistic[];
 };
 
+/** Admin usage page: logins, active time, tokens and turns per user and in total. */
+export type ActivityUserRow = {
+  userId: string;
+  name: string;
+  email: string;
+  loginCount: number;
+  lastLoginAt: string | null;
+  activeMinutes: number;
+  turnCount: number;
+  promptTokens: number;
+  completionTokens: number;
+  totalTokens: number;
+};
+
+export type ActivityDay = {
+  date: string;
+  logins: number;
+  turns: number;
+  tokens: number;
+  activeMinutes: number;
+};
+
+export type ActivityStatistics = {
+  days: number;
+  since: string;
+  totals: {
+    userCount: number;
+    activeUserCount: number;
+    loginCount: number;
+    activeMinutes: number;
+    turnCount: number;
+    promptTokens: number;
+    completionTokens: number;
+    totalTokens: number;
+  };
+  byDate: ActivityDay[];
+  users: ActivityUserRow[];
+};
+
 export type ProfessorStatistics = {
   courses: CourseStatistic[];
   questionsByDate: DateStatistic[];
@@ -647,6 +686,10 @@ export function listOwnChatLogs(
 
 export function getServiceStatistics(): Promise<ServiceStatistics> {
   return apiRequest<ServiceStatistics>("/api/stats/service");
+}
+
+export function getActivityStatistics(days = 30): Promise<ActivityStatistics> {
+  return apiRequest<ActivityStatistics>(`/api/stats/activity?days=${days}`);
 }
 
 export function getProfessorStatistics(): Promise<ProfessorStatistics> {

@@ -36,6 +36,7 @@ from app.services.llm_service import (
     LLMError,
     LLMService,
     LLMTruncatedError,
+    LLMUsage,
     ToolTurn,
 )
 from app.services.voice import attachments as attachments_module
@@ -82,6 +83,17 @@ def require_api_key() -> str:
 class StageTimer:
     def __init__(self) -> None:
         self.timings_ms: dict[str, int] = {}
+        # Model tokens the turn consumed so far, summed over rounds; empty until
+        # a provider reports any, so the mock leaves the log columns null.
+        self.tokens: dict[str, int] = {}
+
+    def add_usage(self, usage: LLMUsage) -> None:
+        for key, value in (
+            ("prompt", usage.prompt_tokens),
+            ("completion", usage.completion_tokens),
+        ):
+            if value is not None:
+                self.tokens[key] = self.tokens.get(key, 0) + value
 
     @contextmanager
     def stage(self, name: str):
@@ -1499,6 +1511,7 @@ async def think(
         await summarizer.close()
         elapsed_ms = round((time.perf_counter() - started_at) * 1000)
         timer.timings_ms["llm"] = timer.timings_ms.get("llm", 0) + elapsed_ms
+        timer.add_usage(turn.usage)
         log.info("stage llm   %5d ms (%s)", elapsed_ms, turn.model_name)
 
         if not turn.tool_calls:

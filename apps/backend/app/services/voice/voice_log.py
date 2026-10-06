@@ -150,6 +150,7 @@ def log_turn(
     provider_name: Optional[str] = None,
     visualizations: Sequence[dict] = (),
     attachments: Sequence[dict] = (),
+    tokens: Optional[dict] = None,
 ) -> str:
     """Write one voice turn to the chat log and return its id.
 
@@ -190,6 +191,8 @@ def log_turn(
         referenced_documents=list(material_sources),
         model_name=model_name,
         response_time_ms=response_time_ms,
+        prompt_tokens=(tokens or {}).get("prompt"),
+        completion_tokens=(tokens or {}).get("completion"),
         is_grounded=is_grounded,
         answer_source_type=source_type,
         safety_result=safety.as_dict(),

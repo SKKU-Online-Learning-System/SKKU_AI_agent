@@ -150,3 +150,25 @@ def test_me_rejects_expired_wrong_type_and_unknown_user_tokens(client: TestClien
         )
         assert response.status_code == 401
         assert response.json() == {"detail": "Invalid or expired access token"}
+
+
+def test_login_records_a_login_event(client: TestClient) -> None:
+    from app.models import LoginEvent
+
+    def events() -> list[LoginEvent]:
+        session = next(app.dependency_overrides[get_db]())
+        return session.query(LoginEvent).order_by(LoginEvent.created_at).all()
+
+    before = len(events())
+    admin = client.post(
+        "/api/auth/login", json={"email": "admin@skku.edu", "password": "password123"}
+    )
+    student = client.post(
+        "/api/auth/login", json={"email": "student@skku.edu", "password": "password123"}
+    )
+
+    assert admin.status_code == 200 and student.status_code == 200
+    after = events()
+    # Staff never use the agent, so only the student's login is a usage event.
+    assert len(after) == before + 1
+    assert after[-1].user_id == student.json()["user"]["id"]

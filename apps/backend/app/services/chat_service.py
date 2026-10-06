@@ -18,7 +18,7 @@ from sqlalchemy.orm import Session
 from app.core.config import Settings
 from app.models import ChatAnswerSourceType, ChatLog, ChatSession, Course, User
 from app.services.embedding_service import EmbeddingError
-from app.services.llm_service import LLMError, LLMService
+from app.services.llm_service import LLMError, LLMService, LLMUsage
 from app.services.prompt_service import PromptBuilderService
 from app.services.rag_service import RagService, RetrievalSummary
 from app.services.safety_service import (
@@ -177,6 +177,7 @@ class ChatService:
             summary=outcome.summary,
             safety=safety,
             started=started,
+            usage=generated.usage,
         )
 
     def create_session(self, user: User, course: Course, title: Optional[str] = None) -> ChatSession:
@@ -257,6 +258,7 @@ class ChatService:
         summary: RetrievalSummary,
         safety: SafetyResult,
         started: float,
+        usage: LLMUsage = LLMUsage(),
     ) -> ChatAnswer:
         response_time_ms = int((perf_counter() - started) * 1000)
         log = ChatLog(
@@ -268,6 +270,8 @@ class ChatService:
             referenced_documents=[source.as_dict() for source in sources],
             model_name=model_name,
             response_time_ms=response_time_ms,
+            prompt_tokens=usage.prompt_tokens,
+            completion_tokens=usage.completion_tokens,
             is_grounded=is_grounded,
             answer_source_type=answer_source_type,
             safety_result=safety.as_dict(),

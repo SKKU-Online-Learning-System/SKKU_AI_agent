@@ -12,6 +12,7 @@ def test_metadata_contains_only_expected_tables() -> None:
         "document_chunks",
         "chat_sessions",
         "chat_logs",
+        "login_events",
     }
 
 
@@ -76,6 +77,8 @@ def test_chat_log_stores_answer_provenance() -> None:
         "referenced_documents",
         "model_name",
         "response_time_ms",
+        "prompt_tokens",
+        "completion_tokens",
         "is_grounded",
         "answer_source_type",
         "safety_result",
@@ -213,6 +216,8 @@ def test_chat_storage_matches_stage_four_contract() -> None:
         "referenced_documents",
         "model_name",
         "response_time_ms",
+        "prompt_tokens",
+        "completion_tokens",
         "is_grounded",
         "safety_result",
         "retrieval_result",

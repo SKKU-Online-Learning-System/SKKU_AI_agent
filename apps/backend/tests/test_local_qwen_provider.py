@@ -314,3 +314,22 @@ async def test_truncation_is_a_distinct_error_and_thinking_can_be_turned_off_per
     assert turn.text == "짧은 답"
     assert fake.stream_requests[1]["json"]["chat_template_kwargs"] == {"enable_thinking": False}
 
+
+
+@pytest.mark.asyncio
+async def test_qwen_streaming_keeps_the_usage_of_the_final_chunk(monkeypatch) -> None:
+    lines = [
+        'data: {"choices":[{"delta":{"content":"답"}}]}',
+        'data: {"choices":[{"delta":{},"finish_reason":"stop"}]}',
+        'data: {"choices":[],"usage":{"prompt_tokens":120,"completion_tokens":30,"total_tokens":150}}',
+        "data: [DONE]",
+    ]
+    fake = FakeAsyncClient(lines=lines)
+    monkeypatch.setattr(llm_service, "async_client", lambda *args: fake)
+
+    turn = await LLMService(settings()).stream_tool_turn(
+        system="policy", messages=[{"role": "user", "content": "q"}], tools=[]
+    )
+
+    assert fake.stream_requests[0]["json"]["stream_options"] == {"include_usage": True}
+    assert (turn.usage.prompt_tokens, turn.usage.completion_tokens) == (120, 30)
