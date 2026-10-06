@@ -468,6 +468,8 @@ class LocalCascadeTransport(Transport):
         self.model_name = self.settings.voice_llm_model
         self.last_web_sources: list[str] = []
         self.last_safety: SafetyResult = NORMAL_RESULT
+        # Token counts of the turn being logged, read by the route's log writer.
+        self.last_tokens: dict[str, int] = {}
         self._events: asyncio.Queue[QueuedEvent | object] = asyncio.Queue()
         self._generation = 0
         self._active_task: asyncio.Task[None] | None = None
@@ -680,6 +682,7 @@ class LocalCascadeTransport(Transport):
             await speech.abort()
             return
         self.last_web_sources = list(brain_result.sources[:3])
+        self.last_tokens = dict(timer.tokens)
 
         for name in brain_result.tools:
             if name == "show_visualization":

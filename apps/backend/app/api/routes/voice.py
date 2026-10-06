@@ -276,6 +276,7 @@ async def _answer(
             "sources": [],
             "visualizations": [],
             "timings": timer.timings_ms,
+            "tokens": timer.tokens,
             "safety": safety,
             "attachments": [],
         }
@@ -293,6 +294,7 @@ async def _answer(
         "sources": sources,
         "visualizations": visualizations,
         "timings": timer.timings_ms,
+        "tokens": timer.tokens,
         "safety": safety,
         "attachments": contents,
     }
@@ -418,6 +420,7 @@ def _persist(
         provider_name=None if blocked else llm.provider,
         visualizations=context.last_visualizations,
         attachments=attachments_module.logged_list(payload.get("attachments", [])),
+        tokens=payload.get("tokens"),
     )
     return {"session_id": chat_session.id, "log_id": log_id}
 
@@ -1080,6 +1083,7 @@ def _log_voice_turn(
                 safety=safety,
                 provider_name=provider_name,
                 visualizations=context.last_visualizations,
+                tokens=getattr(transport, "last_tokens", None),
             )
     except Exception:
         log.exception("failed to persist a voice turn")

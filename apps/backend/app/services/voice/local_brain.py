@@ -343,6 +343,7 @@ async def think_voice(
         finally:
             elapsed_ms = round((time.perf_counter() - started_at) * 1000)
             timer.timings_ms["llm"] = timer.timings_ms.get("llm", 0) + elapsed_ms
+        timer.add_usage(turn.usage)
         if getattr(settings, "voice_trace_content", False):
             log.info(
                 "voice llm output model=%s text=%.8000s tool_calls=%.4000r",

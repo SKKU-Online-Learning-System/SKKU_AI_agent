@@ -73,10 +73,18 @@ class ToolCallRequest:
 
 
 @dataclass(frozen=True)
+class LLMUsage:
+    prompt_tokens: Optional[int] = None
+    completion_tokens: Optional[int] = None
+    total_tokens: Optional[int] = None
+
+
+@dataclass(frozen=True)
 class ToolTurn:
     text: str
     tool_calls: list[ToolCallRequest]
     model_name: str
+    usage: LLMUsage = LLMUsage()
 
 
 @dataclass(frozen=True)
@@ -84,13 +92,6 @@ class WebSearchAnswer:
     answer: str
     sources: list[str]
     model_name: str
-
-
-@dataclass(frozen=True)
-class LLMUsage:
-    prompt_tokens: Optional[int] = None
-    completion_tokens: Optional[int] = None
-    total_tokens: Optional[int] = None
 
 
 @dataclass(frozen=True)
@@ -369,6 +370,8 @@ class LLMService:
             max_tokens=max_tokens,
             thinking=thinking,
         )
+        # The final chunk then carries the token counts the turn consumed.
+        request["stream_options"] = {"include_usage": True}
         if tools:
             request["tools"] = list(tools)
             request["tool_choice"] = "required" if force_tools else "auto"
@@ -382,6 +385,7 @@ class LLMService:
         tool_parts: dict[int, dict[str, str]] = {}
         returned_model = self.model_name
         finish_reason = None
+        usage = LLMUsage()
         try:
             client = async_client(
                 self.base_url,
@@ -406,6 +410,8 @@ class LLMService:
                         continue
                     chunk = json.loads(raw)
                     returned_model = str(chunk.get("model") or returned_model)
+                    if chunk.get("usage"):
+                        usage = _openai_usage(chunk["usage"])
                     choices = chunk.get("choices") or []
                     if not choices:
                         continue
@@ -455,7 +461,7 @@ class LLMService:
             for index, value in sorted(tool_parts.items())
             if value["name"]
         ]
-        return ToolTurn("".join(text_parts), tool_calls, returned_model)
+        return ToolTurn("".join(text_parts), tool_calls, returned_model, usage)
 
     async def _anthropic_tool_turn(
         self,
@@ -511,7 +517,9 @@ class LLMService:
             elif block.type == "tool_use":
                 arguments = block.input if isinstance(block.input, dict) else {}
                 tool_calls.append(ToolCallRequest(block.id, block.name, arguments))
-        return ToolTurn("".join(text_parts), tool_calls, message.model)
+        return ToolTurn(
+            "".join(text_parts), tool_calls, message.model, _anthropic_usage(message.usage)
+        )
 
     async def generate_json(self, *, system: str, payload: dict, max_tokens: int = 900) -> dict:
         if self.provider == "mock":
@@ -864,6 +872,14 @@ def _openai_messages_to_anthropic(messages: Sequence[dict]) -> list[dict]:
         if role in {"user", "assistant"}:
             converted.append({"role": role, "content": message.get("content", "")})
     return converted
+
+
+def _anthropic_usage(raw: object) -> LLMUsage:
+    prompt = getattr(raw, "input_tokens", None)
+    completion = getattr(raw, "output_tokens", None)
+    if not isinstance(prompt, int) or not isinstance(completion, int):
+        return LLMUsage()
+    return LLMUsage(prompt, completion, prompt + completion)
 
 
 def _openai_usage(raw: object) -> LLMUsage:

@@ -282,11 +282,22 @@ def store_attachment(
         size=len(data),
         path=str(path),
         pages=pages,
-        created_at=time.time(),
+        created_at=_next_timestamp(),
     )
     path.write_bytes(data)
     _sidecar(path).write_text(json.dumps(asdict(attachment), ensure_ascii=False), encoding="utf-8")
     return attachment
+
+
+_last_timestamp = 0.0
+
+
+def _next_timestamp() -> float:
+    """Wall time, strictly increasing within the process: eviction sorts on it, and two
+    uploads inside one clock tick (~15 ms on Windows) would otherwise tie and evict at random."""
+    global _last_timestamp
+    _last_timestamp = max(time.time(), _last_timestamp + 1e-6)
+    return _last_timestamp
 
 
 def _make_room(directory: Path, incoming: int, settings: Settings) -> None:

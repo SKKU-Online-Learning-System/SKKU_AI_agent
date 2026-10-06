@@ -8,6 +8,7 @@ from app.models.domain import (
     CourseMaterial,
     CourseMaterialStatus,
     DocumentChunk,
+    LoginEvent,
     User,
     UserRole,
 )
@@ -22,6 +23,7 @@ __all__ = [
     "CourseMaterial",
     "CourseMaterialStatus",
     "DocumentChunk",
+    "LoginEvent",
     "User",
     "UserRole",
 ]

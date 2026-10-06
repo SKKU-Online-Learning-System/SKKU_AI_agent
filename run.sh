@@ -20,6 +20,13 @@ import os, sysconfig
 print(os.path.join(sysconfig.get_paths()["purelib"], "torch", "lib"))
 '
 )"
+# The interpreter of this app environment, for the reload loop below. A bare `python`
+# there finds uv's base interpreter (CreateProcess looks in the parent's directory first),
+# which has no uvicorn. Relative, because a non-ASCII user name in the absolute path did
+# not survive the argv hand-off; backslashes, because CreateProcess does not resolve a
+# relative program path written with forward slashes.
+APP_PYTHON="$UV_PROJECT_ENVIRONMENT/bin/python"
+[ -x "$UV_PROJECT_ENVIRONMENT/Scripts/python.exe" ] && APP_PYTHON="${UV_PROJECT_ENVIRONMENT//\//\\}\\Scripts\\python.exe"
 export LD_LIBRARY_PATH="${APP_TORCH_LIB}${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}"
 
 echo "Verifying app voice runtime"
@@ -48,7 +55,11 @@ fi
 
 # ponytail: kill 0 tears down the whole process group; fine for one dev shell
 trap 'kill 0' EXIT
-# Watch only the backend source. The default watches the whole repo, so a package
-# write into .venv-app (or a Windows rescan of it) restarts the API mid-startup.
-"$UV" run --locked --all-packages --extra dev --extra voice uvicorn app.main:app --reload --reload-dir apps/backend --app-dir apps/backend --port 8000 &
+# Reload through watchfiles, not `uvicorn --reload`: on Windows uvicorn restarts its worker
+# with CTRL_C_EVENT, which the console delivers to every process attached to it -- this shell
+# and the Next dev server included -- so the first source edit took the whole app down.
+# watchfiles terminates just the worker (the interpreter itself, no wrapper to orphan it).
+# Watch only the backend source: a package write into .venv-app (or a Windows rescan of it)
+# would otherwise restart the API mid-startup.
+"$UV" run --locked --all-packages --extra dev --extra voice watchfiles --filter python   "$APP_PYTHON -m uvicorn app.main:app --app-dir apps/backend --port 8000" apps/backend &
 npm run dev:frontend
