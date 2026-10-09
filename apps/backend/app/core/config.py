@@ -160,7 +160,7 @@ class Settings(BaseSettings):
     # are preferred; this limit only splits unusually long sentences further.
     tts_chunk_max_chars: int = Field(default=80, ge=20, le=300)
     # Knobs for the first request of a turn. Both were measured against
-# the current streaming backend and are neutral by default: first-audio latency
+    # the current streaming backend and are neutral by default: first-audio latency
     # is gated by how fast the LLM completes its first sentence, not by chunk
     # size, and a smaller decoder hop trades more throughput than it saves
     # (token2wav costs ~600ms almost regardless of token count). Kept tunable
@@ -168,23 +168,13 @@ class Settings(BaseSettings):
     tts_first_chunk_max_chars: int = Field(default=80, ge=10, le=300)
     # 0 keeps the TTS server's own hop length.
     tts_first_chunk_hop_len: int = Field(default=0, ge=0, le=100)
-# Waiting for the first full sentence costs ~800ms of the turn. Once the
-# TTS backend answers in ~170ms, that wait dominates, so release the first
-# chunk at a word boundary this far in instead.
-#
-# This speaks before the round is known to be an answer round rather than a
-# tool round. Measured against Qwen3.5-9B on vLLM, tool rounds emit zero
-# content characters before the tool call, so the fragment is safe there;
-# set 0 to restore strict sentence-at-a-time synthesis if a model does emit
-# preamble before calling tools.
-#
-# Floor for the first request, which merges a too-short opening sentence
-# ("네!", "안녕하세요!") into the one after it.
-#
-# The brain now releases a finished, validated reply, so this no longer
-# decides whether a fragment is spoken before the round is known to be an
-# answer round -- nothing is spoken early any more. It only protects the
-# playback buffer and the delivery of the opening.
+    # Floor for the first request, which merges a too-short opening sentence
+    # ("네!", "안녕하세요!") into the one after it.
+    #
+    # The brain now releases a finished, validated reply, so this no longer
+    # decides whether a fragment is spoken before the round is known to be an
+    # answer round -- nothing is spoken early any more. It only protects the
+    # playback buffer and the delivery of the opening.
     #
     # Do not lower this much: TTS pacing degrades sharply on very short input.
     # Over 8 runs per size, the spoken duration of the same fragment had a
@@ -192,21 +182,18 @@ class Settings(BaseSettings):
     # is audible as uneven delivery, and a short fragment also leaves the playback
     # buffer too thin to absorb the packet after it.
     tts_first_chunk_min_chars: int = Field(default=24, ge=0, le=200)
-# Do not lower this much: TTS pacing degrades sharply on very short input.
-# Over 8 runs per size, the spoken duration of the same fragment had a
-#
-# Each TTS request is generated independently, so concatenating two of them
-# loses most of the pause a speaker leaves at the boundary and the seam is
-# heard as one sentence running into the next.
-#
-# Sized from the voice itself rather than from a rule of thumb. Measured over
-# 5 replies synthesized as a single request, this speaker pauses a median of
-# 523ms at a sentence end and 256ms at a comma. The TTS server already keeps
-# `QWEN_TTS_SILENCE_KEEP_MS` of its own trailing silence and trims the next
-# request's leading silence to a pre-roll, which left the seam at 352ms; these
-# values top that back up to the speaker's natural pause. A seam that pauses
-# for less than a real sentence boundary while the delivery changes across it
-# is what reads as abrupt, so under-shooting here is worse than over-shooting.
+    # Each TTS request is generated independently, so concatenating two of them
+    # loses most of the pause a speaker leaves at the boundary and the seam is
+    # heard as one sentence running into the next.
+    #
+    # Sized from the voice itself rather than from a rule of thumb. Measured over
+    # 5 replies synthesized as a single request, this speaker pauses a median of
+    # 523ms at a sentence end and 256ms at a comma. The TTS server already keeps
+    # `QWEN_TTS_SILENCE_KEEP_MS` of its own trailing silence and trims the next
+    # request's leading silence to a pre-roll, which left the seam at 352ms; these
+    # values top that back up to the speaker's natural pause. A seam that pauses
+    # for less than a real sentence boundary while the delivery changes across it
+    # is what reads as abrupt, so under-shooting here is worse than over-shooting.
     tts_sentence_gap_ms: int = Field(default=350, ge=0, le=1000)
     tts_clause_gap_ms: int = Field(default=90, ge=0, le=1000)
 

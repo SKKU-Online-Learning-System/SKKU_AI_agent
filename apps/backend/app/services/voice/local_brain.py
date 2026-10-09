@@ -267,8 +267,6 @@ async def think_voice(
     transcript: str,
     timer: brain.StageTimer,
     on_token: Callable[[str], Awaitable[None]] | None = None,
-    on_speech_delta: Callable[[str], Awaitable[None]] | None = None,
-    on_speech_rollback: Callable[[], Awaitable[None]] | None = None,
 ) -> VoiceBrainResult:
     """Run the existing brain policy with the Qwen voice profile."""
     question = {"role": "user", "content": transcript}
@@ -327,42 +325,13 @@ async def think_voice(
     soft_failures = 0
     for _ in range(brain.MAX_TOOL_ROUNDS):
         started_at = time.perf_counter()
-    soft_failures = 0
-    for _ in range(brain.MAX_TOOL_ROUNDS):
-        started_at = time.perf_counter()
-        first_token_seen = False
-
-        round_speakable = True
-
-        async def stream_token(token: str) -> None:
-            nonlocal first_token_seen
-            if not first_token_seen:
-                first_token_seen = True
-                timer.timings_ms.setdefault(
-                    "llm_ttft",
-                    round((time.perf_counter() - started_at) * 1000),
-                )
-            if on_token:
-                await on_token(token)
-            # Only this round's text is a speech candidate, and only until the
-            # round reveals itself as a tool round.
-            if round_speakable and on_speech_delta:
-                await on_speech_delta(token)
-
-        async def tool_call_started() -> None:
-            nonlocal round_speakable
-            round_speakable = False
-            if on_speech_rollback:
-                await on_speech_rollback()
-
         try:
             turn = await llm.stream_tool_turn(
                 system=system,
                 messages=[*brain._conversation([*context.history, question]), *tool_messages],
+                # ponytail: one web lookup per turn; expand if evidence-gap evaluations need it.
                 tools=tools[-1:] if failures or soft_failures or tools_used else tools,
                 force_tools=("finish_turn",),
-                on_token=stream_token,
-                on_tool_call_started=tool_call_started,
                 max_tokens=settings.voice_llm_max_tokens,
             )
         except LLMError:
@@ -374,7 +343,7 @@ async def think_voice(
         finally:
             elapsed_ms = round((time.perf_counter() - started_at) * 1000)
             timer.timings_ms["llm"] = timer.timings_ms.get("llm", 0) + elapsed_ms
-
+        timer.add_usage(turn.usage)
         if getattr(settings, "voice_trace_content", False):
             log.info(
                 "voice llm output model=%s text=%.8000s tool_calls=%.4000r",

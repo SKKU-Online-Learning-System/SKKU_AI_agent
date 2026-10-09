@@ -295,9 +295,6 @@ class LLMService:
         on_reasoning: Optional[Callable[[str], Awaitable[None]]] = None,
         max_tokens: Optional[int] = None,
         thinking: Optional[bool] = None,
-
-        max_tokens: Optional[int] = None,
-        thinking: Optional[bool] = None,
     ) -> ToolTurn:
         """Run one tool turn with OpenAI function shape as the canonical form.
 
@@ -340,7 +337,6 @@ class LLMService:
                 on_token=on_token,
                 on_tool_call_started=on_tool_call_started,
                 on_reasoning=on_reasoning,
-
                 max_tokens=max_tokens,
             )
         return await self._qwen_tool_turn(
@@ -351,7 +347,6 @@ class LLMService:
             on_token=on_token,
             on_tool_call_started=on_tool_call_started,
             on_reasoning=on_reasoning,
-
             max_tokens=max_tokens,
             thinking=thinking,
         )
@@ -368,7 +363,6 @@ class LLMService:
         on_reasoning: Optional[Callable[[str], Awaitable[None]]] = None,
         max_tokens: Optional[int] = None,
         thinking: Optional[bool] = None,
-
     ) -> ToolTurn:
         request = self._qwen_request(
             messages=[{"role": "system", "content": system}, *list(messages)],
@@ -480,8 +474,6 @@ class LLMService:
         on_tool_call_started: Optional[Callable[[], Awaitable[None]]],
         on_reasoning: Optional[Callable[[str], Awaitable[None]]] = None,
         max_tokens: Optional[int] = None,
-        thinking: Optional[bool] = None,
-
     ) -> ToolTurn:
         client = self._require_anthropic_client()
         request = {
@@ -505,7 +497,6 @@ class LLMService:
                             thinking = getattr(event, "thinking", "")
                             if thinking:
                                 await on_reasoning(str(thinking))
-
                         elif (
                             not seen_tool_use
                             and on_tool_call_started

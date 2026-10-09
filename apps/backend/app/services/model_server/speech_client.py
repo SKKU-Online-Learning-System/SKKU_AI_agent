@@ -135,7 +135,6 @@ class SpeechClient:
         language: str | None = None,
         hop_len: int | None = None,
         continuity_id: str | None = None,
-
     ) -> AsyncIterator[tuple[bytes, int]]:
         """Yield ``(pcm_chunk, sample_rate)`` as the TTS server produces them.
 
@@ -161,7 +160,6 @@ class SpeechClient:
                 # instead of normalising it on its own; ignored by backends that
                 # do not implement it.
                 **({"continuity_id": continuity_id} if continuity_id else {}),
-
             },
             timeout=self.settings.tts_timeout_seconds,
         )
@@ -194,8 +192,6 @@ class SpeechClient:
                     remainder = chunk[aligned:]
                     if aligned:
                         yield chunk[:aligned], sample_rate
-            except httpx.HTTPError as exc:
-                raise SpeechError("TTS 스트림이 중간에 끊겼습니다.") from exc
             except httpx.HTTPError as exc:
                 raise SpeechError("TTS 스트림이 중간에 끊겼습니다.") from exc
         finally:

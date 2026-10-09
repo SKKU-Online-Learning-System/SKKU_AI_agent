@@ -185,6 +185,7 @@ def test_text_stream_sends_no_filler_for_a_greeting(chat_api, monkeypatch) -> No
     course_id = chat_api.courses["ai"]
     reset_context(chat_api.users["student"], course_id)
     monkeypatch.setattr(voice_routes, "SessionLocal", chat_api.session_factory)
+    monkeypatch.setattr(brain, "get_settings", lambda: Settings(_env_file=None, use_mock_llm=True))
 
     response = chat_api.client.post(
         f"/api/voice/courses/{course_id}/answer-text/stream",
