@@ -1,0 +1,12 @@
+[
+  {
+    "threshold": 1.0,
+    "starts": 0,
+    "completed_utterances": 0
+  },
+  {
+    "threshold": 0.5,
+    "starts": 1,
+    "completed_utterances": 1
+  }
+]

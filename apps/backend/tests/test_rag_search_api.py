@@ -57,6 +57,8 @@ def rag_api() -> Generator[RAGApiContext, None, None]:
     testing_session = sessionmaker(bind=engine, autocommit=False, autoflush=False)
     Base.metadata.create_all(engine)
     settings = Settings(
+        embedding_provider="mock",
+        rag_text_score_threshold=0.1,
         vector_db_embedding_dim=16,
         mock_embedding_dim=128,
         rag_score_threshold=0.3,
@@ -244,6 +246,7 @@ def test_search_returns_top_k_only_from_accessible_course(rag_api: RAGApiContext
                 "pageNumber": 12,
                 "chunkIndex": 0,
                 "chunkText": "gradient descent basics",
+                "pageImageUrl": None,
                 "score": response.json()["results"][0]["score"],
             }
         ],
@@ -320,6 +323,7 @@ def test_debug_search_is_professor_only_and_reports_filtered_candidates(
         "embeddingModel": "mock-hash-128",
         "searchMode": "local",
         "scoreThreshold": 0.3,
+        "textScoreThreshold": 0.1,
         "totalCandidateChunks": 2,
     }
     assert all(result["documentName"] == "lecture1.pdf" for result in response.json()["results"])

@@ -6,7 +6,6 @@ import {
   ApiError,
   deleteCourseMaterial,
   listCourseMaterials,
-  processCourseMaterial,
   uploadCourseMaterial
 } from "../../lib/api";
 import type { VoiceConfig } from "../../lib/voice-api";
@@ -69,6 +68,20 @@ export function CourseAgentSettingsClient({ courseId }: { courseId: string }) {
     };
   }, [courseId]);
 
+  const hasPendingMaterials = materials.some(
+    (material) => material.processingStatus === "pending" || material.processingStatus === "processing"
+  );
+  useEffect(() => {
+    if (!hasPendingMaterials) return;
+    let cancelled = false;
+    const timer = window.setInterval(() => {
+      void listCourseMaterials(courseId).then((next) => {
+        if (!cancelled) setMaterials(next);
+      }).catch(() => undefined);
+    }, 5000);
+    return () => { cancelled = true; window.clearInterval(timer); };
+  }, [courseId, hasPendingMaterials]);
+
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(event.target.files ?? []);
     const invalid = files.find((file) => file.size > MAX_UPLOAD_BYTES);
@@ -100,9 +113,8 @@ export function CourseAgentSettingsClient({ courseId }: { courseId: string }) {
     for (const [index, file] of selectedFiles.entries()) {
       setUploadFeedback(`${index + 1}/${selectedFiles.length} 업로드 중: ${file.name}`);
       try {
-        const material = await uploadCourseMaterial(courseId, file, week);
-        // Index immediately so the agent can cite the material on the next turn.
-        await processCourseMaterial(courseId, material.id).catch(() => undefined);
+        await uploadCourseMaterial(courseId, file, week);
+        // The server prepares uploaded materials in the background.
         uploaded += 1;
       } catch (error) {
         failures.push(
@@ -116,7 +128,7 @@ export function CourseAgentSettingsClient({ courseId }: { courseId: string }) {
     setUploadFeedback(
       failures.length
         ? `${uploaded}개 반영, ${failures.length}개 실패: ${failures.join(", ")}`
-        : `${uploaded}개 자료를 반영했습니다.`
+        : `${uploaded}개 자료를 업로드했습니다. 분석이 끝나면 대화에 사용됩니다.`
     );
     await reload().catch(() => undefined);
     setIsUploading(false);
@@ -250,7 +262,9 @@ export function CourseAgentSettingsClient({ courseId }: { courseId: string }) {
                   </span>
                   <span className="voice-file-meta">
                     <span className="voice-file-size">
-                      {material.week}주차 · {formatBytes(material.fileSize)}
+                      {material.week}주차 · {formatBytes(material.fileSize)} · {{
+                        pending: "분석 대기", processing: "분석 중", completed: "준비 완료", failed: "분석 실패"
+                      }[material.processingStatus]}
                     </span>
                     <button
                       className="voice-danger"

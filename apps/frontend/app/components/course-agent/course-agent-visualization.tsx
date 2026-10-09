@@ -4,15 +4,6 @@ import { Fragment, useEffect, useRef, useState } from "react";
 import type { VoicePlotPoint, VoiceVisualization } from "../../lib/voice-api";
 import { fetchVoicePdfUrl } from "../../lib/voice-api";
 
-declare global {
-  interface Window {
-    MathJax?: {
-      typesetPromise?: (elements?: Element[]) => Promise<void>;
-      tex?: unknown;
-    };
-  }
-}
-
 function Plot({ visualization }: { visualization: VoiceVisualization }) {
   const points = visualization.points.filter(
     (point: VoicePlotPoint) => Number.isFinite(point.x) && Number.isFinite(point.y)

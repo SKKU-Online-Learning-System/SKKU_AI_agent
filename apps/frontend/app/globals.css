@@ -382,6 +382,16 @@ p {
   width: 16px;
 }
 
+/* i-Campus nests 과제 및 평가 / 성적 under the entry above, with a dot for an icon. */
+.icampus-nav-bullet {
+  background: currentColor;
+  border-radius: 50%;
+  flex: none;
+  height: 4px;
+  margin: 0 6px 0 16px;
+  width: 4px;
+}
+
 .icampus-context-nav nav a:hover {
   background: #e7edf3;
   color: var(--icampus-navy);
@@ -1277,6 +1287,20 @@ p {
   line-height: 1.45;
 }
 
+.material-upload-progress {
+  color: var(--icampus-muted);
+  display: grid;
+  font-size: 12px;
+  gap: 6px;
+  grid-column: 1 / -1;
+}
+
+.material-upload-progress progress {
+  accent-color: var(--icampus-teal);
+  height: 6px;
+  width: 100%;
+}
+
 .material-status {
   background: #f6f7f8;
   border: 1px solid #d7dde2;
@@ -1488,6 +1512,12 @@ p {
 
 .material-processing-summary small {
   color: var(--icampus-muted);
+}
+
+.material-processing-progress {
+  accent-color: var(--icampus-teal);
+  height: 6px;
+  width: 100%;
 }
 
 .material-processing-summary .material-processing-error {
@@ -2661,4 +2691,334 @@ p {
     scroll-behavior: auto !important;
     transition-duration: 0.01ms !important;
   }
+}
+
+/* Weak-concept statistics on the professor and administrator dashboards. */
+.weak-stats-header h2 {
+  font-size: 18px;
+  margin: 0 0 4px;
+}
+
+.weak-stats-header p,
+.weak-stats-status,
+.weak-stats-empty {
+  color: var(--icampus-muted);
+  font-size: 13px;
+  margin: 0;
+}
+
+.weak-stats-course {
+  background: white;
+  border: 1px solid var(--icampus-border-soft);
+  border-radius: 4px;
+  display: grid;
+  gap: 14px;
+  padding: 14px;
+}
+
+.weak-stats-course > h3 {
+  font-size: 15px;
+  margin: 0;
+}
+
+.weak-stats-detail {
+  display: grid;
+  gap: 16px;
+}
+
+.weak-stats-detail section h3 {
+  font-size: 14px;
+  margin: 0 0 8px;
+}
+
+.weak-stats-detail ul {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding-left: 20px;
+}
+
+.weak-stats-detail li span,
+.weak-stats-notes {
+  color: var(--icampus-muted);
+  display: block;
+  font-size: 12px;
+  margin-top: 4px;
+}
+
+.weak-stats-mastery {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+  min-width: 120px;
+}
+
+.weak-stats-mastery-track {
+  background: var(--icampus-border-soft);
+  border-radius: 999px;
+  flex: 1;
+  height: 6px;
+  overflow: hidden;
+}
+
+.weak-stats-mastery-track span {
+  background: var(--icampus-teal);
+  display: block;
+  height: 100%;
+}
+
+.course-table tr[data-selected="true"] td {
+  background: var(--icampus-canvas);
+}
+
+/* Admin usage statistics. Same flat surfaces as the other role pages. */
+.activity-page {
+  display: grid;
+  gap: 18px;
+}
+
+.activity-header {
+  align-items: end;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  justify-content: space-between;
+}
+
+.activity-header > div {
+  display: grid;
+  gap: 6px;
+}
+
+.activity-header p {
+  max-width: 760px;
+  word-break: keep-all;
+}
+
+
+
+/* Metric tiles double as the metric selector. */
+.activity-tiles {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+}
+
+.activity-tile {
+  background: white;
+  border: 1px solid var(--icampus-border-soft);
+  border-radius: 4px;
+  cursor: pointer;
+  display: grid;
+  font: inherit;
+  gap: 8px;
+  padding: 16px;
+  text-align: left;
+}
+
+.activity-tile:hover {
+  border-color: var(--icampus-border);
+}
+
+.activity-tile[aria-pressed="true"] {
+  border-color: var(--icampus-accent);
+  box-shadow: inset 0 0 0 1px var(--icampus-accent);
+}
+
+.activity-tile-label {
+  color: var(--icampus-muted);
+  font-size: 13px;
+}
+
+.activity-tile-value {
+  font-size: 22px;
+  font-weight: 600;
+  line-height: 1.1;
+}
+
+.activity-tile-value small {
+  color: var(--icampus-muted);
+  font-size: 13px;
+  font-weight: 400;
+  margin-left: 3px;
+}
+
+.activity-tile-hint {
+  color: var(--icampus-muted);
+  font-size: 12px;
+}
+
+.activity-sparkline {
+  display: block;
+  height: 28px;
+  width: 100%;
+}
+
+.activity-sparkline polyline {
+  fill: none;
+  stroke: var(--icampus-accent);
+  stroke-linejoin: round;
+  stroke-width: 1.5;
+}
+
+.activity-sparkline polygon {
+  fill: none;
+}
+
+.activity-charts {
+  align-items: start;
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(420px, 1fr));
+}
+
+.activity-charts section,
+.activity-table-section {
+  background: white;
+  border: 1px solid var(--icampus-border-soft);
+  border-radius: 4px;
+  padding: 16px;
+}
+
+.activity-charts h2,
+.activity-table-section h2 {
+  align-items: baseline;
+  display: flex;
+  font-size: 15px;
+  font-weight: 600;
+  gap: 8px;
+  margin: 0 0 12px;
+}
+
+.activity-charts h2 span,
+.activity-table-section h2 span {
+  color: var(--icampus-muted);
+  font-size: 12px;
+  font-weight: 400;
+}
+
+.activity-chart {
+  display: block;
+  height: auto;
+  width: 100%;
+}
+
+.activity-chart-grid line {
+  stroke: var(--icampus-border-soft);
+}
+
+.activity-chart-grid text {
+  fill: var(--icampus-muted);
+  font-size: 11px;
+}
+
+.activity-chart-baseline {
+  stroke: var(--icampus-border);
+}
+
+.activity-chart-hit {
+  fill: transparent;
+}
+
+.activity-chart-bar {
+  fill: var(--icampus-accent);
+  opacity: 0.6;
+}
+
+.activity-chart-mark.is-active .activity-chart-bar {
+  opacity: 1;
+}
+
+.activity-chart-label {
+  fill: var(--icampus-muted);
+  font-size: 11px;
+}
+
+.activity-chart-tooltip rect {
+  fill: var(--icampus-text);
+}
+
+.activity-chart-tooltip text {
+  fill: white;
+  font-size: 12px;
+}
+
+.activity-chart-empty {
+  color: var(--icampus-muted);
+  font-size: 13px;
+  margin: 0;
+  padding: 24px 0;
+  text-align: center;
+}
+
+/* Ranked students: rank, name, proportional bar, value. */
+.activity-rank {
+  display: grid;
+  gap: 8px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.activity-rank li {
+  align-items: center;
+  display: grid;
+  gap: 10px;
+  grid-template-columns: 20px minmax(100px, 160px) 1fr auto;
+}
+
+.activity-rank-no {
+  color: var(--icampus-muted);
+  font-size: 12px;
+  text-align: center;
+}
+
+.activity-rank-name,
+.activity-table-name {
+  display: grid;
+  font-size: 13px;
+  line-height: 1.25;
+  min-width: 0;
+}
+
+.activity-rank-name small,
+.activity-table-name small {
+  color: var(--icampus-muted);
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.activity-rank-bar {
+  background: var(--icampus-soft);
+  border-radius: 2px;
+  height: 8px;
+  overflow: hidden;
+}
+
+.activity-rank-bar span {
+  background: var(--icampus-accent);
+  display: block;
+  height: 100%;
+  min-width: 3px;
+}
+
+.activity-rank-value {
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  min-width: 56px;
+  text-align: right;
+}
+
+.activity-table-section .course-table-wrap {
+  border: 0;
+}
+
+.activity-table td {
+  font-variant-numeric: tabular-nums;
+}
+
+.activity-table tr.is-idle td {
+  color: var(--icampus-muted);
 }

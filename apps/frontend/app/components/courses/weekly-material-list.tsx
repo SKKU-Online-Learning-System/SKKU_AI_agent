@@ -6,6 +6,12 @@ import type { CourseMaterial } from "../../lib/api";
 import { UiIcon } from "../ui/ui-icon";
 
 const weeks = Array.from({ length: 16 }, (_, index) => index + 1);
+// "12/40" → value/max; nothing yet → indeterminate bar.
+function progressValue(pageProgress?: string | null): { value?: number; max?: number } {
+  const [done, total] = (pageProgress ?? "").split("/").map(Number);
+  return total > 0 ? { value: done, max: total } : {};
+}
+
 const processingStatusLabels: Record<CourseMaterial["processingStatus"], string> = {
   pending: "처리 대기",
   processing: "처리 중",
@@ -140,7 +146,17 @@ export function WeeklyMaterialList({
                           <div className="material-processing-summary">
                             <span className="material-status" data-status={material.processingStatus}>
                               {processingStatusLabels[material.processingStatus]}
+                              {material.processingStatus === "processing" && material.pageProgress
+                                ? ` ${material.pageProgress}쪽`
+                                : ""}
                             </span>
+                            {material.processingStatus === "processing" ? (
+                              <progress
+                                aria-label={`${material.originalFileName} 처리 진행률`}
+                                className="material-processing-progress"
+                                {...progressValue(material.pageProgress)}
+                              />
+                            ) : null}
                             <small>청크 {material.chunkCount ?? 0}개</small>
                             {onProcess && material.processingStatus === "failed" ? (
                               <small className="material-processing-error" role="status">

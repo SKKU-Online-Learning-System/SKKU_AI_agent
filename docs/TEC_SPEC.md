@@ -14,11 +14,15 @@
 
 ### 1.1 현재 구현 기준
 
-2026-08-27 기준으로 Stage 4 COURSE AGENT와 self-hosted Qwen 연동까지 구현되어 있다.
+2026-09-11 기준으로 Stage 4 COURSE AGENT와 Qwen 멀티모달 강의자료 검색까지 구현되어 있다.
 
-- TXT, PDF, DOCX, PPTX 텍스트 추출
-- 1,000자 청크와 150자 중첩
-- deterministic local hash embedding
+- TXT: 1,000자 청크와 150자 중첩
+- PDF(스캔 포함), DOCX, PPTX: 페이지 렌더링, 원문 텍스트와 JPEG 보존
+- Qwen3-VL-Embedding-2B BF16, 2048차원: TXT 텍스트 또는 문서 페이지 이미지 임베딩
+- 업로드 후 기존 Qwen3.5-9B가 페이지를 사전 판독하고 DB에 저장; 매 턴 검색은 저장된 근거 사용
+- 원본 재판독은 별도 페이지 inspect API로 제공하며 대화 모델 도구에 추가하지 않음
+- 해시 임베딩은 명시적 테스트 모드 전용. 모델/차원이 다른 기존 벡터는 검색에서 제외
+- [설치·재색인·검색 동작](multimodal-retrieval.md)
 - PostgreSQL JSON embedding 저장과 애플리케이션 cosine 검색
 - 과목 권한 및 `course_id` 범위가 강제되는 RAG 검색
 - 완료(`completed`)된 강의자료만 실제 retrieval 후보로 사용
@@ -1032,9 +1036,9 @@ professor
 2. Backend가 파일 검증
 3. 파일을 storage에 저장
 4. CourseMaterial 생성
-5. processing_status = completed
-6. 학생·관리자 강의콘텐츠 목록에 즉시 게시
-7. 후속 RAG 인덱싱 파이프라인이 텍스트 추출, 청크 분할, 임베딩을 수행
+5. processing_status = pending으로 업로드 응답 반환
+6. 서버 백그라운드에서 페이지 렌더링, 이미지 판독, 임베딩 수행
+7. 원본·판독 결과·벡터를 저장한 뒤 completed로 변경; 이후 대화 검색에 사용
 ```
 
 실패 시:
@@ -1058,13 +1062,14 @@ MVP 우선순위:
 | PPTX | P1        | 슬라이드 텍스트 추출 |
 | HWP  | P2        | 별도 파서 검토 필요  |
 
-**구현 현황 (2026-08 기준)**
+**구현 현황 (2026-09-11 기준)**
 
-- TXT는 기본 의존성만으로 동작한다(UTF-8 → UTF-8 BOM → CP949 순으로 디코딩 시도).
-- PDF는 `pypdf`로 페이지별 추출하며 백엔드 기본 의존성에 포함된다.
-- DOCX/PPTX는 `python-docx`, `python-pptx`를 지연 임포트한다. 선택 의존성(`apps/backend[parsers]`)이며, 미설치 상태로 처리하면 `DOCUMENT_PARSER_UNAVAILABLE` 사유와 함께 `failed` 처리된다.
-- HWP는 업로드 허용 확장자에 없으므로 업로드 단계에서 422로 거절된다.
-- 텍스트가 전혀 추출되지 않으면 `DOCUMENT_TEXT_NOT_FOUND`로 실패 처리한다. OCR은 지원하지 않는다.
+- TXT는 기존 문자 디코딩·문단 청크 분할을 사용한다.
+- PDF는 페이지를 렌더링하고, PPTX/DOCX는 LibreOffice로 PDF 변환 후 같은 경로로 처리한다.
+- 텍스트 레이어가 없는 스캔도 이미지 판독으로 표·축·수치·연결 관계를 미리 추출한다.
+- 페이지 원문, JPEG, `page_evidence`, Qwen VL 임베딩을 함께 저장한다.
+- 매 턴 검색은 저장된 근거를 사용한다. 원본 이미지 모델 호출은 별도 inspect API로 분리한다.
+- HWP는 업로드 단계에서 거절된다. 자세한 설정은 [멀티모달 검색](multimodal-retrieval.md)을 참조한다.
 
 ---
 

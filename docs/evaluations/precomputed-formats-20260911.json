@@ -1,0 +1,75 @@
+[
+  {
+    "index": "scan.pdf",
+    "chunks": 1,
+    "seconds": 6.374
+  },
+  {
+    "index": "chart.pptx",
+    "chunks": 1,
+    "seconds": 5.201
+  },
+  {
+    "index": "chart.docx",
+    "chunks": 1,
+    "seconds": 4.302
+  },
+  {
+    "index": "unrelated.txt",
+    "chunks": 1,
+    "seconds": 0.092
+  },
+  {
+    "course": "charts",
+    "seconds": 0.092,
+    "results": [
+      {
+        "chunk_id": "cee38187-82e1-4694-acb7-bdaf59de20c3",
+        "course_id": "charts",
+        "material_id": "scan.pdf",
+        "document_name": "scan.pdf",
+        "chunk_index": 0,
+        "page_number": 1,
+        "chunk_text": "[원본 페이지 이미지 판독]\n제공된 이미지의 내용을 증거로 삼아 텍스트, 수식, 표, 차트, 단위, 수치, 다이어그램의 화살표 및 관계를 그대로 전사합니다.\n\n---\n\n**Training experiment: learning rate and loss**\n\nrate 0.01  \n[blue bar]  \nloss 2.4\n\nrate 0.10  \n[shorter blue bar]  \nloss 1.2\n\nrate 1.00  \n[longest blue bar]  \nloss 8.7\n\n---\n\n각 학습률 (learning rate) 에 따른 손실 (loss) 값이 막대그래프 형태로 시각화되어 있으며, 막대의 길이는 손실 값의 크기를 나타냅니다.  \n- rate 0.01 → loss 2.4  \n- rate 0.10 → loss 1.2  \n- rate 1.00 → loss 8.7  \n\n모든 수치와 라벨은 원본 그대로 유지됩니다.\n\n[문서 원문 텍스트]\n",
+        "score": 0.5839692885589083,
+        "has_image": true,
+        "page_evidence": "제공된 이미지의 내용을 증거로 삼아 텍스트, 수식, 표, 차트, 단위, 수치, 다이어그램의 화살표 및 관계를 그대로 전사합니다.\n\n---\n\n**Training experiment: learning rate and loss**\n\nrate 0.01  \n[blue bar]  \nloss 2.4\n\nrate 0.10  \n[shorter blue bar]  \nloss 1.2\n\nrate 1.00  \n[longest blue bar]  \nloss 8.7\n\n---\n\n각 학습률 (learning rate) 에 따른 손실 (loss) 값이 막대그래프 형태로 시각화되어 있으며, 막대의 길이는 손실 값의 크기를 나타냅니다.  \n- rate 0.01 → loss 2.4  \n- rate 0.10 → loss 1.2  \n- rate 1.00 → loss 8.7  \n\n모든 수치와 라벨은 원본 그대로 유지됩니다."
+      }
+    ]
+  },
+  {
+    "course": "office",
+    "seconds": 0.077,
+    "results": [
+      {
+        "chunk_id": "1fd9a2ce-820c-4eb7-9cf4-0cb267487840",
+        "course_id": "office",
+        "material_id": "chart.pptx",
+        "document_name": "chart.pptx",
+        "chunk_index": 0,
+        "page_number": 1,
+        "chunk_text": "[원본 페이지 이미지 판독]\n제공된 이미지는 텍스트와 차트(바 차트)로 구성되어 있습니다. 요청하신 대로 텍스트와 차트 정보를 그대로 전사합니다.\n\n---\n\n### **Training experiment: learning rate and loss**\n\n**rate 0.01**\n[Blue Bar]\nloss 2.4\n\n**rate 0.10**\n[Blue Bar]\nloss 1.2\n\n**rate 1.00**\n[Blue Bar]\nloss 8.7\n\n[문서 원문 텍스트]\n",
+        "score": 0.5768373125989376,
+        "has_image": true,
+        "page_evidence": "제공된 이미지는 텍스트와 차트(바 차트)로 구성되어 있습니다. 요청하신 대로 텍스트와 차트 정보를 그대로 전사합니다.\n\n---\n\n### **Training experiment: learning rate and loss**\n\n**rate 0.01**\n[Blue Bar]\nloss 2.4\n\n**rate 0.10**\n[Blue Bar]\nloss 1.2\n\n**rate 1.00**\n[Blue Bar]\nloss 8.7"
+      },
+      {
+        "chunk_id": "eb858549-08c7-450b-9ce3-4d5fd3f9d751",
+        "course_id": "office",
+        "material_id": "chart.docx",
+        "document_name": "chart.docx",
+        "chunk_index": 0,
+        "page_number": 1,
+        "chunk_text": "[원본 페이지 이미지 판독]\n# Training results\n\n## Training experiment: learning rate and loss\n\n| rate | loss |\n|------|------|\n| 0.01 | 2.4  |\n| 0.10 | 1.2  |\n| 1.00 | 8.7  |\n\n[문서 원문 텍스트]\nTraining results",
+        "score": 0.49871723512459937,
+        "has_image": true,
+        "page_evidence": "# Training results\n\n## Training experiment: learning rate and loss\n\n| rate | loss |\n|------|------|\n| 0.01 | 2.4  |\n| 0.10 | 1.2  |\n| 1.00 | 8.7  |"
+      }
+    ]
+  },
+  {
+    "course": "other",
+    "seconds": 0.073,
+    "results": []
+  }
+]

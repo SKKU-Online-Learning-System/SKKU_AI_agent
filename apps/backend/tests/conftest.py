@@ -88,7 +88,11 @@ def prepare_course_materials(chat_api: ChatApiContext) -> str:
 
 
 @pytest.fixture
-def chat_api(tmp_path: Path) -> Generator[ChatApiContext, None, None]:
+def chat_api(tmp_path: Path, monkeypatch) -> Generator[ChatApiContext, None, None]:
+    # These cases drive /process explicitly; automatic upload work is tested separately.
+    monkeypatch.setattr(
+        "app.api.routes.materials.process_uploaded_material", lambda *args: None,
+    )
     engine = create_engine(
         "sqlite://",
         connect_args={"check_same_thread": False},
@@ -136,6 +140,9 @@ def chat_api(tmp_path: Path) -> Generator[ChatApiContext, None, None]:
             yield session
 
     settings = Settings(
+        embedding_provider="mock",
+        rag_text_score_threshold=0.1,
+        rag_score_threshold=0.1,
         upload_dir=str(tmp_path / "uploads"),
         use_mock_llm=True,
         chunk_size=200,

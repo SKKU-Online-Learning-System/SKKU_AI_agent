@@ -1,0 +1,145 @@
+[
+  {
+    "query": "분수가 뭐야?",
+    "normal": {
+      "result_count": 0,
+      "max_score": null,
+      "score_threshold": 0.1,
+      "top_k": 5,
+      "search_mode": "local",
+      "embedding_model": "mock-hash-512",
+      "total_candidate_chunks": 5,
+      "reason": "NO_RELEVANT_CONTEXT"
+    },
+    "unfiltered_ranks": [
+      {
+        "document": "probability.txt",
+        "score": 0.0146411158126724
+      },
+      {
+        "document": "fractions.txt",
+        "score": 0.01160517706371319
+      },
+      {
+        "document": "average.txt",
+        "score": 0.0
+      }
+    ]
+  },
+  {
+    "query": "분수",
+    "normal": {
+      "result_count": 0,
+      "max_score": null,
+      "score_threshold": 0.1,
+      "top_k": 5,
+      "search_mode": "local",
+      "embedding_model": "mock-hash-512",
+      "total_candidate_chunks": 5,
+      "reason": "NO_RELEVANT_CONTEXT"
+    },
+    "unfiltered_ranks": [
+      {
+        "document": "fractions.txt",
+        "score": 0.08989331499509895
+      },
+      {
+        "document": "probability.txt",
+        "score": 0.05670479771237427
+      },
+      {
+        "document": "softmax.txt",
+        "score": 0.0
+      },
+      {
+        "document": "average.txt",
+        "score": 0.0
+      }
+    ]
+  },
+  {
+    "query": "분수 피자 같은 크기 조각",
+    "normal": {
+      "result_count": 2,
+      "max_score": 0.39727607885233013,
+      "score_threshold": 0.1,
+      "top_k": 5,
+      "search_mode": "local",
+      "embedding_model": "mock-hash-512",
+      "total_candidate_chunks": 5,
+      "reason": null
+    },
+    "unfiltered_ranks": [
+      {
+        "document": "fractions.txt",
+        "score": 0.39727607885233013
+      },
+      {
+        "document": "average.txt",
+        "score": 0.20847696198419846
+      },
+      {
+        "document": "softmax.txt",
+        "score": 0.07302577972962326
+      },
+      {
+        "document": "probability.txt",
+        "score": 0.030072260241173456
+      }
+    ]
+  },
+  {
+    "query": "동전 두 개의 가능한 결과를 세어 볼까요?\n계속 모르겠어. 나만 못하는 것 같아서 답답해",
+    "normal": {
+      "result_count": 1,
+      "max_score": 0.11635578982452754,
+      "score_threshold": 0.1,
+      "top_k": 5,
+      "search_mode": "local",
+      "embedding_model": "mock-hash-512",
+      "total_candidate_chunks": 5,
+      "reason": null
+    },
+    "unfiltered_ranks": [
+      {
+        "document": "probability.txt",
+        "score": 0.11635578982452754
+      },
+      {
+        "document": "fractions.txt",
+        "score": 0.0
+      }
+    ]
+  },
+  {
+    "query": "소프트맥스 입력 2와 2.1의 출력 확률",
+    "normal": {
+      "result_count": 1,
+      "max_score": 0.3149828937435486,
+      "score_threshold": 0.1,
+      "top_k": 5,
+      "search_mode": "local",
+      "embedding_model": "mock-hash-512",
+      "total_candidate_chunks": 5,
+      "reason": null
+    },
+    "unfiltered_ranks": [
+      {
+        "document": "softmax.txt",
+        "score": 0.3149828937435486
+      },
+      {
+        "document": "ai_intro.txt",
+        "score": 0.0802139059114229
+      },
+      {
+        "document": "probability.txt",
+        "score": 0.05188440349281977
+      },
+      {
+        "document": "average.txt",
+        "score": 0.0
+      }
+    ]
+  }
+]

@@ -17,6 +17,7 @@ from app.schemas import (
     AnswerSourceRead,
     ChatAnswerResponse,
     ChatAskRequest,
+    ChatAttachmentRead,
     ChatHistoryLogRead,
     ChatSessionCreate,
     ChatSessionDetailRead,
@@ -215,6 +216,24 @@ def _load_owned_session(
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
 
 
+def _history_attachments(log: ChatLog) -> list[ChatAttachmentRead]:
+    """The files a COURSE AGENT turn was asked about, without their extracted text."""
+    records = (log.retrieval_result or {}).get("attachments")
+    if not isinstance(records, list):
+        return []
+    return [
+        ChatAttachmentRead(
+            id=str(record.get("id") or ""),
+            name=str(record.get("name") or "첨부 파일"),
+            kind=str(record.get("kind") or "image"),
+            pages=int(record.get("pages") or 0),
+            size=int(record.get("size") or 0),
+        )
+        for record in records
+        if isinstance(record, dict)
+    ]
+
+
 def _read_session_detail(
     session: Session,
     settings: Settings,
@@ -243,6 +262,7 @@ def _read_session_detail(
                     for source in (log.referenced_documents or [])
                 ],
                 referenced_documents=list(log.referenced_documents or []),
+                attachments=_history_attachments(log),
                 is_grounded=log.is_grounded,
                 answer_source_type=getattr(
                     log.answer_source_type,

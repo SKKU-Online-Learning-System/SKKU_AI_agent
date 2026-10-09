@@ -6,9 +6,11 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { CourseDashboardClient } from "./course-dashboard-client";
 
 const apiMocks = vi.hoisted(() => ({
+  getCourseWeakConceptStatistics: vi.fn(),
   getMyStatistics: vi.fn(),
   getProfessorStatistics: vi.fn(),
   getServiceStatistics: vi.fn(),
+  getWeakConceptStatistics: vi.fn(),
   listAdminCourses: vi.fn(),
   listCourses: vi.fn()
 }));
@@ -17,6 +19,8 @@ vi.mock("../../lib/api", async () => {
   const actual = await vi.importActual<typeof import("../../lib/api")>("../../lib/api");
   return {
     ...actual,
+    getCourseWeakConceptStatistics: apiMocks.getCourseWeakConceptStatistics,
+    getWeakConceptStatistics: apiMocks.getWeakConceptStatistics,
     getMyStatistics: apiMocks.getMyStatistics,
     getProfessorStatistics: apiMocks.getProfessorStatistics,
     getServiceStatistics: apiMocks.getServiceStatistics,
@@ -62,6 +66,19 @@ describe("CourseDashboardClient", () => {
   });
 
   it("links an administrator course card to its course workspace", async () => {
+    apiMocks.getWeakConceptStatistics.mockResolvedValue({
+      totals: {
+        recordCount: 0,
+        conceptCount: 0,
+        studentCount: 0,
+        statusCounts: { new: 0, practicing: 0, mastered: 0 },
+        averageMastery: 0,
+        dueReviewCount: 0,
+        lastActivityAt: null,
+        courseCount: 0
+      },
+      courses: []
+    });
     apiMocks.getServiceStatistics.mockResolvedValue({
       totals: { courseCount: 1, userCount: 3, questionCount: 0 },
       questionsByDate: [],
@@ -89,5 +106,7 @@ describe("CourseDashboardClient", () => {
       "/admin/course/course-2"
     );
     expect(screen.getByText("수강 접근 12명")).toBeInTheDocument();
+    expect(await screen.findByRole("region", { name: "취약 개념 통계" })).toBeInTheDocument();
+    expect(apiMocks.getCourseWeakConceptStatistics).not.toHaveBeenCalled();
   });
 });
