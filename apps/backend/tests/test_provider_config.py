@@ -33,3 +33,17 @@ def test_voice_trace_content_defaults_off_and_accepts_env(monkeypatch) -> None:
     assert Settings(_env_file=None).voice_trace_content is False
     monkeypatch.setenv("VOICE_TRACE_CONTENT", "true")
     assert Settings(_env_file=None).voice_trace_content is True
+
+
+def test_model_server_proxy_derives_every_base_url() -> None:
+    settings = Settings(
+        _env_file=None,
+        model_server_proxy="https://siriuscluster.skku.edu:10241/proxy/",
+        text_llm_base_url="http://ignored:1/v1",
+    )
+    assert settings.text_llm_base_url == "https://siriuscluster.skku.edu:10241/proxy/8001/v1"
+    assert settings.voice_llm_base_url == "https://siriuscluster.skku.edu:10241/proxy/8002/v1"
+    assert settings.vision_llm_base_url == "https://siriuscluster.skku.edu:10241/proxy/8002/v1"
+    assert settings.embedding_base_url == "https://siriuscluster.skku.edu:10241/proxy/8003/v1"
+    assert settings.speech_base_url == "https://siriuscluster.skku.edu:10241/proxy/8010"
+    assert settings.tts_base_url == "https://siriuscluster.skku.edu:10241/proxy/8012"

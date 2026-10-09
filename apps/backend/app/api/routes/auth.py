@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import bearer_headers, get_auth_service, get_current_user
 from app.db.session import get_db
-from app.models import User
+from app.models import LoginEvent, User, UserRole
 from app.schemas import AuthUserRead, LoginRequest, LoginResponse
 from app.services.auth_service import AuthService, InvalidCredentialsError
 
@@ -27,6 +27,10 @@ def login(
             headers=bearer_headers,
         ) from exc
 
+    # Only learners use the agent, so only their logins are usage worth charting.
+    if result.user.role == UserRole.student:
+        session.add(LoginEvent(user_id=result.user.id))
+        session.commit()
     return LoginResponse(
         access_token=result.access_token,
         user=AuthUserRead.model_validate(result.user),

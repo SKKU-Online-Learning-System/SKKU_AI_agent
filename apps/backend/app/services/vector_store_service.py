@@ -1,8 +1,9 @@
 """Course-scoped storage and similarity search over document chunks.
 
-MVP note: `local` mode reads the stored vectors and ranks them in the
-application. It is intentionally simple and meant for development-sized data;
-swapping in pgvector only requires replacing this service.
+Exact cosine search over persisted vectors, scoped to the authorized course.
+
+ponytail: linear scan suits course-sized corpora; use a pgvector index when
+measured corpus size/latency warrants approximate nearest-neighbor search.
 """
 
 from __future__ import annotations
@@ -34,6 +35,15 @@ class SearchResult:
     page_number: Optional[int]
     chunk_text: str
     score: float
+    has_image: bool = False
+    page_evidence: str | None = None
+
+    @property
+    def page_image_url(self) -> Optional[str]:
+        if not self.has_image:
+            return None
+        return (f"/api/courses/{self.course_id}/materials/{self.material_id}"
+                f"/pages/{self.page_number}/image")
 
 
 @dataclass(frozen=True)
@@ -79,6 +89,8 @@ class VectorStoreService:
                 page_number=chunk.page_number,
                 section_title=chunk.section_title,
                 char_count=chunk.char_count,
+                page_image=chunk.page_image,
+                page_evidence=chunk.page_evidence,
                 embedding=list(embedding),
                 embedding_model=embedding_model,
                 embedded_at=embedded_at,
@@ -95,6 +107,8 @@ class VectorStoreService:
         query_embedding: Sequence[float],
         top_k: int = 5,
         score_threshold: Optional[float] = None,
+        embedding_model: Optional[str] = None,
+        text_score_threshold: Optional[float] = None,
     ) -> list[SearchResult]:
         """Rank the course's embedded chunks; other courses are never considered."""
 
@@ -105,13 +119,15 @@ class VectorStoreService:
 
         bounded_top_k = max(1, min(top_k, self.settings.rag_max_top_k))
         rows = self.session.execute(
-            select(DocumentChunk, CourseMaterial.original_file_name)
+            select(DocumentChunk, CourseMaterial.original_file_name,
+                   DocumentChunk.page_image.is_not(None))
             .join(CourseMaterial, CourseMaterial.id == DocumentChunk.material_id)
             .where(
                 DocumentChunk.course_id == course_id,
                 CourseMaterial.course_id == course_id,
                 CourseMaterial.processing_status == CourseMaterialStatus.completed,
                 DocumentChunk.embedding.is_not(None),
+                *([DocumentChunk.embedding_model == embedding_model] if embedding_model else []),
             )
         ).all()
 
@@ -125,18 +141,25 @@ class VectorStoreService:
                 page_number=chunk.page_number,
                 chunk_text=chunk.chunk_text,
                 score=cosine_similarity(query_embedding, chunk.embedding or []),
+                has_image=has_image,
+                page_evidence=chunk.page_evidence,
             )
-            for chunk, document_name in rows
+            for chunk, document_name, has_image in rows
             if len(chunk.embedding or []) == len(query_embedding)
         ]
 
         if score_threshold is not None:
-            results = [result for result in results if result.score >= score_threshold]
+            results = [result for result in results if result.score >= (
+                text_score_threshold if not result.has_image and text_score_threshold is not None
+                else score_threshold
+            )]
 
         results.sort(key=lambda result: result.score, reverse=True)
         return results[:bounded_top_k]
 
-    def count_searchable_chunks(self, course_id: str) -> int:
+    def count_searchable_chunks(
+        self, course_id: str, embedding_model: Optional[str] = None,
+    ) -> int:
         total = self.session.scalar(
             select(func.count())
             .select_from(DocumentChunk)
@@ -146,6 +169,7 @@ class VectorStoreService:
                 CourseMaterial.course_id == course_id,
                 CourseMaterial.processing_status == CourseMaterialStatus.completed,
                 DocumentChunk.embedding.is_not(None),
+                *([DocumentChunk.embedding_model == embedding_model] if embedding_model else []),
             )
         )
         return int(total or 0)

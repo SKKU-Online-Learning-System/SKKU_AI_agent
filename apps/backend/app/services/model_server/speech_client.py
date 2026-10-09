@@ -73,7 +73,7 @@ class SpeechClient:
             response = await self.asr_client.post(
                 "v1/audio/transcriptions",
                 files={"file": ("utterance.wav", wav, "audio/wav")},
-                data={"language": language or self.settings.tts_language},
+                data={"language": language} if language else {},
                 timeout=self.settings.asr_timeout_seconds,
             )
             response.raise_for_status()
@@ -86,7 +86,7 @@ class SpeechClient:
             raise SpeechError("ASR 서버가 빈 transcript를 반환했습니다.")
         return TranscriptionResult(
             text=text,
-            language=str(payload.get("language", language or self.settings.tts_language)),
+            language=str(payload.get("language", language or "")),
             audio_duration_ms=int(payload.get("audio_duration_ms", 0) or 0),
             inference_ms=int(payload.get("inference_ms", 0) or 0),
         )
@@ -134,6 +134,8 @@ class SpeechClient:
         speaker: str | None = None,
         language: str | None = None,
         hop_len: int | None = None,
+        continuity_id: str | None = None,
+
     ) -> AsyncIterator[tuple[bytes, int]]:
         """Yield ``(pcm_chunk, sample_rate)`` as the TTS server produces them.
 
@@ -155,6 +157,11 @@ class SpeechClient:
                 "response_format": "pcm",
                 "stream": True,
                 **({"hop_len": hop_len} if hop_len else {}),
+                # Lets the server level this request against the rest of the turn
+                # instead of normalising it on its own; ignored by backends that
+                # do not implement it.
+                **({"continuity_id": continuity_id} if continuity_id else {}),
+
             },
             timeout=self.settings.tts_timeout_seconds,
         )
@@ -172,10 +179,23 @@ class SpeechClient:
             sample_rate = int(response.headers.get("X-Audio-Sample-Rate", "24000"))
             if sample_rate != 24000:
                 raise SpeechError(f"지원하지 않는 TTS sample rate입니다: {sample_rate}")
+            # The body is raw PCM16 and aiter_bytes splits it wherever the
+            # transport happens to, which is not necessarily between samples. A
+            # consumer handed half a sample either drops it -- shifting every
+            # following sample by one byte, which is white noise -- or refuses the
+            # buffer outright, so the odd byte waits here for the rest of itself.
+            remainder = b""
             try:
                 async for chunk in response.aiter_bytes():
-                    if chunk:
-                        yield chunk, sample_rate
+                    if not chunk:
+                        continue
+                    chunk = remainder + chunk
+                    aligned = len(chunk) - len(chunk) % 2
+                    remainder = chunk[aligned:]
+                    if aligned:
+                        yield chunk[:aligned], sample_rate
+            except httpx.HTTPError as exc:
+                raise SpeechError("TTS 스트림이 중간에 끊겼습니다.") from exc
             except httpx.HTTPError as exc:
                 raise SpeechError("TTS 스트림이 중간에 끊겼습니다.") from exc
         finally:

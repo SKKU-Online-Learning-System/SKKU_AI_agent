@@ -156,7 +156,7 @@ class TestChunking:
 
 class TestEmbeddingService:
     def test_mock_embeddings_are_deterministic(self) -> None:
-        service = EmbeddingService(Settings())
+        service = EmbeddingService(Settings(embedding_provider="mock"))
 
         first = service.embed_text("경사하강법이 뭐야?")
         second = service.embed_text("경사하강법이 뭐야?")
@@ -165,7 +165,7 @@ class TestEmbeddingService:
         assert len(first) == 512
 
     def test_related_korean_text_scores_above_unrelated_text(self) -> None:
-        service = EmbeddingService(Settings())
+        service = EmbeddingService(Settings(embedding_provider="mock"))
         query = service.embed_text("경사하강법이 뭐야?")
 
         related = cosine_similarity(query, service.embed_text("경사하강법은 최적화 방법이다."))

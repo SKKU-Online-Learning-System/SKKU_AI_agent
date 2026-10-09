@@ -6,6 +6,7 @@ from typing import Optional
 from uuid import uuid4
 
 from sqlalchemy import (
+    LargeBinary,
     JSON,
     BigInteger,
     Boolean,
@@ -117,6 +118,31 @@ class User(Base):
         back_populates="user",
         passive_deletes=True,
     )
+    login_events: Mapped[list[LoginEvent]] = relationship(
+        back_populates="user",
+        passive_deletes=True,
+    )
+
+
+class LoginEvent(Base):
+    """One successful login, kept so administrators can see who uses the service and when."""
+
+    __tablename__ = "login_events"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    user_id: Mapped[str] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"),
+        index=True,
+        nullable=False,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        index=True,
+        nullable=False,
+    )
+
+    user: Mapped[User] = relationship(back_populates="login_events")
 
 
 class Course(Base):
@@ -306,6 +332,8 @@ class DocumentChunk(Base):
     section_title: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     char_count: Mapped[int] = mapped_column(Integer, nullable=False)
     embedding: Mapped[Optional[list[float]]] = mapped_column(JSON, nullable=True)
+    page_evidence: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    page_image: Mapped[Optional[bytes]] = mapped_column(LargeBinary, nullable=True, deferred=True)
     embedding_model: Mapped[Optional[str]] = mapped_column(String(120), nullable=True)
     embedded_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True),
@@ -396,6 +424,10 @@ class ChatLog(Base):
     )
     model_name: Mapped[Optional[str]] = mapped_column(String(120), nullable=True)
     response_time_ms: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    # Model tokens the turn consumed, summed over every model round; null when the
+    # provider reported none (the mock, a blocked question).
+    prompt_tokens: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    completion_tokens: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     is_grounded: Mapped[bool] = mapped_column(
         Boolean,
         default=False,

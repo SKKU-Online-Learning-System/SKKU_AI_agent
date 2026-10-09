@@ -1,3 +1,5 @@
+from unittest.mock import AsyncMock
+
 import httpx
 import pytest
 
@@ -92,7 +94,8 @@ def settings(**overrides) -> Settings:
         "speech_base_url": "http://speech:8010",
         "tts_base_url": "http://tts:8011",
         "searxng_url": "http://search:8080",
-        "tts_speaker": "cosyvoice",
+        "tts_speaker": "ryan",
+
         "tts_language": "Korean",
     }
     values.update(overrides)
@@ -117,6 +120,7 @@ async def test_speech_client_asr_and_tts_contract(monkeypatch) -> None:
     assert base_urls == ["http://speech:8010", "http://tts:8011"]
     asr_call = fake.calls[0]
     assert asr_call["path"] == "v1/audio/transcriptions"
+    assert asr_call["data"] == {}
     assert asr_call["files"]["file"][2] == "audio/wav"
     assert asr_call["files"]["file"][1][:4] == b"RIFF"
 
@@ -124,7 +128,8 @@ async def test_speech_client_asr_and_tts_contract(monkeypatch) -> None:
     assert tts_call["path"] == "v1/audio/speech"
     assert tts_call["json"] == {
         "input": "안녕하세요.",
-        "voice": "cosyvoice",
+        "voice": "ryan",
+
         "language": "Korean",
         "response_format": "pcm",
     }
@@ -156,3 +161,43 @@ async def test_searxng_results_are_revalidated_against_allowlist() -> None:
         "https://docs.cs.skku.edu/reference",
     ]
     assert all("evil.example" not in result.url for result in results)
+
+
+@pytest.mark.asyncio
+async def test_tts_stream_never_hands_out_half_a_sample(monkeypatch) -> None:
+    """PCM16 split at an odd byte desyncs every sample after it.
+
+    ``aiter_bytes`` splits the body wherever the transport did, not between
+    samples, and a consumer given half a sample either drops it -- shifting the
+    rest of the stream by one byte, which is audible as white noise -- or refuses
+    the buffer. The stream must only ever emit whole samples.
+    """
+    body = bytes(range(200))
+    # Deliberately odd-sized pieces, the way a real socket would deliver them.
+    pieces = [body[0:7], body[7:8], body[8:55], body[55:120], body[120:199], body[199:200]]
+
+    class StreamedResponse:
+        status_code = 200
+        headers = {"X-Audio-Sample-Rate": "24000"}
+
+        async def aiter_bytes(self):
+            for piece in pieces:
+                yield piece
+
+        async def aread(self):
+            return b""
+
+        async def aclose(self):
+            return None
+
+    client = SpeechClient(Settings(_env_file=None))
+    monkeypatch.setattr(client.tts_client, "build_request", lambda *a, **k: object())
+    monkeypatch.setattr(
+        client.tts_client, "send", AsyncMock(return_value=StreamedResponse())
+    )
+
+    chunks = [chunk async for chunk, _ in client.synthesize_stream("안녕하세요")]
+
+    assert all(len(chunk) % 2 == 0 for chunk in chunks), [len(c) for c in chunks]
+    # Nothing is dropped or reordered: the stream is the body, whole samples only.
+    assert b"".join(chunks) == body[: len(body) // 2 * 2]

@@ -13,10 +13,34 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
-from app.core.config import get_settings
-from app.services.voice.storage import voice_storage_dir
+from app.core.config import Settings, get_settings
 
 log = logging.getLogger("moss-memory")
+
+
+def local_memory_path(settings: Settings | None = None) -> Path:
+    """Where weak concepts live on disk.
+
+    In local mode this file is the whole store. With Moss configured it is the
+    mirror every save and review also writes, so either way it is the one
+    place holding every student's records, which the statistics views read.
+    """
+    settings = settings or get_settings()
+    if settings.moss_local_fallback_file:
+        return Path(settings.moss_local_fallback_file)
+    return Path(settings.upload_dir) / "voice" / "weak-concepts.json"
+
+
+def read_local_memories(path: Path) -> list[dict[str, Any]]:
+    """Return every record in one weak-concept file; a missing or broken file reads as empty."""
+    if not path.exists():
+        return []
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        log.exception("failed to read local weak-concept memory")
+        return []
+    return [memory for memory in data if isinstance(memory, dict)] if isinstance(data, list) else []
 
 
 def _load_sdk() -> SimpleNamespace:
@@ -59,11 +83,7 @@ class MossMemoryStore:
             if sync_debounce_seconds is None
             else sync_debounce_seconds
         )
-        self.local_path = Path(
-            local_path
-            or settings.moss_local_fallback_file
-            or voice_storage_dir() / "weak-concepts.json"
-        )
+        self.local_path = Path(local_path) if local_path else local_memory_path(settings)
         self._sdk_loader = sdk_loader
         self._sdk: Any = None
         self._client: Any = None
@@ -175,18 +195,7 @@ class MossMemoryStore:
         return f"M-{digest}"
 
     def _read_local(self) -> list[dict[str, Any]]:
-        if not self.local_path.exists():
-            return []
-        try:
-            data = json.loads(self.local_path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            log.exception("failed to read local weak-concept memory")
-            return []
-        return (
-            [memory for memory in data if isinstance(memory, dict)]
-            if isinstance(data, list)
-            else []
-        )
+        return read_local_memories(self.local_path)
 
     def _write_local(self, memories: list[dict[str, Any]]) -> None:
         self.local_path.parent.mkdir(parents=True, exist_ok=True)
