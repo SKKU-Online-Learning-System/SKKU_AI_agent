@@ -23,7 +23,6 @@ import {
   voiceStreamUrl
 } from "../../lib/voice-api";
 import { decodePcm16, newResampleState, resample } from "../../lib/pcm";
-
 import { UiIcon } from "../ui/ui-icon";
 import { CourseAgentSymbol } from "../ui/course-agent-symbol";
 import type { CourseAgentSymbolState } from "../ui/course-agent-symbol";
@@ -47,8 +46,10 @@ const SAMPLE_RATE = 16000;
 // own, with no filter history carried across chunks, so each boundary gets a
 // transient — an audible tick roughly three times a second.
 const PLAYBACK_SAMPLE_RATE = 24000;
+// Backoff for a realtime connection that drops on its own. Two quiet retries
+// cover a brief network blip or a backend restart; after that the student is
+// told, because silently closing the panel looked like the feature breaking.
 const RECONNECT_DELAYS_MS = [1000, 3000];
-
 const FRAME_SAMPLES = 320;
 const MAX_PENDING_AUDIO_FRAMES = 250;
 // Files one typed question may carry. The server enforces its own limit too;
@@ -308,7 +309,6 @@ export function CourseAgentClient({
   const playContextRef = useRef<AudioContext | null>(null);
   const rateMismatchLoggedRef = useRef(false);
   const resampleStateRef = useRef(newResampleState());
-
   const pcmBufferRef = useRef<Float32Array>(new Float32Array(0));
   const pendingAudioFramesRef = useRef<string[]>([]);
   // Typed turns waiting for a live socket. The voice panel being open means the
@@ -778,7 +778,6 @@ export function CourseAgentClient({
       } else {
         pendingTextRef.current.push(payload);
       }
-
       return;
     }
 
@@ -892,11 +891,13 @@ export function CourseAgentClient({
     if (!context) return;
     const pcm = decodePcm16(bytes);
     if (!pcm) return;
-
     if (rate !== context.sampleRate && !rateMismatchLoggedRef.current) {
       rateMismatchLoggedRef.current = true;
       console.warn(
         `[voice] playback context is ${context.sampleRate} Hz but audio is ${rate} Hz; ` +
+          "resampling to the context rate across chunk boundaries"
+      );
+    }
     // Resampled here rather than by handing the browser a buffer at the wrong
     // rate: it would resample each chunk on its own, and the discontinuity left
     // at every boundary is audible as a tick through the whole answer.
@@ -904,7 +905,6 @@ export function CourseAgentClient({
     if (samples.length === 0) return;
     const buffer = context.createBuffer(1, samples.length, context.sampleRate);
     buffer.getChannelData(0).set(samples);
-
 
     const source = context.createBufferSource();
     source.buffer = buffer;
@@ -1190,7 +1190,6 @@ export function CourseAgentClient({
       nextPlayAtRef.current = 0;
 
       socketRef.current = openVoiceSocket();
-
     } catch (error) {
       setIsVoiceOpen(false);
       setVoiceState("idle");

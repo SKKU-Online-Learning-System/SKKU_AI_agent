@@ -95,7 +95,6 @@ def settings(**overrides) -> Settings:
         "tts_base_url": "http://tts:8011",
         "searxng_url": "http://search:8080",
         "tts_speaker": "ryan",
-
         "tts_language": "Korean",
     }
     values.update(overrides)
@@ -129,7 +128,6 @@ async def test_speech_client_asr_and_tts_contract(monkeypatch) -> None:
     assert tts_call["json"] == {
         "input": "안녕하세요.",
         "voice": "ryan",
-
         "language": "Korean",
         "response_format": "pcm",
     }
