@@ -635,7 +635,67 @@ def test_preloaded_memory_is_course_scoped_and_topic_first() -> None:
     ]
     assert all(item["course"] == "인공지능개론" for item in recalled["memories"])
 
+    # A particle glued to the term ("소프트맥스는", "학습률을") still finds the concept.
+    with_particle = asyncio.run(brain.recent_weak_concepts(context, topic="소프트맥스는 왜 써요?"))
+    assert with_particle["memories"][0]["concept"].startswith("소프트맥스")
+    with_particle = asyncio.run(brain.recent_weak_concepts(context, topic="학습률을 어떻게 정해요?"))
+    assert with_particle["memories"][0]["concept"].startswith("학습률")
+
     recent = asyncio.run(brain.recent_weak_concepts(context))
     assert [item["concept"].split(" - ")[0] for item in recent["memories"]] == [
         "역전파", "학습률", "소프트맥스",
     ]
+
+
+def test_a_due_review_opens_only_a_fresh_conversation_of_its_own_course() -> None:
+    """The schedule used to be computed and never asked; and it ignored the course."""
+    memory = AsyncMock()
+    due = {"id": "M-1", "course": "인공지능개론", "concept": "소프트맥스 - 합이 1인 확률"}
+    memory.next_review.return_value = due
+    context = make_context(memory)
+
+    opened = asyncio.run(brain.next_review_prompt(context))
+    again = asyncio.run(brain.next_review_prompt(context))
+
+    memory.next_review.assert_awaited_once_with("인공지능개론")
+    assert opened["due"] is True and opened["memory_id"] == "M-1"
+    assert "'소프트맥스'" in opened["question"]
+    assert again == opened  # asked once, however often the panel asks
+    assert len(context.history) == 1
+    assert "memory_id=M-1" in context.history[0]["content"]  # what the assessor reads
+
+    busy = make_context(memory)
+    busy.history = [{"role": "user", "content": "역전파가 뭐야?"}]
+    assert asyncio.run(brain.next_review_prompt(busy)) == {"due": False}
+
+
+def test_the_answer_to_a_review_is_judged_as_one_then_the_review_is_over() -> None:
+    """The review question is the first history entry, which the model never sees."""
+    memory = AsyncMock()
+    memory.next_review.return_value = {"id": "M-1", "course": "인공지능개론", "concept": "소프트맥스"}
+    context = make_context(memory)
+    asyncio.run(brain.next_review_prompt(context))
+
+    _, llm = _text_turn(context, "점수를 확률로 바꾸는 거요", ["맞아요. 그럼 합은 얼마가 될까요?"])
+
+    assert "Review in progress" in llm.calls[0]["system"]
+    assert "자신의 말로 한번 설명해 볼까요?" in llm.calls[0]["system"]
+    assert context.pending_review is None
+    assert "Review in progress" not in brain.answer_instructions(context, {})
+
+
+def test_next_review_is_scoped_to_the_course(tmp_path) -> None:
+    store = MossMemoryStore(student_id="student-1", local_path=tmp_path / "weak.json")
+    store._local_mode = True
+
+    async def scenario():
+        for course, concept in (("소프트웨어공학", "응집도"), ("인공지능개론", "소프트맥스")):
+            saved = await store.save(course, concept, f"{concept}가 뭐야?", "설명하지 못함")
+            memories = store._read_local()
+            for item in memories:
+                if item["id"] == saved["memory_id"]:
+                    item["next_review_at"] = 0
+            store._write_local(memories)
+        return await store.next_review("인공지능개론")
+
+    assert asyncio.run(scenario())["concept"] == "소프트맥스"

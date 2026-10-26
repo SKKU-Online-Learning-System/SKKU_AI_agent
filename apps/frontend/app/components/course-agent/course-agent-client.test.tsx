@@ -9,6 +9,7 @@ import {
   deleteVoiceAttachment,
   getVoiceAttachment,
   listWeakConcepts,
+  openNextReview,
   streamVoiceAnswer,
   uploadVoiceAttachment,
   voiceStreamUrl
@@ -41,6 +42,7 @@ vi.mock("../../lib/voice-api", async () => {
       voice_status: { detail: "ok", enabled: true, provider: "local_cascade", services: {} }
     }),
     listWeakConcepts: vi.fn().mockResolvedValue({ concepts: [] }),
+    openNextReview: vi.fn().mockResolvedValue({ due: false }),
     streamVoiceAnswer: vi.fn(),
     uploadVoiceAttachment: vi.fn(),
     getVoiceAttachment: vi.fn(),
@@ -414,6 +416,22 @@ describe("CourseAgentClient microphone fallback", () => {
       "67"
     );
     expect(screen.getByText("67%")).toBeInTheDocument();
+  });
+
+  it("opens a fresh conversation with the weak concept that is due for review", async () => {
+    vi.mocked(openNextReview).mockResolvedValueOnce({
+      due: true,
+      memory_id: "memory-1",
+      concept: "소프트맥스 - 합이 1인 확률",
+      question: "지난번에 어려워했던 '소프트맥스', 자신의 말로 한번 설명해 볼까요?"
+    });
+
+    render(<CourseAgentClient courseId="course-1" />);
+
+    expect(
+      await screen.findByText("지난번에 어려워했던 '소프트맥스', 자신의 말로 한번 설명해 볼까요?")
+    ).toBeInTheDocument();
+    expect(openNextReview).toHaveBeenCalledWith("course-1");
   });
 
   it("offers only Socratic teaching and resumes the visible session in voice", async () => {

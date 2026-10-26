@@ -132,7 +132,19 @@ Ported from `github.com/lyh030725/kingo-voice-agent`, rewired to this project:
   `unpin_context` around the stream) or its assessor is still writing (`ExternalBrain.busy`).
   Process-local, so the API must run on one worker until this moves to a shared store.
 - `moss_memory.py` — weak-concept memory keyed by user id. Falls back to
-  `uploads/voice/weak-concepts.json` when Moss credentials or quota are missing.
+  `uploads/voice/weak-concepts.json` when Moss credentials or quota are missing. Matching a
+  question to a stored concept goes through `shared_terms`, which counts a prefix as a match:
+  Korean particles glue onto the term ("소프트맥스는"), and exact token equality matched nothing.
+- **Due reviews are asked, not just scheduled.** `POST .../review` opens a *fresh* conversation
+  (empty history only) with the course's oldest due concept; asking again returns the same
+  question. The question is the first history entry, which `_conversation` drops (a conversation
+  must start with the student), so `VoiceContext.pending_review` carries it into
+  `answer_instructions` as "Review in progress" until the next `append_history`. The assessor
+  reads the `memory_id=` in that line and records the review.
+- `quiz.py` — an O/X quiz on one weak concept (`POST .../weak-concepts/{id}/quiz`), written by
+  the voice-profile model from the same course-scoped retrieval, with sources as the server's own
+  labels. `.../quiz-result` counts it as one `review`, passed at 2 of 3. The mock writes a
+  deterministic quiz so it runs with no model server.
 - `voice_log.py` — writes every turn (typed and spoken) into `ChatLog` so professor and admin log
   screens see voice traffic for free, and `restore_history()` rehydrates a conversation reopened
   from 대화 이력.

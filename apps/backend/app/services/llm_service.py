@@ -523,6 +523,8 @@ class LLMService:
 
     async def generate_json(self, *, system: str, payload: dict, max_tokens: int = 900) -> dict:
         if self.provider == "mock":
+            if "quiz_concept" in payload:
+                return _mock_quiz(payload)
             return {"save": None, "reviews": []}
         if self.provider == "anthropic":
             return await self._anthropic_generate_json(system, payload, max_tokens)
@@ -916,6 +918,36 @@ def _parse_json_object(raw: str) -> dict:
     if not isinstance(value, dict):
         raise ValueError("structured response is not a JSON object")
     return value
+
+
+def _mock_quiz(payload: dict) -> dict:
+    """A deterministic O/X quiz so the quiz runs with no model server."""
+    concept = str(payload.get("quiz_concept", ""))
+    topic, _, detail = (part.strip() for part in concept.partition(" - "))
+    detail = detail or str(payload.get("difficulty_note", "")).strip() or "핵심 정의"
+    source = 0 if payload.get("course_materials") else None
+    return {
+        "items": [
+            {
+                "statement": f"{topic}은(는) 이 강의에서 다룬 개념이다.",
+                "answer": True,
+                "explanation": f"{topic}은(는) 강의자료에서 다룬 개념이에요.",
+                "source": source,
+            },
+            {
+                "statement": f"{topic}의 핵심은 '{detail}'와(과) 관계가 없다.",
+                "answer": False,
+                "explanation": f"'{detail}'이(가) 바로 {topic}에서 짚어야 할 핵심이에요.",
+                "source": source,
+            },
+            {
+                "statement": f"{topic}을(를) 이해하려면 '{detail}'을(를) 설명할 수 있어야 한다.",
+                "answer": True,
+                "explanation": f"지난번 어려워했던 부분이 '{detail}'이었어요.",
+                "source": source,
+            },
+        ]
+    }
 
 
 def _mock_tool_turn(

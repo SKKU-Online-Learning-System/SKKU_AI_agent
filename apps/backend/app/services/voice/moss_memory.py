@@ -18,6 +18,20 @@ from app.core.config import Settings, get_settings
 log = logging.getLogger("moss-memory")
 
 
+def shared_terms(query: set[str], text: set[str]) -> int:
+    """How many query terms the text mentions, counting a Korean particle as a match.
+
+    Particles attach to the word ("경사하강법이", "소프트맥스는"), so exact token
+    equality matched none of a student's questions against the stored concept.
+    A term matches when either spelling is a prefix of the other.
+    """
+    return sum(
+        1
+        for term in query
+        if any(term.startswith(other) or other.startswith(term) for other in text)
+    )
+
+
 def local_memory_path(settings: Settings | None = None) -> Path:
     """Where weak concepts live on disk.
 
@@ -413,13 +427,15 @@ class MossMemoryStore:
             "storage": "local",
         }
 
-    async def next_review(self) -> dict[str, Any] | None:
-        """Return oldest due, unmastered concept."""
+    async def next_review(self, course: str) -> dict[str, Any] | None:
+        """Return the oldest due, unmastered concept of one course."""
         now = time.time()
         due = [
             memory
             for memory in await self.all_memories()
-            if memory.get("status") != "mastered" and float(memory.get("next_review_at", 0)) <= now
+            if memory.get("course") == course
+            and memory.get("status") != "mastered"
+            and float(memory.get("next_review_at", 0)) <= now
         ]
         return min(due, key=lambda memory: memory.get("next_review_at", 0), default=None)
 
@@ -483,7 +499,7 @@ class MossMemoryStore:
         query_terms = self._terms(topic)
         # ponytail: lexical fallback only; add local embeddings if recall quality becomes insufficient.
         scored = [
-            (len(query_terms & self._terms(self._searchable_text(memory))), memory)
+            (shared_terms(query_terms, self._terms(self._searchable_text(memory))), memory)
             for memory in await self._local_memories()
             if memory.get("student_id") == self.student_id
         ]

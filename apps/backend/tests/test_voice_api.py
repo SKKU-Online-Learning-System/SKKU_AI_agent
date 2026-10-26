@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
@@ -514,3 +515,108 @@ def test_voice_stream_takes_the_cookie_only_from_our_origin(
                     socket.receive_json()
     finally:
         chat_api.client.cookies.clear()
+
+
+def _student_memory(chat_api, monkeypatch, tmp_path):
+    """Give the student a local weak-concept store with one concept in the AI course."""
+    from app.models import Course
+    from app.services.voice.moss_memory import MossMemoryStore
+
+    with chat_api.session_factory() as db:
+        course = db.get(Course, chat_api.courses["ai"])
+    store = MossMemoryStore(student_id=chat_api.users["student"], local_path=tmp_path / "weak.json")
+    store._local_mode = True
+    context = get_context(chat_api.users["student"], course.id, course.name)
+    monkeypatch.setattr(context, "memory", store)
+    saved = asyncio.run(
+        store.save(course.name, "소프트맥스 - 합이 1인 확률로 바꾸는 계산", "소프트맥스가 뭐야?", "정의를 설명하지 못함")
+    )
+    return store, saved["memory_id"]
+
+
+def test_a_weak_concept_quiz_is_grounded_and_its_result_is_a_review(
+    chat_api, monkeypatch, tmp_path
+) -> None:
+    from app.services.voice import quiz
+
+    store, memory_id = _student_memory(chat_api, monkeypatch, tmp_path)
+    searched: list[str] = []
+
+    def fake_search(course_id, query):
+        searched.append(query)
+        excerpt = {"source": "3주차.pdf p.12", "excerpt": "소프트맥스는 점수를 확률로 바꾼다."}
+        return json.dumps({"results": [excerpt]}), []
+
+    monkeypatch.setattr(quiz, "search_course_materials", fake_search)
+    base = f"/api/voice/courses/{chat_api.courses['ai']}/weak-concepts/{memory_id}"
+
+    made = chat_api.post(f"{base}/quiz", "student", {})
+
+    assert made.status_code == 200, made.text
+    body = made.json()
+    assert searched == ["소프트맥스 - 합이 1인 확률로 바꾸는 계산"]
+    assert len(body["items"]) == 3
+    assert {item["answer"] for item in body["items"]} == {True, False}
+    assert all(item["source"] == "3주차.pdf p.12" for item in body["items"])
+
+    recorded = chat_api.post(f"{base}/quiz-result", "student", {"correct": 2, "total": 3})
+    assert recorded.status_code == 200
+    assert recorded.json()["correct"] is True
+    memory = next(item for item in store._read_local() if item["id"] == memory_id)
+    assert memory["success_count"] == 1
+
+    failed = chat_api.post(f"{base}/quiz-result", "student", {"correct": 1, "total": 3})
+    assert failed.json()["correct"] is False
+    assert chat_api.post(f"{base}/quiz-result", "student", {"correct": 4, "total": 3}).status_code == 422
+
+
+def test_a_quiz_needs_the_learners_own_concept_in_that_course(
+    chat_api, monkeypatch, tmp_path
+) -> None:
+    _, memory_id = _student_memory(chat_api, monkeypatch, tmp_path)
+
+    unknown = chat_api.post(
+        f"/api/voice/courses/{chat_api.courses['ai']}/weak-concepts/M-unknown/quiz", "student", {}
+    )
+    other_course = chat_api.post(
+        f"/api/voice/courses/{chat_api.courses['se']}/weak-concepts/{memory_id}/quiz", "student", {}
+    )
+
+    assert unknown.status_code == 404
+    assert other_course.status_code == 403
+
+
+def test_the_model_writing_nothing_usable_is_a_502_not_a_blank_quiz(
+    chat_api, monkeypatch, tmp_path
+) -> None:
+    from app.services.voice import quiz
+
+    _, memory_id = _student_memory(chat_api, monkeypatch, tmp_path)
+    monkeypatch.setattr(quiz, "search_course_materials", lambda *_: (json.dumps({"results": []}), []))
+
+    async def nonsense(self, **_):
+        return {"items": [{"statement": "질문인가요?", "answer": "maybe", "explanation": ""}]}
+
+    monkeypatch.setattr(quiz.LLMService, "generate_json", nonsense)
+    response = chat_api.post(
+        f"/api/voice/courses/{chat_api.courses['ai']}/weak-concepts/{memory_id}/quiz", "student", {}
+    )
+
+    assert response.status_code == 502
+
+
+def test_a_due_review_opens_the_students_fresh_conversation(
+    chat_api, monkeypatch, tmp_path
+) -> None:
+    store, memory_id = _student_memory(chat_api, monkeypatch, tmp_path)
+    memories = store._read_local()
+    for item in memories:
+        item["next_review_at"] = 0
+    store._write_local(memories)
+    reset_context(chat_api.users["student"], chat_api.courses["ai"])
+
+    opened = chat_api.post(f"/api/voice/courses/{chat_api.courses['ai']}/review", "student", {})
+
+    assert opened.status_code == 200
+    assert opened.json()["due"] is True
+    assert opened.json()["memory_id"] == memory_id

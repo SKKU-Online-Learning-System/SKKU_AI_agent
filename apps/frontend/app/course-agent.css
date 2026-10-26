@@ -1657,3 +1657,96 @@
     transform: rotate(90deg);
   }
 }
+
+/* O/X quiz on one weak concept, opened inside its card. */
+.weak-quiz-start {
+  margin-top: 14px;
+}
+
+.weak-quiz {
+  border-top: 1px solid var(--icampus-border-soft);
+  display: grid;
+  gap: 10px;
+  margin-top: 14px;
+  padding-top: 14px;
+}
+
+.weak-quiz p {
+  margin: 0;
+}
+
+.weak-quiz-progress {
+  color: var(--icampus-muted);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.weak-quiz-statement {
+  color: var(--icampus-text);
+  font-size: 15px;
+  line-height: 1.55;
+}
+
+.weak-quiz-choices {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: 1fr 1fr;
+}
+
+.weak-quiz-choice {
+  background: white;
+  border: 1px solid #aab6c2;
+  border-radius: 6px;
+  color: var(--icampus-navy);
+  font-size: 22px;
+  font-weight: 700;
+  padding: 10px 0;
+}
+
+.weak-quiz-choice:hover:not(:disabled) {
+  border-color: var(--icampus-navy);
+}
+
+.weak-quiz-choice:disabled {
+  cursor: default;
+}
+
+.weak-quiz-choice[aria-pressed="true"] {
+  background: var(--icampus-soft);
+}
+
+.weak-quiz-choice[data-result="answer"] {
+  border-color: #14805f;
+  color: #0f6b52;
+}
+
+.weak-quiz-feedback {
+  background: var(--icampus-soft);
+  border-left: 3px solid var(--danger);
+  border-radius: 4px;
+  display: grid;
+  gap: 6px;
+  padding: 12px;
+}
+
+.weak-quiz-feedback[data-correct="true"] {
+  border-left-color: #14805f;
+}
+
+.weak-quiz-feedback small {
+  color: var(--icampus-muted);
+}
+
+.weak-quiz-feedback .voice-primary {
+  justify-self: start;
+  margin-top: 4px;
+}
+
+.weak-quiz-score {
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.weak-quiz-note {
+  color: var(--icampus-muted);
+}

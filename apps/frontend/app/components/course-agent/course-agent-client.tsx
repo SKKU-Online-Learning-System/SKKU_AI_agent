@@ -17,6 +17,7 @@ import {
   getVoiceAttachment,
   getVoiceConfig,
   listWeakConcepts,
+  openNextReview,
   resetVoiceConversation,
   streamVoiceAnswer,
   uploadVoiceAttachment,
@@ -53,6 +54,7 @@ import {
 import type { PendingAttachment, SentAttachment } from "./course-agent-attachments";
 import { CourseAgentVisualizationCard } from "./course-agent-visualization";
 import { MathText } from "./math-text";
+import { WeakConceptQuiz } from "./weak-concept-quiz";
 
 const SAMPLE_RATE = 16000;
 // The speech server emits 24 kHz PCM. The playback AudioContext must run at
@@ -195,6 +197,7 @@ export function CourseAgentClient({
   const [weakConcepts, setWeakConcepts] = useState<WeakConcept[]>([]);
   const [weakConceptError, setWeakConceptError] = useState<string | null>(null);
   const [isWeakConceptLoading, setIsWeakConceptLoading] = useState(true);
+  const [quizMemoryId, setQuizMemoryId] = useState<string | null>(null);
 
   const nextId = useRef(1);
   const messagesRef = useRef<HTMLDivElement | null>(null);
@@ -370,6 +373,37 @@ export function CourseAgentClient({
       isCancelled = true;
     };
   }, [initialSessionId]);
+
+  // A fresh conversation opens with the weak concept that is due for review, if
+  // any. The server asks it once and returns the same question on a repeat call,
+  // so a remount cannot ask twice.
+  useEffect(() => {
+    if (initialSessionId || config?.can_manage !== false) return;
+    let isCancelled = false;
+    openNextReview(courseId)
+      .then((review) => {
+        if (isCancelled || !review.due) return;
+        setEntries((current) =>
+          current.length === 1
+            ? [
+                ...current,
+                {
+                  kind: "message",
+                  id: (nextId.current += 1),
+                  role: "assistant",
+                  text: review.question,
+                  symbolState: "presence"
+                }
+              ]
+            : current
+        );
+      })
+      // Without a review the conversation simply starts as usual.
+      .catch(() => undefined);
+    return () => {
+      isCancelled = true;
+    };
+  }, [config?.can_manage, courseId, initialSessionId]);
 
   const appendMessage = useCallback(
     (entry: Omit<Extract<ChatEntry, { kind: "message" }>, "kind" | "id">) => {
@@ -1535,6 +1569,22 @@ export function CourseAgentClient({
                     </div>
                     <strong>{item.mastery_percent}%</strong>
                   </div>
+                  {quizMemoryId === item.memory_id ? (
+                    <WeakConceptQuiz
+                      courseId={courseId}
+                      memoryId={item.memory_id}
+                      onClose={() => setQuizMemoryId(null)}
+                      onRecorded={loadWeakConcepts}
+                    />
+                  ) : (
+                    <button
+                      className="voice-secondary weak-quiz-start"
+                      onClick={() => setQuizMemoryId(item.memory_id)}
+                      type="button"
+                    >
+                      O/X 퀴즈 풀기
+                    </button>
+                  )}
                 </article>
               ))}
             </div>

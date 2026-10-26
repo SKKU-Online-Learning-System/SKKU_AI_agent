@@ -169,6 +169,53 @@ export function listWeakConcepts(courseId: string): Promise<{ concepts: WeakConc
   );
 }
 
+export type QuizItem = {
+  statement: string;
+  answer: boolean;
+  explanation: string;
+  source: string | null;
+};
+
+export type WeakConceptQuiz = {
+  memory_id: string;
+  concept: string;
+  topic: string;
+  items: QuizItem[];
+};
+
+/** Writes an O/X quiz on one weak concept from this course's materials. */
+export function createWeakConceptQuiz(
+  courseId: string,
+  memoryId: string
+): Promise<WeakConceptQuiz> {
+  return apiRequest<WeakConceptQuiz>(
+    `/api/voice/courses/${courseId}/weak-concepts/${encodeURIComponent(memoryId)}/quiz`,
+    { method: "POST" }
+  );
+}
+
+/** Records a finished quiz as one review; the server decides whether it passed. */
+export function recordWeakConceptQuiz(
+  courseId: string,
+  memoryId: string,
+  correct: number,
+  total: number
+): Promise<{ correct: boolean; status: string }> {
+  return apiRequest<{ correct: boolean; status: string }>(
+    `/api/voice/courses/${courseId}/weak-concepts/${encodeURIComponent(memoryId)}/quiz-result`,
+    { body: JSON.stringify({ correct, total }), method: "POST" }
+  );
+}
+
+export type DueReview =
+  | { due: false }
+  | { due: true; memory_id: string; concept: string; question: string };
+
+/** Opens a fresh conversation with this course's due weak concept, if there is one. */
+export function openNextReview(courseId: string): Promise<DueReview> {
+  return apiRequest<DueReview>(`/api/voice/courses/${courseId}/review`, { method: "POST" });
+}
+
 export function listVoiceTrustedSites(courseId: string): Promise<{ sites: string[] }> {
   return apiRequest<{ sites: string[] }>(`/api/voice/courses/${courseId}/trusted-sites`);
 }

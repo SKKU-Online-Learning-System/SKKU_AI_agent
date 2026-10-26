@@ -41,7 +41,7 @@ from app.services.llm_service import (
 )
 from app.services.voice import attachments as attachments_module
 from app.services.voice.attachments import AttachmentContent
-from app.services.voice.moss_memory import MossMemoryStore
+from app.services.voice.moss_memory import MossMemoryStore, shared_terms
 from app.services.voice.thoughts import ThoughtSummarizer
 from app.services.voice.speech_text import for_speech
 from app.services.voice.trace import (
@@ -177,8 +177,13 @@ class VoiceContext:
     # parts), sent once more with the next question so "그럼 2번은?" still sees
     # the photo. The history itself stays text: an image is too big to keep.
     recent_images: list[dict] = field(default_factory=list)
+    # The review question the conversation opened with, while the student has
+    # not answered it yet. It is the first history entry, which the model never
+    # sees (a conversation must start with the student), so the policy carries it.
+    pending_review: Optional[dict] = None
 
     def append_history(self, message: dict) -> None:
+        self.pending_review = None
         self.history.append(message)
         if len(self.history) > MAX_HISTORY_MESSAGES:
             del self.history[:-MAX_HISTORY_MESSAGES]
@@ -191,6 +196,7 @@ class VoiceContext:
         self.last_filler = None
         self.hint_level = 0
         self.recent_images.clear()
+        self.pending_review = None
         log.info("voice conversation reset: course=%s user=%s", self.course_id, self.user_id)
 
 
@@ -740,7 +746,7 @@ async def recent_weak_concepts(
         text = " ".join(
             str(item.get(key, "")) for key in ("concept", "original_question", "difficulty_note")
         )
-        return len(topic_terms & _terms(text))
+        return shared_terms(topic_terms, _terms(text))
 
     course_memories.sort(
         key=lambda item: (
@@ -1002,6 +1008,7 @@ def answer_instructions(context: VoiceContext, prefetched: dict, *, voice: bool 
             SOCRATIC_PROMPT,
             *([] if voice else [TEXT_REPLY_NOTE]),
             socratic_stage(context),
+            *([review_note(context.pending_review)] if context.pending_review else []),
             "# Preloaded context\n"
             "This evidence is supplied again every turn. Delivering it again is not "
             "an answer: say what the student's last turn calls for and move the "
@@ -1499,24 +1506,42 @@ async def think(
 # Lifecycle helpers.
 # --------------------------------------------------------------------------
 
+def review_note(review: dict) -> str:
+    return (
+        "# Review in progress\n"
+        "The conversation opened with a spaced-repetition review of the student's weak "
+        f"concept '{review['concept']}'. You asked: \"{review['question']}\" The student's "
+        "message now is their answer. Say briefly what they got right, then use the hint "
+        "ladder for whatever is missing or wrong. Do not ask the same review question again."
+    )
+
+
 async def next_review_prompt(context: VoiceContext) -> dict:
-    """Return the next due weak concept for this learner, if any."""
-    memory = await context.memory.next_review()
+    """Open a fresh conversation with this course's next due weak concept, if any.
+
+    Only a conversation that has not started gets one: a review dropped into the
+    middle of another topic is an interruption, not a review. Asking again while
+    the question is unanswered returns the same question rather than a second one.
+    """
+    if context.pending_review:
+        return {"due": True, **context.pending_review}
+    if context.history:
+        return {"due": False}
+    memory = await context.memory.next_review(context.course_name)
     if memory is None:
         return {"due": False}
-    question = f"{memory['concept']}을 자신의 말로 설명해 볼까요?"
+    concept = str(memory["concept"]).split(" - ", 1)[0].strip() or str(memory["concept"])
+    question = f"지난번에 어려워했던 '{concept}', 자신의 말로 한번 설명해 볼까요?"
+    # The assessor reads this line: the memory id is how it records the review.
     context.append_history(
-        {
-            "role": "assistant",
-            "content": f"복습 질문 (memory_id={memory['id']}): {question}",
-        }
+        {"role": "assistant", "content": f"복습 질문 (memory_id={memory['id']}): {question}"}
     )
-    return {
-        "due": True,
+    context.pending_review = {
         "memory_id": memory["id"],
         "concept": memory["concept"],
         "question": question,
     }
+    return {"due": True, **context.pending_review}
 
 
 async def list_weak_concepts(context: VoiceContext) -> list[dict]:

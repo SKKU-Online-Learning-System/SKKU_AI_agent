@@ -27,7 +27,7 @@ from fastapi import (
     status,
 )
 from fastapi.responses import Response, StreamingResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from sqlalchemy.orm import Session
 
 from app.api.deps import (
@@ -40,10 +40,10 @@ from app.core.config import Settings, get_settings
 from app.core.security import InvalidAccessTokenError, JWTService
 from app.db.session import SessionLocal, get_db
 from app.models import Course, User
-from app.services.llm_service import LLMService
+from app.services.llm_service import LLMError, LLMService
 from app.services.rag_service import RagService
 from app.services.safety_service import NORMAL_RESULT, SafetyGuardService, SafetyResult
-from app.services.voice import agent_spec, attachment_index, voice_log
+from app.services.voice import agent_spec, attachment_index, quiz, voice_log
 from app.services.voice import attachments as attachments_module
 from app.services.voice.attachments import (
     Attachment,
@@ -225,13 +225,13 @@ def reset_voice_conversation(
     return {"ok": True}
 
 
-@router.get("/courses/{course_id}/review")
-async def read_next_review(
+@router.post("/courses/{course_id}/review")
+async def open_next_review(
     course_id: str,
     session: Annotated[Session, Depends(get_db)],
     current_user: Annotated[User, Depends(get_current_user)],
 ) -> dict:
-    """Return the next due weak concept for this learner."""
+    """Open a fresh conversation with the next due weak concept of this course, if any."""
     from app.services.voice.brain import next_review_prompt
 
     course = authorize_course_access(session, current_user, course_id)
@@ -249,6 +249,61 @@ async def read_weak_concepts(
 
     course = authorize_course_access(session, current_user, course_id)
     return {"concepts": await list_weak_concepts(_session_context(current_user, course))}
+
+
+class QuizResult(BaseModel):
+    correct: int = Field(ge=0, le=quiz.QUIZ_SIZE)
+    total: int = Field(ge=1, le=quiz.QUIZ_SIZE)
+
+    @model_validator(mode="after")
+    def _correct_within_total(self) -> "QuizResult":
+        if self.correct > self.total:
+            raise ValueError("correct must not exceed total")
+        return self
+
+
+async def _course_memory(context: VoiceContext, memory_id: str) -> dict:
+    """One of this learner's weak concepts in this course, or 404."""
+    for memory in await context.memory.all_memories():
+        if memory.get("id") == memory_id and memory.get("course") == context.course_name:
+            return memory
+    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="취약 개념을 찾을 수 없습니다.")
+
+
+@router.post("/courses/{course_id}/weak-concepts/{memory_id}/quiz")
+async def create_weak_concept_quiz(
+    course_id: str,
+    memory_id: str,
+    session: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user)],
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> dict:
+    """An O/X quiz on one weak concept, grounded in this course's materials."""
+    course = authorize_course_access(session, current_user, course_id)
+    memory = await _course_memory(_session_context(current_user, course), memory_id)
+    try:
+        return await quiz.make_quiz(memory, course_id=course.id, settings=settings)
+    except (quiz.QuizError, LLMError) as exc:
+        log.warning("weak-concept quiz failed: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="퀴즈를 만들지 못했어요. 잠시 후 다시 시도해 주세요.",
+        ) from exc
+
+
+@router.post("/courses/{course_id}/weak-concepts/{memory_id}/quiz-result")
+async def record_weak_concept_quiz(
+    course_id: str,
+    memory_id: str,
+    payload: QuizResult,
+    session: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user)],
+) -> dict:
+    """Count a finished quiz as one review of the concept's spaced-repetition schedule."""
+    course = authorize_course_access(session, current_user, course_id)
+    context = _session_context(current_user, course)
+    await _course_memory(context, memory_id)
+    return await context.memory.review(memory_id, quiz.passed(payload.correct, payload.total))
 
 
 # --------------------------------------------------------------------------
