@@ -17,6 +17,7 @@ from app.core.security import JWTService
 from app.db.session import get_db
 from app.main import app
 from app.models import Base, Course, CourseAccess, User, UserRole
+from app.services import login_throttle
 
 LECTURE_TEXT = """경사하강법은 손실 함수를 줄이기 위해 기울기의 반대 방향으로 파라미터를 갱신하는 최적화 방법이다.
 학습률이 너무 크면 발산하고, 너무 작으면 수렴이 느려진다.
@@ -31,6 +32,14 @@ LECTURE_TEXT = """경사하강법은 손실 함수를 줄이기 위해 기울기
 OTHER_COURSE_TEXT = """소프트웨어공학에서 요구사항 분석은 이해관계자의 필요를 문서화하는 단계이다.
 형상관리는 변경 이력을 추적하고 통제하는 활동이다.
 """
+
+
+@pytest.fixture(autouse=True)
+def _fresh_login_throttle() -> Generator[None, None, None]:
+    """Failed logins are process-global; one test's must not lock out the next."""
+    login_throttle.reset()
+    yield
+    login_throttle.reset()
 
 
 @dataclass(frozen=True)

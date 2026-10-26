@@ -314,6 +314,8 @@ def test_stage2_admin_professor_student_flow(stage2_api: Stage2Api) -> None:
         f"/api/courses/{stage2_api.inaccessible_course_id}/materials",
         professor_token,
     ).status_code == 403
+    # Logging in through this client left the session cookie in it.
+    stage2_api.client.cookies.clear()
     assert stage2_api.client.get("/api/admin/courses").status_code == 401
     assert stage2_api.get("/api/admin/courses", professor_token).status_code == 403
     assert stage2_api.get("/api/admin/courses", student_token).status_code == 403

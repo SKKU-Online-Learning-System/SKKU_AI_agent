@@ -3,10 +3,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   ApiError,
-  accessTokenStorageKey,
   apiRequest,
   createAdminCourse,
-  clearAccessToken,
   deleteCourseMaterial,
   downloadCourseMaterial,
   getCourseRagStatus,
@@ -16,7 +14,6 @@ import {
   loginRequest,
   processCourseMaterial,
   searchRagDebug,
-  saveAccessToken,
   uploadCourseMaterial
 } from "./api";
 
@@ -29,8 +26,7 @@ afterEach(() => {
 });
 
 describe("api client", () => {
-  it("adds the stored bearer token to protected requests", async () => {
-    saveAccessToken("stored-token");
+  it("sends the session cookie and the CSRF header, never a bearer token", async () => {
     const fetchMock = vi.fn<typeof fetch>(async () =>
       Response.json({
         id: "user-1",
@@ -44,10 +40,12 @@ describe("api client", () => {
     await apiRequest("/api/auth/me");
 
     const request = fetchMock.mock.calls[0][1] as RequestInit;
-    expect(new Headers(request.headers).get("Authorization")).toBe("Bearer stored-token");
+    expect(request.credentials).toBe("include");
+    expect(new Headers(request.headers).get("X-Requested-With")).toBe("XMLHttpRequest");
+    expect(new Headers(request.headers).get("Authorization")).toBeNull();
   });
 
-  it("does not attach auth to login requests and stores removable tokens", async () => {
+  it("logs in with credentials so the session cookie is kept, and stores nothing", async () => {
     const fetchMock = vi.fn<typeof fetch>(async () =>
       Response.json({
         access_token: "issued-token",
@@ -65,16 +63,13 @@ describe("api client", () => {
     const response = await loginRequest("admin@skku.edu", "password123");
     const request = fetchMock.mock.calls[0][1] as RequestInit;
 
-    expect(response.access_token).toBe("issued-token");
+    expect(response.user.email).toBe("admin@skku.edu");
+    expect(request.credentials).toBe("include");
     expect(new Headers(request.headers).get("Authorization")).toBeNull();
-    saveAccessToken(response.access_token);
-    expect(localStorage.getItem(accessTokenStorageKey)).toBe("issued-token");
-    clearAccessToken();
-    expect(localStorage.getItem(accessTokenStorageKey)).toBeNull();
+    expect(localStorage.length).toBe(0);
   });
 
   it("builds admin course filter queries and JSON payloads", async () => {
-    saveAccessToken("admin-token");
     const fetchMock = vi
       .fn<typeof fetch>()
       .mockResolvedValueOnce(Response.json([]))
@@ -248,8 +243,7 @@ describe("api client", () => {
     expect(ragStatus).toMatchObject({ courseId: "course-1", isSearchReady: true });
   });
 
-  it("downloads a course material with the stored bearer token", async () => {
-    saveAccessToken("student-token");
+  it("downloads a course material with the session cookie", async () => {
     const fetchMock = vi.fn<typeof fetch>(async () =>
       new Response(new Blob(["lecture"]))
     );
@@ -260,9 +254,7 @@ describe("api client", () => {
     expect(fetchMock.mock.calls[0][0]).toContain(
       "/api/courses/course-1/materials/material-1/download"
     );
-    expect(new Headers(fetchMock.mock.calls[0][1]?.headers).get("Authorization")).toBe(
-      "Bearer student-token"
-    );
+    expect(fetchMock.mock.calls[0][1]?.credentials).toBe("include");
   });
 
   it("requests debug search and normalizes source metadata", async () => {

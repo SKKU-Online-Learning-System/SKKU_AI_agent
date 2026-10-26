@@ -1,14 +1,11 @@
 import type { AuthUser } from "./auth";
 import type { UserRole } from "@skku-course-agent/shared";
 
-export const accessTokenStorageKey = "skku-course-agent-access-token-v1";
+// Where the access token lived before it moved to an httpOnly cookie; only read
+// to delete what an earlier visit left behind.
+export const legacyAccessTokenStorageKey = "skku-course-agent-access-token-v1";
 export const apiConnectionErrorMessage =
   "API 서버에 연결할 수 없습니다. 백엔드 실행 상태와 API 주소를 확인해 주세요.";
-
-type ApiRequestOptions = RequestInit & {
-  accessToken?: string | null;
-  skipAuth?: boolean;
-};
 
 export type LoginResponse = {
   access_token: string;
@@ -428,18 +425,25 @@ function getApiBaseUrl(): string {
   );
 }
 
-export function readAccessToken(): string | null {
-  if (typeof window === "undefined") return null;
-  return window.localStorage.getItem(accessTokenStorageKey);
+export function forgetLegacyAccessToken(): void {
+  try {
+    window.localStorage.removeItem(legacyAccessTokenStorageKey);
+  } catch {
+    // Storage blocked: nothing was stored there either.
+  }
 }
 
-export function saveAccessToken(accessToken: string): void {
-  window.localStorage.setItem(accessTokenStorageKey, accessToken);
-}
+/**
+ * The session is an httpOnly cookie the browser attaches itself. The header is
+ * what the API demands of every cookie-authenticated write: a page on another
+ * origin cannot add it without a CORS preflight, which only our origin passes.
+ */
+export const csrfHeader = ["X-Requested-With", "XMLHttpRequest"] as const;
 
-export function clearAccessToken(): void {
-  if (typeof window === "undefined") return;
-  window.localStorage.removeItem(accessTokenStorageKey);
+export function withSession(init: RequestInit = {}): RequestInit {
+  const headers = new Headers(init.headers);
+  headers.set(...csrfHeader);
+  return { ...init, credentials: "include", headers };
 }
 
 async function readErrorMessage(response: Response): Promise<string> {
@@ -453,27 +457,16 @@ async function readErrorMessage(response: Response): Promise<string> {
   return response.statusText || "API request failed";
 }
 
-export async function apiRequest<T>(
-  path: string,
-  options: ApiRequestOptions = {}
-): Promise<T> {
-  const { accessToken, skipAuth, ...fetchOptions } = options;
-  const headers = new Headers(fetchOptions.headers);
-  const token = skipAuth ? null : accessToken ?? readAccessToken();
-
-  if (token) {
-    headers.set("Authorization", `Bearer ${token}`);
-  }
-  if (fetchOptions.body && !(fetchOptions.body instanceof FormData) && !headers.has("Content-Type")) {
+export async function apiRequest<T>(path: string, options: RequestInit = {}): Promise<T> {
+  const init = withSession(options);
+  const headers = init.headers as Headers;
+  if (init.body && !(init.body instanceof FormData) && !headers.has("Content-Type")) {
     headers.set("Content-Type", "application/json");
   }
 
   let response: Response;
   try {
-    response = await fetch(`${getApiBaseUrl()}${path}`, {
-      ...fetchOptions,
-      headers
-    });
+    response = await fetch(`${getApiBaseUrl()}${path}`, init);
   } catch {
     throw new ApiError(0, apiConnectionErrorMessage);
   }
@@ -491,13 +484,16 @@ export async function apiRequest<T>(
 export function loginRequest(email: string, password: string): Promise<LoginResponse> {
   return apiRequest<LoginResponse>("/api/auth/login", {
     body: JSON.stringify({ email, password }),
-    method: "POST",
-    skipAuth: true
+    method: "POST"
   });
 }
 
-export function fetchCurrentUser(accessToken?: string | null): Promise<AuthUser> {
-  return apiRequest<AuthUser>("/api/auth/me", { accessToken });
+export function logoutRequest(): Promise<void> {
+  return apiRequest<void>("/api/auth/logout", { method: "POST" });
+}
+
+export function fetchCurrentUser(): Promise<AuthUser> {
+  return apiRequest<AuthUser>("/api/auth/me");
 }
 
 export function listCourses(): Promise<CourseSummary[]> {
@@ -522,8 +518,8 @@ export function uploadCourseMaterial(
   return new Promise<CourseMaterial>((resolve, reject) => {
     const request = new XMLHttpRequest();
     request.open("POST", `${getApiBaseUrl()}/api/courses/${courseId}/materials`);
-    const token = readAccessToken();
-    if (token) request.setRequestHeader("Authorization", `Bearer ${token}`);
+    request.withCredentials = true;
+    request.setRequestHeader(...csrfHeader);
     request.upload.onprogress = (event) => {
       if (event.lengthComputable) onProgress?.(event.loaded / event.total);
     };
@@ -562,16 +558,9 @@ export function fetchMaterialPageImage(
 }
 
 async function fetchAuthorizedBlob(path: string): Promise<Blob> {
-  const token = readAccessToken();
-  const headers = new Headers();
-  if (token) headers.set("Authorization", `Bearer ${token}`);
-
   let response: Response;
   try {
-    response = await fetch(
-      `${getApiBaseUrl()}${path}`,
-      { headers }
-    );
+    response = await fetch(`${getApiBaseUrl()}${path}`, withSession());
   } catch {
     throw new ApiError(0, apiConnectionErrorMessage);
   }
