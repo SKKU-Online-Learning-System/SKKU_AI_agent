@@ -90,24 +90,24 @@ tests can exercise the agent end to end.
 ### Retrieval pipeline
 
 Upload → `MaterialProcessingService.process_material` claims the row (status guard prevents
-concurrent processing) → `DocumentParserService` → `ChunkingService` → `EmbeddingService` →
+concurrent processing) → `parse_material` → `create_chunks` → `EmbeddingService` →
 `VectorStoreService.replace_material_chunks`. Retrieval is always filtered by `course_id`;
 `RagService.retrieve` returns a `RetrievalOutcome` whose `summary.reason` distinguishes
 `NO_PROCESSED_MATERIAL` from `NO_RELEVANT_CONTEXT`, and `ChatService` turns that into the
 `answer_source_type` the UI badges. Sources are built server-side from search results, never from
 model output.
 
-`VECTOR_SEARCH_MODE` switches between in-Python cosine similarity and pgvector. The default
-embedding provider is a local hash, so `RAG_SCORE_THRESHOLD` is tuned low (0.1); raise it to ~0.3
+`VECTOR_SEARCH_MODE=local` is in-Python cosine similarity over the course's chunks;
+`pgvector` is declared but `VectorStoreService.search_similar_chunks` raises `NotImplementedError`
+for it. The default embedding provider is a local hash, so `RAG_SCORE_THRESHOLD` is tuned low (0.1); raise it to ~0.3
 with a real embedding model.
 
-**There are two parser modules and only one is live.** The pipeline calls
-`app/services/document_parser.py` (`parse_material`); `app/services/document_parser_service.py` is
-an older duplicate that only the stale tests import. Same trap in `chunking_service`
-(`create_chunks` is live, `ParagraphChunkingService` no longer exists) and
-`vector_store_service` (`SQLAlchemyLocalVectorStoreService` no longer exists). Those stale imports
-are exactly what the pre-existing collection failures are. Fix the live module, and check
-`material_processing_service._run_pipeline` for what is actually wired.
+One parser (`app/services/document_parser.py`, `parse_material`), one chunker
+(`chunking_service.create_chunks`), one store (`VectorStoreService`). The older object-style
+duplicates (`document_parser_service`, `ParagraphChunkingService`,
+`SQLAlchemyLocalVectorStoreService`) were deleted with the tests that alone kept them alive; do not
+bring them back. `MaterialProcessingService(parser=...)` takes a plain
+`Callable[[CourseMaterial], ParsedDocument]` as a test seam.
 
 ### COURSE AGENT (`app/services/voice/`)
 
@@ -117,14 +117,20 @@ Ported from `github.com/lyh030725/kingo-voice-agent`, rewired to this project:
   `grok_live.py` feeds it to xAI directly; `anthropic_tools()` converts it for Claude. Tool results
   travel as Anthropic `tool_use`/`tool_result` blocks. The two context tools
   (`recall_weak_concepts`, `search_course_materials`) are forced via `tool_choice: any` until both
-  have run.
+  have run. Two pure pieces live beside it: `trace.py` (the typed path's step events and their
+  Korean labels) and `speech_text.py` (`for_speech`, screen text → TTS text); `brain` re-exports
+  `for_speech`.
 - `search_course_materials` calls `RagService` (course-scoped pgvector), not a private PDF index, so
   citations keep the `filename p.page` shape professors see elsewhere. It opens its own
   `SessionLocal` because it runs inside tool dispatch, off the request session.
 - `search_trusted_web` uses Claude's server-side web search restricted to the professor-managed
   allowlist, then **re-checks the allowlist locally** before any URL reaches a student.
 - `session_store.py` keeps one `VoiceContext` per `(user, course)` in process. Its lock is an
-  `RLock` on purpose: `get_context()` calls `memory_store()` while holding it.
+  `RLock` on purpose: `get_context()` calls `memory_store()` while holding it. A context idle for
+  `IDLE_TTL_SECONDS` (6 h) is evicted on the next `get_context()` -- the conversation is in
+  `ChatLog` and `_resume` rehydrates it -- except while a voice socket holds it (`pin_context` /
+  `unpin_context` around the stream) or its assessor is still writing (`ExternalBrain.busy`).
+  Process-local, so the API must run on one worker until this moves to a shared store.
 - `moss_memory.py` — weak-concept memory keyed by user id. Falls back to
   `uploads/voice/weak-concepts.json` when Moss credentials or quota are missing.
 - `voice_log.py` — writes every turn (typed and spoken) into `ChatLog` so professor and admin log
@@ -277,8 +283,10 @@ Ported from `github.com/lyh030725/kingo-voice-agent`, rewired to this project:
   after it. `send_audio` therefore supersedes any in-flight turn at the endpoint; without it both
   turns answer into the same generation and their audio interleaves in one playback stream.
 
-WebSockets cannot set headers, so `WS /api/voice/courses/{id}/stream` takes the JWT as a `token`
-query parameter and re-runs `authorize_course_access` itself.
+WebSockets cannot set headers. `WS /api/voice/courses/{id}/stream` authenticates with the session
+cookie -- accepted only when the handshake's `Origin` is one of `BACKEND_CORS_ORIGINS`, since any
+same-site page can open a socket that carries it -- or, for non-browser clients and tests, a
+`token` query parameter; it re-runs `authorize_course_access` itself.
 
 ### The typed path shows its work (text only)
 
@@ -288,7 +296,7 @@ turn's trace, which only the typed path has -- a spoken turn is heard, not watch
 - `step` -- one line of the agent's work, **addressed by `key`**: the first event with a key adds
   the line, a later one with the same key updates it in place, so "강의자료를 검색하는 중" becomes
   "강의자료 3곳을 찾았어요" where it was. `state` is `running`/`done`/`failed`; `label` and `detail`
-  are Korean text composed **server-side in `brain.py`** (`emit_step`, `_tool_step_labels`) from tool
+  are Korean text composed **server-side in `voice/trace.py`** (`emit_step`, `tool_step_labels`) from tool
   arguments and results -- never from model output, so nothing unreviewed reaches the screen before
   the answer. Keys: `attachments`, `recall`, `material`, `llm-<round>`, `tool-<round>-<index>`.
 - A step's `detail` on failure is a Korean phrase for the few server-composed error classes and empty
@@ -430,9 +438,30 @@ Students have exactly one question surface: COURSE AGENT inside a course. There 
 "AI 질문" menu item, course tab, or route — 대화 이력 links back into COURSE AGENT with
 `?sessionId=`, which the backend rehydrates. Do not reintroduce them.
 
-Styles: `app/globals.css` (shell and pages), `app/course-agent.css` (Course Agent symbol and chat panel).
+Styles, imported in this order by `layout.tsx`: `app/globals.css` (tokens, base, login),
+`app/shell.css` (i-Campus shell and shared page furniture), `app/pages.css` (chat, logs, role pages),
+`app/statistics.css` (weak-concept and usage statistics), `app/course-agent.css` (Course Agent symbol
+and chat panel). Later files override earlier ones, so keep the order.
 `packages/shared` exports the domain types; `app/lib/api.ts` and `app/lib/voice-api.ts` are the only
 places that talk to the backend.
+
+### Authentication
+
+`POST /api/auth/login` sets the JWT as an **httpOnly cookie** (`skku_access_token`, `SameSite=Lax`,
+`Secure` outside `APP_ENV=local`); the frontend never sees or stores it, and `POST /api/auth/logout`
+clears it. `get_current_user` still accepts `Authorization: Bearer` (API clients, tests). A request
+authenticated by the cookie that is not GET/HEAD/OPTIONS must carry `X-Requested-With` -- a page on
+another origin cannot add a custom header without a CORS preflight -- so every frontend request goes
+through `withSession()` in `app/lib/api.ts`. Cookies need the frontend and API on the same site
+(ports do not matter: `localhost:3000` → `localhost:8000` works); a cross-site deployment would need
+`SameSite=None` and a real CSRF token.
+
+Failed logins are throttled per account and client address (`login_throttle`: 5 per 15 minutes,
+then 429 with `Retry-After`), process-locally like the voice sessions. Per account alone would let
+anyone lock a professor out; only accounts that exist are counted and the table is capped, so
+made-up emails cannot grow it. Behind a reverse proxy every client shares one address. The cookie is
+`Secure` whenever `APP_ENV` is not `local`, so a non-local deployment must be served over HTTPS. `python -m app.db.seed` refuses the demo
+`SEED_PASSWORD` outside `APP_ENV=local`.
 
 ## Configuration
 
