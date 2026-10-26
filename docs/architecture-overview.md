@@ -104,8 +104,8 @@ latex 필수, flow는 라벨 2개 이상, plot은 점 2개 이상).
 ```
 업로드
   ↓  MaterialProcessingService.process_material   ← 상태 락으로 중복 처리 차단
-  ↓  DocumentParserService     TXT/PDF/DOCX/PPTX → 페이지별 텍스트 (제어문자 제거)
-  ↓  ChunkingService           문단 우선 분할, 짧은 청크 병합, 오버랩
+  ↓  parse_material            TXT/PDF/DOCX/PPTX → 페이지별 텍스트 (제어문자 제거)
+  ↓  create_chunks             문단 우선 분할, 짧은 청크 병합, 오버랩
   ↓  EmbeddingService          local hash (기본) 또는 실제 임베딩 모델
   ↓  VectorStoreService        replace_material_chunks (재처리 시 기존 청크 교체)
 검색
@@ -126,9 +126,8 @@ PDF·PPTX 추출은 NUL(0x00)을 포함한 C0 제어문자를 흘립니다. Post
 NUL을 거부해 청크 INSERT 전체가 실패하므로, 모든 포맷이 합류하는 파서 지점에서
 한 번에 제거합니다 (`app/services/document_parser.py`의 `sanitize_text`).
 
-> `app/services/document_parser_service.py`는 같은 역할의 **구버전 중복 모듈**입니다.
-> 파이프라인은 쓰지 않고 오래된 테스트만 import합니다. 파서를 고칠 때는
-> `document_parser.py`를 고쳐야 합니다.
+> 파서는 `document_parser.py` 하나뿐입니다. 예전 중복 모듈(`document_parser_service.py`)은
+> 삭제되었습니다.
 
 ## 5. SAFE 가드레일
 

@@ -6,25 +6,21 @@ from pptx import Presentation
 from pptx.util import Inches
 from pypdf import PdfWriter
 
-from app.models import CourseMaterial, CourseMaterialStatus
-from app.services.chunking_service import ParagraphChunkingService
-from app.services.document_parser_service import (
-    DocumentParsingError,
-    FileDocumentParserService,
+from app.services.chunking_service import create_chunks
+from app.services.document_parser import (
+    EmptyDocumentError,
+    MaterialFileNotFoundError,
+    UnsupportedDocumentTypeError,
+    parse_material,
 )
 
 
-def material(path: Path, file_type: str) -> CourseMaterial:
-    return CourseMaterial(
-        id="material-1",
+def parse(path: Path):
+    return parse_material(
+        material_id="material-1",
         course_id="course-1",
-        uploaded_by="professor-1",
-        file_name=path.name,
-        original_file_name=f"lecture.{file_type}",
-        file_type=file_type,
-        file_size=path.stat().st_size if path.exists() else 0,
-        storage_path=str(path),
-        processing_status=CourseMaterialStatus.pending,
+        title=f"lecture{path.suffix}",
+        storage_path=path,
     )
 
 
@@ -66,13 +62,13 @@ def test_txt_parser_preserves_korean_text(tmp_path: Path, encoding: str) -> None
     path = tmp_path / "lecture.txt"
     path.write_bytes("경사하강법 강의".encode(encoding))
 
-    parsed = FileDocumentParserService().parse(material(path, "txt"))
+    parsed = parse(path)
 
     assert parsed.material_id == "material-1"
     assert parsed.course_id == "course-1"
     assert parsed.title == "lecture.txt"
     assert parsed.full_text == "경사하강법 강의"
-    assert parsed.pages[0].page_number is None
+    assert parsed.pages[0].page_number == 1
     assert parsed.pages[0].text == parsed.full_text
 
 
@@ -80,7 +76,7 @@ def test_pdf_parser_preserves_page_number(tmp_path: Path) -> None:
     path = tmp_path / "lecture.pdf"
     path.write_bytes(text_pdf("Gradient descent lecture"))
 
-    parsed = FileDocumentParserService().parse(material(path, "pdf"))
+    parsed = parse(path)
 
     assert parsed.full_text == "Gradient descent lecture"
     assert [(page.page_number, page.text) for page in parsed.pages] == [
@@ -92,8 +88,8 @@ def test_long_pdf_text_splits_without_losing_page_number(tmp_path: Path) -> None
     path = tmp_path / "long-lecture.pdf"
     path.write_bytes(text_pdf("A" * 2200))
 
-    parsed = FileDocumentParserService().parse(material(path, "pdf"))
-    chunks = ParagraphChunkingService().create_chunks(parsed)
+    parsed = parse(path)
+    chunks = create_chunks(parsed)
 
     assert [chunk.char_count for chunk in chunks] == [1000, 1000, 500]
     assert all(chunk.page_number == 1 for chunk in chunks)
@@ -106,7 +102,7 @@ def test_docx_parser_extracts_paragraphs(tmp_path: Path) -> None:
     document.add_paragraph("두 번째 문단")
     document.save(path)
 
-    parsed = FileDocumentParserService().parse(material(path, "docx"))
+    parsed = parse(path)
 
     assert parsed.full_text == "첫 번째 문단\n\n두 번째 문단"
     assert parsed.pages[0].page_number is None
@@ -120,7 +116,7 @@ def test_pptx_parser_uses_slide_numbers(tmp_path: Path) -> None:
         slide.shapes.add_textbox(Inches(1), Inches(1), Inches(5), Inches(1)).text = text
     presentation.save(path)
 
-    parsed = FileDocumentParserService().parse(material(path, "pptx"))
+    parsed = parse(path)
 
     assert parsed.full_text == "첫 슬라이드\n\n둘째 슬라이드"
     assert [page.page_number for page in parsed.pages] == [1, 2]
@@ -133,11 +129,9 @@ def test_blank_pdf_reports_text_extraction_failure(tmp_path: Path) -> None:
     with path.open("wb") as destination:
         writer.write(destination)
 
-    with pytest.raises(
-        DocumentParsingError,
-        match="DOCUMENT_TEXT_EMPTY: 텍스트를 추출할 수 없습니다",
-    ):
-        FileDocumentParserService().parse(material(path, "pdf"))
+    with pytest.raises(EmptyDocumentError) as error:
+        parse(path)
+    assert error.value.code == "DOCUMENT_TEXT_NOT_FOUND"
 
 
 def test_missing_and_unsupported_files_have_stable_error_codes(tmp_path: Path) -> None:
@@ -145,7 +139,9 @@ def test_missing_and_unsupported_files_have_stable_error_codes(tmp_path: Path) -
     unsupported = tmp_path / "lecture.hwp"
     unsupported.write_bytes(b"hwp")
 
-    with pytest.raises(DocumentParsingError, match="MATERIAL_FILE_NOT_FOUND"):
-        FileDocumentParserService().parse(material(missing, "txt"))
-    with pytest.raises(DocumentParsingError, match="DOCUMENT_UNSUPPORTED_TYPE"):
-        FileDocumentParserService().parse(material(unsupported, "hwp"))
+    with pytest.raises(MaterialFileNotFoundError) as missing_error:
+        parse(missing)
+    with pytest.raises(UnsupportedDocumentTypeError) as unsupported_error:
+        parse(unsupported)
+    assert missing_error.value.code == "MATERIAL_FILE_NOT_FOUND"
+    assert unsupported_error.value.code == "DOCUMENT_UNSUPPORTED_TYPE"

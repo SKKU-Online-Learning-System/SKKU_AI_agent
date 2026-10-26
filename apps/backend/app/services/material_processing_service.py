@@ -9,7 +9,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
+from typing import Callable, Optional
 
 from sqlalchemy import select, update
 from sqlalchemy.orm import Session
@@ -17,8 +17,7 @@ from sqlalchemy.orm import Session
 from app.core.config import Settings, get_settings
 from app.models import CourseMaterial, CourseMaterialStatus
 from app.services.chunking_service import DocumentChunkInput, create_chunks
-from app.services.document_parser import DocumentParseError, parse_material
-from app.services.document_parser_service import DocumentParserService
+from app.services.document_parser import DocumentParseError, ParsedDocument, parse_material
 from app.services.document_rendering import image_data_url, render_pages
 from app.services.embedding_service import EmbeddingError, EmbeddingService
 from app.services.llm_service import LLMService
@@ -74,7 +73,7 @@ class MaterialProcessingService:
         settings: Settings | None = None,
         embedding_service: Optional[EmbeddingService] = None,
         vector_store: Optional[VectorStoreService] = None,
-        parser: Optional[DocumentParserService] = None,
+        parser: Optional[Callable[[CourseMaterial], ParsedDocument]] = None,
     ) -> None:
         self.session = session
         self.settings = settings or get_settings()
@@ -164,7 +163,7 @@ class MaterialProcessingService:
                 ))
                 embeddings.append(self.embedding_service.embed_image(image_url))
         else:
-            document = self.parser.parse(material) if self.parser else parse_material(
+            document = self.parser(material) if self.parser else parse_material(
                 material_id=material.id, course_id=material.course_id,
                 title=material.original_file_name, storage_path=material.storage_path,
             )

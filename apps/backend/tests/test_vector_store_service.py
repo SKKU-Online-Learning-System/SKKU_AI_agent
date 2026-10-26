@@ -15,12 +15,10 @@ from app.models import (
     User,
     UserRole,
 )
-from app.services.vector_store_service import (
-    SQLAlchemyLocalVectorStoreService,
-    VectorSearchError,
-    cosine_similarity,
-    create_vector_store_service,
-)
+from app.services.chunking_service import DocumentChunkInput
+from app.services.vector_store_service import VectorStoreService, cosine_similarity
+
+LOCAL = Settings(vector_search_mode="local", rag_max_top_k=20)
 
 
 @pytest.fixture
@@ -121,8 +119,8 @@ def test_local_search_filters_course_embedding_threshold_and_top_k(
     vector_db: tuple[Session, dict[str, str]],
 ) -> None:
     session, ids = vector_db
-    service = SQLAlchemyLocalVectorStoreService(session, score_threshold=0.3)
-    service.upsert_chunks(
+    service = VectorStoreService(session, LOCAL)
+    session.add_all(
         [
             chunk(
                 chunk_id="exact",
@@ -141,10 +139,18 @@ def test_local_search_filters_course_embedding_threshold_and_top_k(
                 embedding=[0.8, 0.6],
             ),
             chunk(
-                chunk_id="missing",
+                chunk_id="far",
                 course_id=ids["first_course"],
                 material_id=ids["first_material"],
                 chunk_index=2,
+                text="below threshold",
+                embedding=[0.0, 1.0],
+            ),
+            chunk(
+                chunk_id="missing",
+                course_id=ids["first_course"],
+                material_id=ids["first_material"],
+                chunk_index=3,
                 text="missing embedding",
                 embedding=None,
             ),
@@ -152,7 +158,7 @@ def test_local_search_filters_course_embedding_threshold_and_top_k(
                 chunk_id="wrong-dimension",
                 course_id=ids["first_course"],
                 material_id=ids["first_material"],
-                chunk_index=3,
+                chunk_index=4,
                 text="wrong dimension",
                 embedding=[1.0, 0.0, 0.0],
             ),
@@ -176,10 +182,7 @@ def test_local_search_filters_course_embedding_threshold_and_top_k(
     )
     session.commit()
 
-    results = service.search_similar_chunks(
-        ids["first_course"],
-        [1.0, 0.0],
-    )
+    results = service.search_similar_chunks(ids["first_course"], [1.0, 0.0], score_threshold=0.3)
 
     assert [result.chunk_id for result in results] == ["exact", "near"]
     assert [result.score for result in results] == pytest.approx([1.0, 0.8])
@@ -194,66 +197,72 @@ def test_local_search_filters_course_embedding_threshold_and_top_k(
     )[0].chunk_id == "exact"
 
 
-def test_threshold_upsert_and_delete_are_repository_scoped(
+def test_replace_and_delete_are_scoped_to_one_material(
     vector_db: tuple[Session, dict[str, str]],
 ) -> None:
     session, ids = vector_db
-    service = SQLAlchemyLocalVectorStoreService(session, score_threshold=0.9)
-    original = chunk(
-        chunk_id="replace-me",
-        course_id=ids["first_course"],
-        material_id=ids["first_material"],
-        chunk_index=0,
-        text="old text",
-        embedding=[1.0, 0.0],
-    )
-    other = chunk(
-        chunk_id="keep-me",
-        course_id=ids["second_course"],
-        material_id=ids["second_material"],
-        chunk_index=0,
-        text="other material",
-        embedding=[1.0, 0.0],
-    )
-    service.upsert_chunks([original, other])
-    session.commit()
-    replacement = chunk(
-        chunk_id="replace-me",
-        course_id=ids["first_course"],
-        material_id=ids["first_material"],
-        chunk_index=0,
-        text="new text",
-        embedding=[0.8, 0.6],
-    )
-    service.upsert_chunks([replacement])
+    service = VectorStoreService(session, LOCAL)
+
+    def store(material: str, course: str, text: str) -> None:
+        service.replace_material_chunks(
+            course_id=ids[course],
+            material_id=ids[material],
+            chunks=[
+                DocumentChunkInput(
+                    chunk_index=0,
+                    chunk_text=text,
+                    page_number=1,
+                    section_title=None,
+                    char_count=len(text),
+                )
+            ],
+            embeddings=[[1.0, 0.0]],
+            embedding_model="test-model",
+        )
+
+    store("first_material", "first_course", "old text")
+    store("second_material", "second_course", "other material")
+    store("first_material", "first_course", "new text")
     session.commit()
 
-    assert service.search_similar_chunks(
-        ids["first_course"],
-        [1.0, 0.0],
-    ) == []
-    assert session.get(DocumentChunk, "replace-me").chunk_text == "new text"
+    assert [r.chunk_text for r in service.search_similar_chunks(ids["first_course"], [1.0, 0.0])] == [
+        "new text"
+    ]
 
     service.delete_chunks_by_material(ids["first_material"])
     session.commit()
 
-    assert session.get(DocumentChunk, "replace-me") is None
-    assert session.get(DocumentChunk, "keep-me") is not None
+    assert service.count_material_chunks(ids["first_material"]) == 0
+    assert service.count_material_chunks(ids["second_material"]) == 1
 
 
-@pytest.mark.parametrize("top_k", [0, 21])
-def test_top_k_is_bounded(
+@pytest.mark.parametrize(("top_k", "expected"), [(0, 1), (99, 2)])
+def test_top_k_is_clamped(
     vector_db: tuple[Session, dict[str, str]],
     top_k: int,
+    expected: int,
 ) -> None:
     session, ids = vector_db
+    session.add_all(
+        [
+            chunk(
+                chunk_id=f"c{index}",
+                course_id=ids["first_course"],
+                material_id=ids["first_material"],
+                chunk_index=index,
+                text=f"chunk {index}",
+                embedding=[1.0],
+            )
+            for index in range(2)
+        ]
+    )
+    session.commit()
 
-    with pytest.raises(VectorSearchError, match="VECTOR_TOP_K_INVALID"):
-        SQLAlchemyLocalVectorStoreService(session).search_similar_chunks(
-            ids["first_course"],
-            [1.0],
-            top_k=top_k,
-        )
+    results = VectorStoreService(session, LOCAL).search_similar_chunks(
+        ids["first_course"], [1.0], top_k=top_k
+    )
+
+    assert len(results) == expected
 
 
 def test_cosine_similarity_handles_normal_and_zero_vectors() -> None:
@@ -263,23 +272,12 @@ def test_cosine_similarity_handles_normal_and_zero_vectors() -> None:
     assert cosine_similarity([1.0], [1.0, 0.0]) == 0.0
 
 
-def test_factory_selects_local_and_rejects_unavailable_pgvector(
+def test_pgvector_mode_is_reported_as_unimplemented(
     vector_db: tuple[Session, dict[str, str]],
 ) -> None:
-    session, _ = vector_db
+    session, ids = vector_db
 
-    local = create_vector_store_service(
-        session,
-        Settings(
-            vector_search_mode="local",
-            rag_top_k=3,
-            rag_score_threshold=0.4,
-        ),
-    )
-
-    assert isinstance(local, SQLAlchemyLocalVectorStoreService)
-    with pytest.raises(VectorSearchError, match="VECTOR_SEARCH_MODE_UNAVAILABLE"):
-        create_vector_store_service(
-            session,
-            Settings(vector_search_mode="pgvector"),
+    with pytest.raises(NotImplementedError):
+        VectorStoreService(session, Settings(vector_search_mode="pgvector")).search_similar_chunks(
+            ids["first_course"], [1.0]
         )
