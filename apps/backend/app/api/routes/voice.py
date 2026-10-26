@@ -31,6 +31,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.api.deps import (
+    ACCESS_TOKEN_COOKIE,
     authorize_course_access,
     authorize_course_manage_permission,
     get_current_user,
@@ -53,7 +54,6 @@ from app.services.voice.brain import (
     StageTimer,
     VoiceContext,
     attachment_query,
-    emit_step,
     last_assistant_turn,
     prefetch_memory_context,
     think,
@@ -64,7 +64,14 @@ from app.services.voice.factory import (
     uses_grok,
 )
 from app.services.voice.filler import pick_filler
-from app.services.voice.session_store import external_brain_for, get_context, reset_context
+from app.services.voice.session_store import (
+    external_brain_for,
+    get_context,
+    pin_context,
+    reset_context,
+    unpin_context,
+)
+from app.services.voice.trace import emit_step
 from app.services.voice.turn_detector import FRAME_BYTES
 from app.services.voice.transport import (
     AgentAudio,
@@ -721,6 +728,13 @@ async def voice_stream(websocket: WebSocket, course_id: str) -> None:
     """Relay 20 ms PCM frames through the configured provider-neutral transport."""
     await websocket.accept()
     token = websocket.query_params.get("token", "")
+    if not token:
+        # The browser authenticates with its cookie. A cookie rides along on a
+        # socket opened by any same-site page, so only our own origins may use it.
+        token = websocket.cookies.get(ACCESS_TOKEN_COOKIE, "")
+        if websocket.headers.get("origin") not in get_settings().cors_origins:
+            await websocket.close(code=status.WS_1008_POLICY_VIOLATION, reason="origin not allowed")
+            return
     try:
         user, course = _authenticate_socket(token, course_id)
     except InvalidAccessTokenError:
@@ -761,6 +775,7 @@ async def voice_stream(websocket: WebSocket, course_id: str) -> None:
         try:
             memory_context = await asyncio.wait_for(prefetch_memory_context(context), timeout=3)
         except Exception:
+            log.warning("learner memory prefetch failed; starting without it", exc_info=True)
             memory_context = {"found": False}
 
         async def refresh_instructions() -> str:
@@ -781,6 +796,7 @@ async def voice_stream(websocket: WebSocket, course_id: str) -> None:
         }
     transport = create_voice_transport(context=context, settings=settings, **provider_wiring)
     reader: asyncio.Task[None] | None = None
+    pin_context(user.id, course.id)
     try:
         await transport.start()
         reader = asyncio.create_task(
@@ -796,6 +812,7 @@ async def voice_stream(websocket: WebSocket, course_id: str) -> None:
         log.exception("realtime voice failed provider=%s", transport.name)
         await _try_send(websocket, {"type": "error", "message": VOICE_UNAVAILABLE_MESSAGE})
     finally:
+        unpin_context(user.id, course.id)
         if reader is not None:
             reader.cancel()
             await asyncio.gather(reader, return_exceptions=True)
@@ -1115,4 +1132,5 @@ async def _try_send(websocket: WebSocket, payload: dict) -> None:
     try:
         await websocket.send_json(payload)
     except Exception:
+        # The socket is already gone; there is nobody left to tell.
         pass

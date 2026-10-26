@@ -49,6 +49,10 @@ class ExternalBrain:
         self._tasks: set[asyncio.Task[None]] = set()
         self._lock = asyncio.Lock()
 
+    @property
+    def busy(self) -> bool:
+        return bool(self._tasks)
+
     def schedule(self, conversation: list[dict], *, source: str) -> asyncio.Task[None] | None:
         if not conversation:
             return None
