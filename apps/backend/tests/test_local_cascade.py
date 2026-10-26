@@ -637,7 +637,9 @@ async def test_reported_tts_time_excludes_the_llm_wait() -> None:
 
     metrics = recorded[-1]
     assert metrics["status"] == "ok"
-    assert metrics["llm_total_ms"] >= 200
+    # The event loop's clock ticks every ~16 ms on Windows, so a 0.2 s sleep can
+    # measure a few ms short on perf_counter.
+    assert metrics["llm_total_ms"] >= 180
     assert metrics["tts_ms"] < 100
     assert metrics["total_turn_ms"] >= metrics["llm_total_ms"] + metrics["tts_ms"]
     await transport.close()
