@@ -27,11 +27,11 @@ from app.services.safety_service import NORMAL_RESULT, SafetyGuardService, Safet
 from app.services.voice.brain import (
     StageTimer,
     VoiceContext,
-    for_speech,
     last_assistant_turn,
 )
 from app.services.voice.filler import pick_filler
 from app.services.voice.local_brain import VoiceBrainResult, think_voice
+from app.services.voice.speech_text import for_speech
 from app.services.voice.transport import (
     AgentAudio,
     AgentFiller,

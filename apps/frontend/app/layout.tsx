@@ -2,6 +2,9 @@ import type { Metadata } from "next";
 import Script from "next/script";
 import { AuthProvider } from "./components/auth/auth-provider";
 import "./globals.css";
+import "./shell.css";
+import "./pages.css";
+import "./statistics.css";
 import "./course-agent.css";
 
 export const metadata: Metadata = {
