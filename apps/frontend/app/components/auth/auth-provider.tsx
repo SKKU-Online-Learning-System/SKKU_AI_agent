@@ -10,16 +10,13 @@ import {
 } from "react";
 import type { AuthStatus, AuthUser } from "../../lib/auth";
 import {
-  ApiError,
-  clearAccessToken,
   fetchCurrentUser,
+  forgetLegacyAccessToken,
   loginRequest,
-  readAccessToken,
-  saveAccessToken
+  logoutRequest
 } from "../../lib/api";
 
 type AuthContextValue = {
-  accessToken: string | null;
   login: (email: string, password: string) => Promise<AuthUser>;
   logout: () => void;
   refresh: () => Promise<void>;
@@ -32,33 +29,22 @@ const AuthContext = createContext<AuthContextValue | null>(null);
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [status, setStatus] = useState<AuthStatus>("loading");
   const [user, setUser] = useState<AuthUser | null>(null);
-  const [accessToken, setAccessToken] = useState<string | null>(null);
 
   const setUnauthenticated = useCallback(() => {
-    clearAccessToken();
-    setAccessToken(null);
     setUser(null);
     setStatus("unauthenticated");
   }, []);
 
+  // The session cookie is httpOnly, so the only way to know whether there is one
+  // is to ask the API whose it is.
   const refresh = useCallback(async () => {
-    const storedToken = readAccessToken();
-    if (!storedToken) {
-      setUnauthenticated();
-      return;
-    }
-
+    forgetLegacyAccessToken();
     setStatus("loading");
     try {
-      const currentUser = await fetchCurrentUser(storedToken);
-      setAccessToken(storedToken);
+      const currentUser = await fetchCurrentUser();
       setUser(currentUser);
       setStatus("authenticated");
-    } catch (error) {
-      if (error instanceof ApiError && error.status === 401) {
-        setUnauthenticated();
-        return;
-      }
+    } catch {
       setUnauthenticated();
     }
   }, [setUnauthenticated]);
@@ -75,8 +61,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setStatus("loading");
     try {
       const response = await loginRequest(email, password);
-      saveAccessToken(response.access_token);
-      setAccessToken(response.access_token);
       setUser(response.user);
       setStatus("authenticated");
       return response.user;
@@ -88,18 +72,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const logout = useCallback(() => {
     setUnauthenticated();
+    // Best effort: a cookie the API never cleared still expires on its own.
+    void logoutRequest().catch(() => undefined);
   }, [setUnauthenticated]);
 
   const value = useMemo<AuthContextValue>(
     () => ({
-      accessToken,
       login,
       logout,
       refresh,
       status,
       user
     }),
-    [accessToken, login, logout, refresh, status, user]
+    [login, logout, refresh, status, user]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

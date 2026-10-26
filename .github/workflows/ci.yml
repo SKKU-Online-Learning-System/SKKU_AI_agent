@@ -1,9 +1,10 @@
-name: Local Qwen migration CI
+name: CI
 
 on:
   push:
     branches:
-      - feature/local-qwen-model-server
+      - main
+  pull_request:
   workflow_dispatch:
 
 permissions:

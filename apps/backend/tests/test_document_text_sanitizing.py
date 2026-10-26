@@ -1,7 +1,7 @@
 """Extracted text must be storable: PostgreSQL rejects NUL in text columns.
 
 These target `app.services.document_parser`, the module the processing pipeline
-actually calls. `document_parser_service` is an older, unused duplicate.
+calls.
 """
 
 from __future__ import annotations

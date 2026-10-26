@@ -139,10 +139,22 @@ def seed_database(session: Session, password: str) -> SeedSummary:
     )
 
 
+# The documented demo password: fine on a laptop, a public login anywhere else.
+DEMO_PASSWORDS = frozenset({"password123"})
+
+
 def main() -> int:
-    password = get_settings().seed_password
+    settings = get_settings()
+    password = settings.seed_password
     if not password:
         print("Seed failed. Set SEED_PASSWORD in .env.", file=sys.stderr)
+        return 1
+    if settings.app_env != "local" and (password in DEMO_PASSWORDS or len(password) < 12):
+        print(
+            "Seed failed. SEED_PASSWORD must be a unique password of at least 12 characters "
+            "when APP_ENV is not local.",
+            file=sys.stderr,
+        )
         return 1
     with SessionLocal() as session:
         try:

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Annotated, NoReturn, Optional, Sequence, Union
 
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.orm import Session
 
@@ -21,6 +21,15 @@ from app.services.rbac_service import (
 
 bearer_scheme = HTTPBearer(auto_error=False)
 bearer_headers = {"WWW-Authenticate": "Bearer"}
+
+# The browser keeps the access token in an httpOnly cookie, out of reach of page
+# scripts. Bearer headers still work for API clients and tests.
+ACCESS_TOKEN_COOKIE = "skku_access_token"
+# A cookie rides along on any same-site request, so an unsafe request
+# authenticated by it must also carry this header: a cross-origin page cannot
+# add a custom header without a CORS preflight, which only our origins pass.
+CSRF_HEADER = "X-Requested-With"
+SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
 RoleDependencyInput = Union[UserRole, str, Sequence[Union[UserRole, str]]]
 
 
@@ -50,6 +59,7 @@ def raise_invalid_access_token() -> NoReturn:
 
 
 def get_current_user(
+    request: Request,
     credentials: Annotated[
         Optional[HTTPAuthorizationCredentials],
         Depends(bearer_scheme),
@@ -57,11 +67,17 @@ def get_current_user(
     session: Annotated[Session, Depends(get_db)],
     jwt_service: Annotated[JWTService, Depends(get_jwt_service)],
 ) -> User:
-    if credentials is None:
-        raise_invalid_access_token()
+    if credentials is not None:
+        token = credentials.credentials
+    else:
+        token = request.cookies.get(ACCESS_TOKEN_COOKIE)
+        if not token:
+            raise_invalid_access_token()
+        if request.method not in SAFE_METHODS and not request.headers.get(CSRF_HEADER):
+            raise_forbidden("Missing CSRF header")
 
     try:
-        user_id = jwt_service.decode_access_token(credentials.credentials)
+        user_id = jwt_service.decode_access_token(token)
     except InvalidAccessTokenError:
         raise_invalid_access_token()
 

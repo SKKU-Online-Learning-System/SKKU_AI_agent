@@ -480,3 +480,37 @@ def test_weak_concept_list_denies_an_inaccessible_course(chat_api) -> None:
     )
 
     assert response.status_code == 403
+
+
+@pytest.mark.parametrize(("origin", "accepted"), [("http://localhost:3000", True), ("https://evil.example", False)])
+def test_voice_stream_takes_the_cookie_only_from_our_origin(
+    chat_api, monkeypatch, origin: str, accepted: bool
+) -> None:
+    """A cookie rides along on a socket any same-site page opens; the origin decides."""
+    from app.api.deps import ACCESS_TOKEN_COOKIE
+
+    async def events():
+        if False:
+            yield
+
+    monkeypatch.setattr(voice_routes, "SessionLocal", chat_api.session_factory)
+    monkeypatch.setattr(
+        voice_routes, "get_voice_availability", lambda _: SimpleNamespace(enabled=True),
+    )
+    monkeypatch.setattr(
+        voice_routes,
+        "create_voice_transport",
+        lambda **_: SimpleNamespace(name="test", start=AsyncMock(), close=AsyncMock(), events=events),
+    )
+    chat_api.client.cookies.set(ACCESS_TOKEN_COOKIE, chat_api.tokens["student"])
+    try:
+        with chat_api.client.websocket_connect(
+            f"/api/voice/courses/{chat_api.courses['ai']}/stream", headers={"origin": origin}
+        ) as socket:
+            if accepted:
+                assert socket.receive_json()["type"] == "ready"
+            else:
+                with pytest.raises(WebSocketDisconnect):
+                    socket.receive_json()
+    finally:
+        chat_api.client.cookies.clear()

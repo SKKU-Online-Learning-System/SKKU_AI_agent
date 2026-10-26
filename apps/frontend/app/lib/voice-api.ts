@@ -1,4 +1,4 @@
-import { ApiError, apiConnectionErrorMessage, apiRequest, readAccessToken } from "./api";
+import { ApiError, apiConnectionErrorMessage, apiRequest, withSession } from "./api";
 
 export type VoiceMode = "socratic";
 
@@ -193,13 +193,11 @@ export function removeVoiceTrustedSite(
   });
 }
 
-/** WebSocket URL for the hands-free voice session; the JWT rides the query string. */
+/** WebSocket URL for the hands-free voice session; the session cookie authenticates it. */
 export function voiceStreamUrl(courseId: string, sessionId?: string | null): string {
   const base = apiBaseUrl().replace(/^http/, "ws");
-  const token = readAccessToken() ?? "";
-  const params = new URLSearchParams({ token });
-  if (sessionId) params.set("chat_session_id", sessionId);
-  return `${base}/api/voice/courses/${courseId}/stream?${params}`;
+  const query = sessionId ? `?${new URLSearchParams({ chat_session_id: sessionId })}` : "";
+  return `${base}/api/voice/courses/${courseId}/stream${query}`;
 }
 
 /** Upload one image or PDF for the learner's next typed question. */
@@ -225,12 +223,9 @@ export function deleteVoiceAttachment(courseId: string, attachmentId: string): P
 }
 
 export async function fetchVoicePdfUrl(courseId: string, materialId: string): Promise<string> {
-  const token = readAccessToken();
-  const headers = new Headers();
-  if (token) headers.set("Authorization", `Bearer ${token}`);
   const response = await fetch(
     `${apiBaseUrl()}/api/courses/${courseId}/materials/${materialId}/content`,
-    { headers }
+    withSession()
   );
   if (!response.ok) {
     throw new ApiError(response.status, "PDF 페이지를 불러오지 못했습니다.");
@@ -249,17 +244,16 @@ export async function streamVoiceAnswer(
   handlers: VoiceStreamHandlers
 ): Promise<VoiceAnswer> {
   const { onToken, onStatus, onStep, onThinking, onThought, onRewind } = handlers;
-  const token = readAccessToken();
-  const headers = new Headers({ "Content-Type": "application/json" });
-  if (token) headers.set("Authorization", `Bearer ${token}`);
-
   let response: Response;
   try {
-    response = await fetch(`${apiBaseUrl()}/api/voice/courses/${courseId}/answer-text/stream`, {
-      body: JSON.stringify(payload),
-      headers,
-      method: "POST"
-    });
+    response = await fetch(
+      `${apiBaseUrl()}/api/voice/courses/${courseId}/answer-text/stream`,
+      withSession({
+        body: JSON.stringify(payload),
+        headers: { "Content-Type": "application/json" },
+        method: "POST"
+      })
+    );
   } catch {
     throw new ApiError(0, apiConnectionErrorMessage);
   }

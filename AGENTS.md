@@ -22,7 +22,7 @@ Realtime speech orchestration must stay behind the `Transport` boundary. The def
 
 The application repository must never load Qwen weights or add CUDA/vLLM/qwen-asr/qwen-tts runtimes. GPU inference belongs to `SKKU_AI_model_server`. CPU-only dependencies needed for orchestration, such as Silero VAD, are allowed and must not resolve CUDA PyTorch wheels. Trusted web search is application-owned through self-hosted SearXNG and professor-managed allowlists; every returned URL must be revalidated locally before use.
 
-COURSE AGENT is bound by the same RBAC, SAFE, course-scoped RAG, citation and ChatLog rules as typed chat. WebSocket clients authenticate with the same JWT passed as a `token` query parameter. Students ask questions only through COURSE AGENT; do not reintroduce a separate "AI 질문" menu or course tab. 대화 이력 links back into COURSE AGENT with `?sessionId=`, and the backend rehydrates that conversation into the agent session before answering.
+COURSE AGENT is bound by the same RBAC, SAFE, course-scoped RAG, citation and ChatLog rules as typed chat. Browsers authenticate with the httpOnly session cookie (WebSocket included, origin-checked); non-browser clients may pass the JWT as a Bearer header or, on the WebSocket, a `token` query parameter. Students ask questions only through COURSE AGENT; do not reintroduce a separate "AI 질문" menu or course tab. 대화 이력 links back into COURSE AGENT with `?sessionId=`, and the backend rehydrates that conversation into the agent session before answering.
 
 ## Build, Test, and Development Commands
 

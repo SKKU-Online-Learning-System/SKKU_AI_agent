@@ -156,7 +156,7 @@ def _run_processing(
     except MaterialProcessingError as exc:
         session.refresh(material)
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=f"{exc.code}: {exc}",
         ) from exc
 

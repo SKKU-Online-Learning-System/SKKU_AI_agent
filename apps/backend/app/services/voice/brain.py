@@ -40,10 +40,20 @@ from app.services.llm_service import (
     ToolTurn,
 )
 from app.services.voice import attachments as attachments_module
-from app.services.voice import pronounce
 from app.services.voice.attachments import AttachmentContent
 from app.services.voice.moss_memory import MossMemoryStore
 from app.services.voice.thoughts import ThoughtSummarizer
+from app.services.voice.speech_text import for_speech
+from app.services.voice.trace import (
+    NO_QUERY_ERROR,
+    TOOL_RUNNING_LABELS,
+    TurnEventSink,
+    emit_rewind,
+    emit_step,
+    timing_detail,
+    tool_running_detail,
+    tool_step_labels,
+)
 from app.services.voice.storage import voice_storage_dir
 from app.services.voice.trusted_sites import get_trusted_domains
 
@@ -109,147 +119,6 @@ class StageTimer:
         ms = round((time.perf_counter() - started_at) * 1000)
         self.timings_ms[name] = ms
         log.info("stage %-5s %5d ms", name, ms)
-
-
-# --------------------------------------------------------------------------
-# Turn trace: what the agent is doing, shown to the student while it works.
-# --------------------------------------------------------------------------
-
-TurnEventSink = Callable[[dict], Awaitable[None]]
-StepState = Literal["running", "done", "failed"]
-
-TOOL_RUNNING_LABELS = {
-    "search_trusted_web": "신뢰할 수 있는 웹을 검색하는 중",
-    "show_visualization": "시각 자료를 그리는 중",
-    "search_course_materials": "강의자료를 검색하는 중",
-    "recall_weak_concepts": "이전에 어려워했던 개념을 떠올리는 중",
-    "save_weak_concept": "취약 개념을 기록하는 중",
-    "review_weak_concept": "복습 결과를 기록하는 중",
-}
-
-
-async def emit_step(
-    on_event: TurnEventSink | None,
-    key: str,
-    state: StepState,
-    label: str,
-    *,
-    detail: str = "",
-    stage: str = "",
-    started_at: float | None = None,
-) -> None:
-    """Send one trace step to the UI, if anyone is listening.
-
-    A step is addressed by ``key``: the first event with a key adds the line,
-    later ones with the same key update it, so "searching…" becomes "found 3"
-    in place. ``label`` is the sentence the student reads; ``detail`` is the
-    smaller line under it (a query, filenames). Both are composed here, never by
-    the model, so nothing unreviewed reaches the screen before the answer.
-    """
-    if on_event is None:
-        return
-    event: dict = {
-        "type": "step",
-        "key": key,
-        "stage": stage or key,
-        "state": state,
-        "label": label,
-    }
-    if detail:
-        event["detail"] = detail[:200]
-    if started_at is not None:
-        event["elapsed_ms"] = round((time.perf_counter() - started_at) * 1000)
-    await on_event(event)
-
-
-NO_QUERY_ERROR = "a focused course-material search query is required"
-
-
-async def emit_rewind(on_event: TurnEventSink | None) -> None:
-    """Tell the UI that the answer text streamed so far is not the answer.
-
-    Sent when a draft is discarded -- a regenerated repeat, or a turn retried
-    with thinking off after truncation -- so the next tokens replace it instead
-    of being appended to it.
-    """
-    if on_event is not None:
-        await on_event({"type": "rewind"})
-
-
-def _tool_step_labels(name: str, args: dict, result: dict) -> tuple[str, str, StepState]:
-    """(label, detail, state) for a finished tool call, from its result alone.
-
-    A failure's ``error`` is written for the model (which gets the tool result
-    verbatim), not for the student: it can be a Python exception message or an
-    HTTP error. Only the few server-composed cases get a Korean detail; anything
-    else leaves the detail empty, so exception text never reaches the screen.
-    """
-    if "error" in result:
-        error = str(result.get("error", ""))
-        failed = {
-            "search_trusted_web": "웹 검색에서 근거를 찾지 못했어요",
-            "show_visualization": "시각 자료를 표시하지 못했어요",
-        }.get(name, "도구 실행에 실패했어요")
-        if "no citable sources" in error:
-            detail = "인용할 수 있는 출처가 없었어요"
-        elif error.startswith("invalid ") or error.endswith("is required"):
-            detail = "도구 인자가 올바르지 않았어요"
-        else:
-            detail = ""
-        return failed, detail, "failed"
-    if name == "search_trusted_web":
-        sources = result.get("sources") or []
-        hosts = []
-        for url in sources[:3]:
-            host = re.sub(r"^https?://(www\.)?", "", str(url)).split("/", 1)[0]
-            if host and host not in hosts:
-                hosts.append(host)
-        return f"웹 출처 {len(sources)}개를 찾았어요", ", ".join(hosts), "done"
-    if name == "show_visualization":
-        # Object particle included: 수식을, but 흐름도를.
-        kind = {
-            "formula": "수식을", "flow": "흐름도를", "plot": "그래프를", "pdf": "자료 페이지를",
-        }.get(str(result.get("kind")), "시각 자료를")
-        return f"{kind} 준비했어요", str(result.get("title", ""))[:80], "done"
-    if name == "search_course_materials":
-        results = result.get("results") or []
-        return (
-            f"강의자료 {len(results)}곳을 찾았어요" if results else "관련 강의자료를 찾지 못했어요",
-            ", ".join(str(item.get("source", "")) for item in results[:3]),
-            "done",
-        )
-    if name == "recall_weak_concepts":
-        memories = result.get("memories") or []
-        return (
-            f"취약 개념 {len(memories)}개를 참고해요" if memories else "참고할 취약 개념이 없어요",
-            ", ".join(_short(str(item.get("concept", "")), 24) for item in memories[:3]),
-            "done",
-        )
-    return f"{name} 완료", "", "done"
-
-
-def _short(text: str, limit: int) -> str:
-    text = " ".join(text.split())
-    return text if len(text) <= limit else text[: limit - 1].rstrip() + "…"
-
-
-def _timing_detail(started_at: float, first_token_at: float | None, ended_at: float) -> str:
-    """"생각 4.1초 · 작성 2.1초": how the round's time split between reasoning and writing."""
-    if first_token_at is None:
-        return ""
-    thought = first_token_at - started_at
-    wrote = ended_at - first_token_at
-    if thought < 0.05:
-        return ""
-    return f"생각 {thought:.1f}초 · 작성 {wrote:.1f}초"
-
-
-def _tool_running_detail(name: str, args: dict) -> str:
-    for key in ("query", "title", "topic", "concept"):
-        value = args.get(key) if isinstance(args, dict) else None
-        if isinstance(value, str) and value.strip():
-            return value.strip()
-    return ""
 
 
 class TextQuestion(BaseModel):
@@ -891,6 +760,7 @@ async def prefetch_memory_context(context: VoiceContext, question: str = "") -> 
     try:
         memory = await recent_weak_concepts(context, topic=question)
     except Exception as exc:
+        log.warning("learner memory prefetch failed", exc_info=True)
         memory = {"error": f"memory prefetch failed: {exc}"}
     return {"student_question": question.strip(), "weak_concepts": memory}
 
@@ -937,7 +807,7 @@ async def prefetch_context(
         finally:
             if timer is not None:
                 timer.record("recall", started)
-        label, detail, state = _tool_step_labels("recall_weak_concepts", {}, result)
+        label, detail, state = tool_step_labels("recall_weak_concepts", {}, result)
         await emit_step(on_event, "recall", state, label, detail=detail, started_at=started)
         return result
 
@@ -987,7 +857,7 @@ async def prefetch_context(
                 on_event, "material", "failed", "강의자료 검색에 실패했어요", started_at=started
             )
         else:
-            label, detail, state = _tool_step_labels("search_course_materials", {}, parsed)
+            label, detail, state = tool_step_labels("search_course_materials", {}, parsed)
             await emit_step(
                 on_event, "material", state, label, detail=detail, started_at=started
             )
@@ -1541,7 +1411,7 @@ async def think(
 
             await emit_step(
                 on_event, llm_key, "done", "답변을 정리했어요", stage="llm", started_at=started_at,
-                detail=_timing_detail(started_at, first_token_at, time.perf_counter()),
+                detail=timing_detail(started_at, first_token_at, time.perf_counter()),
             )
             if student_state is not None:
                 context.hint_level = next_hint_level(context.hint_level, student_state)
@@ -1592,7 +1462,7 @@ async def think(
                 key,
                 "running",
                 TOOL_RUNNING_LABELS.get(call.name, f"{call.name} 실행 중"),
-                detail=_tool_running_detail(call.name, call.arguments),
+                detail=tool_running_detail(call.name, call.arguments),
                 stage=call.name,
             )
 
@@ -1600,7 +1470,7 @@ async def think(
             """Run one tool and report its own finish with its own duration."""
             started = time.perf_counter()
             result = await run_tool(context, call.name, call.arguments, timer)
-            label, detail, state = _tool_step_labels(call.name, call.arguments, json.loads(result))
+            label, detail, state = tool_step_labels(call.name, call.arguments, json.loads(result))
             await emit_step(
                 on_event, key, state, label, detail=detail, stage=call.name, started_at=started
             )
@@ -1626,87 +1496,8 @@ async def think(
 
 
 # --------------------------------------------------------------------------
-# Speech and lifecycle helpers.
+# Lifecycle helpers.
 # --------------------------------------------------------------------------
-
-
-# LLM-authored pronunciation hints stay visible on screen, while TTS reads only
-# their Hangul side so mixed-language terms do not inherit Korean-mode English.
-_PRONUNCIATION = re.compile(
-    r"(?<![A-Za-z])(?:[A-Za-z][A-Za-z0-9+.#/-]*(?: +[A-Za-z][A-Za-z0-9+.#/-]*)*)"
-    r"\(([가-힣]+(?: +[가-힣]+)*)\)"
-)
-
-
-# Math notation cannot be spoken, so it is dropped rather than read out symbol by
-# symbol. The prompt already asks for words instead; this is the net for when the
-# model writes it anyway.
-_MATH = re.compile(r"\$\$?.*?\$\$?|\\\[.*?\\\]|\\\(.*?\\\)|\\[A-Za-z]+\s*(?:\{[^}]*\})*")
-_EMPTY_BRACKETS = re.compile(r"\s*[(（\[]\s*[)）\]]")
-# Notation the model writes without any LaTeX around it, so _MATH cannot see it.
-# Said rather than dropped: 'e^2' is part of the sentence, unlike a display formula.
-# The Korean particle after it comes along, because the reading ends in a consonant
-# where the notation did not -- 'e^2와' has to become '이의 2제곱과'.
-_SUPERSCRIPT = re.compile(
-    r"([A-Za-z0-9]+)\s*\^\s*(?:\{([^}]*)\}|(-?[A-Za-z0-9]+))(와|과|은|는|이|가|을|를)?"
-)
-_SUBSCRIPT = re.compile(r"([A-Za-z])\s*_\s*(?:\{([^}]*)\}|([A-Za-z0-9]+))")
-# '제곱' ends in a consonant, so the particle that follows it is determined.
-_AFTER_CONSONANT = {"와": "과", "과": "과", "는": "은", "은": "은",
-                    "가": "이", "이": "이", "를": "을", "을": "을"}
-
-
-def _say_superscript(match: re.Match[str]) -> str:
-    base, exponent, particle = match.group(1), match.group(2) or match.group(3), match.group(4)
-    return f"{base}의 {exponent}제곱{_AFTER_CONSONANT.get(particle or '', particle or '')}"
-
-
-def _say_subscript(match: re.Match[str]) -> str:
-    return f"{match.group(1)} {match.group(2) or match.group(3)}"
-# A term written twice -- '소프트맥스 (softmax)' -- is said twice once the English
-# is converted, which is what makes it sound odd aloud. Matched by what it reads
-# as, not by being bracketed Latin: '(A)와 (B)' is two options, not a gloss.
-_BRACKETED = re.compile(
-    r"(?P<term>[가-힣]+)\s*[(（\[](?P<inner>[^)）\]]*[A-Za-z][^)）\]]*)[)）\]]"
-)
-
-
-def _drop_repeated_gloss(match: re.Match[str]) -> str:
-    term = match.group("term")
-    if pronounce.hangulize(match.group("inner").strip()) == term:
-        return term
-    return match.group(0)
-
-
-def for_speech(text: str) -> str:
-    """Adapt screen text for the TTS model without changing what is displayed.
-
-    The voice runs in Korean mode, so Latin text reaches it mispronounced and can
-    come out as a tonal artefact. Nothing Latin is allowed through: URLs are
-    dropped, a pronunciation hint selects its Hangul side, and every remaining
-    English term becomes the Hangul a Korean speaker would say. The original
-    spelling stays intact on screen.
-    """
-    text = re.sub(
-        r"\s*외부 출처\s*:?\s*(?:https?://\S+\s*,?\s*)+$",
-        "",
-        text,
-        flags=re.IGNORECASE,
-    )
-    text = re.sub(r"https?://\S+", "", text)
-    text = _PRONUNCIATION.sub(r"\1", text)
-    text = _MATH.sub(" ", text)
-    # Whatever the notation was bracketed in is now an empty pair to stumble over.
-    text = _EMPTY_BRACKETS.sub("", text)
-    text = _BRACKETED.sub(_drop_repeated_gloss, text)
-    text = _SUPERSCRIPT.sub(_say_superscript, text)
-    text = _SUBSCRIPT.sub(_say_subscript, text)
-    return re.sub(r"\s{2,}", " ", pronounce.hangulize(text)).strip()
-
-
-# Kept under the original private name so ported tests keep passing.
-_for_speech = for_speech
-
 
 async def next_review_prompt(context: VoiceContext) -> dict:
     """Return the next due weak concept for this learner, if any."""

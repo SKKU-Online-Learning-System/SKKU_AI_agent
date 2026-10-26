@@ -35,7 +35,7 @@ from app.services.material_service import save_upload
 from app.services.material_processing_service import (
     MaterialProcessingService,
 )
-from app.services.document_parser_service import ParsedDocument, ParsedPage
+from app.services.document_parser import ParsedDocument, ParsedPage
 
 
 @dataclass(frozen=True)
@@ -615,25 +615,23 @@ def test_processing_claim_is_visible_and_rejects_concurrent_request(
     ).json()
     observed_statuses: list[CourseMaterialStatus] = []
 
-    class ObservingParser:
-        def parse(self, material: CourseMaterial) -> ParsedDocument:
-            with material_api.session_factory() as observation_session:
-                observed = observation_session.get(CourseMaterial, material.id)
-                assert observed is not None
-                observed_statuses.append(observed.processing_status)
-            return ParsedDocument(
-                material_id=material.id,
-                course_id=material.course_id,
-                title=material.original_file_name,
-                pages=(ParsedPage(page_number=None, text="placeholder"),),
-                full_text="placeholder",
-            )
+    def observing_parser(material: CourseMaterial) -> ParsedDocument:
+        with material_api.session_factory() as observation_session:
+            observed = observation_session.get(CourseMaterial, material.id)
+            assert observed is not None
+            observed_statuses.append(observed.processing_status)
+        return ParsedDocument(
+            material_id=material.id,
+            course_id=material.course_id,
+            title=material.original_file_name,
+            pages=[ParsedPage(page_number=None, text="placeholder")],
+        )
 
     with material_api.session_factory() as session:
         result = MaterialProcessingService(
             session,
             settings=Settings(embedding_provider="mock"),
-            parser=ObservingParser(),
+            parser=observing_parser,
         ).process_material(material_api.courses["owned"], uploaded["id"])
 
     assert observed_statuses == [CourseMaterialStatus.processing]

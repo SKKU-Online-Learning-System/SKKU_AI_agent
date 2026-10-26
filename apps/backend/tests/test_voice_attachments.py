@@ -25,7 +25,7 @@ from app.models import ChatLog
 from pathlib import Path
 
 from app.services.llm_service import LLMError
-from app.services.voice import attachments, brain, external_brain, trusted_sites
+from app.services.voice import attachments, brain, external_brain, trace, trusted_sites
 from app.services.voice.session_store import get_context, reset_context
 
 MOCK_SETTINGS = Settings(_env_file=None, use_mock_llm=True)
@@ -233,11 +233,11 @@ def test_text_stream_reports_each_step_and_the_models_reasoning(
 
 
 def test_the_round_detail_splits_thinking_from_writing() -> None:
-    assert brain._timing_detail(10.0, 14.12, 16.2) == "생각 4.1초 · 작성 2.1초"
-    assert brain._timing_detail(10.0, None, 16.2) == ""
+    assert trace.timing_detail(10.0, 14.12, 16.2) == "생각 4.1초 · 작성 2.1초"
+    assert trace.timing_detail(10.0, None, 16.2) == ""
     # No thinking worth naming (the mock, or thinking off): no detail.
-    assert brain._timing_detail(10.0, 10.01, 12.0) == ""
-    label, detail, _state = brain._tool_step_labels(
+    assert trace.timing_detail(10.0, 10.01, 12.0) == ""
+    label, detail, _state = trace.tool_step_labels(
         "recall_weak_concepts", {},
         {"memories": [{"concept": "안녕하세요! 인공지능 개론 수업에 오신 것을 환영합니다. 오늘 어떤 부분이"}]},
     )
@@ -246,31 +246,31 @@ def test_the_round_detail_splits_thinking_from_writing() -> None:
 
 
 def test_step_labels_describe_tool_outcomes_without_model_text() -> None:
-    label, detail, state = brain._tool_step_labels(
+    label, detail, state = trace.tool_step_labels(
         "search_trusted_web",
         {"query": "attention"},
         {"found": True, "sources": ["https://www.arxiv.org/abs/1", "https://kosis.kr/x"]},
     )
     assert (label, detail, state) == ("웹 출처 2개를 찾았어요", "arxiv.org, kosis.kr", "done")
 
-    label, detail, state = brain._tool_step_labels(
+    label, detail, state = trace.tool_step_labels(
         "show_visualization", {}, {"kind": "formula", "title": "소프트맥스"}
     )
     assert (label, detail, state) == ("수식을 준비했어요", "소프트맥스", "done")
-    assert brain._tool_step_labels("show_visualization", {}, {"kind": "flow"})[0] == (
+    assert trace.tool_step_labels("show_visualization", {}, {"kind": "flow"})[0] == (
         "흐름도를 준비했어요"
     )
 
-    label, detail, state = brain._tool_step_labels(
+    label, detail, state = trace.tool_step_labels(
         "show_visualization", {}, {"error": "invalid show_visualization arguments: got 'foo'"}
     )
     assert (label, detail, state) == ("시각 자료를 표시하지 못했어요", "도구 인자가 올바르지 않았어요", "failed")
     # An exception message is for the model, never for the screen.
-    label, detail, state = brain._tool_step_labels(
+    label, detail, state = trace.tool_step_labels(
         "search_trusted_web", {}, {"error": "ConnectError: http://searxng:8080 refused"}
     )
     assert (label, detail, state) == ("웹 검색에서 근거를 찾지 못했어요", "", "failed")
-    assert brain._tool_step_labels(
+    assert trace.tool_step_labels(
         "search_trusted_web", {}, {"error": "trusted web search returned no citable sources"}
     )[1] == "인용할 수 있는 출처가 없었어요"
 

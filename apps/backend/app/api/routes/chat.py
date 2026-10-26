@@ -60,7 +60,7 @@ async def ask_course_agent(
         )
     except ChatValidationError as exc:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=str(exc),
         ) from exc
     except ChatSessionNotFoundError as exc:
