@@ -454,8 +454,10 @@ page heading and lays the chat out in one column). `?m=&p=&panel=&sessionId=` ke
 in the URL. The old `/materials` and `/course-agent` student routes redirect into it.
 
 The 해설 is written once per page by `app/services/page_notes.py` from the page's stored reading
-(`page_evidence`) through `LLMService.generate_json`, cached in `DocumentChunk.page_note`, and
-never re-reads the image; the mock writes a deterministic note. A typed question from the drawer
+(`page_evidence`) through `LLMService.generate_json` **on the voice profile** (9B, thinking off, as
+the quiz does -- the 27B's thinking ran past `MODEL_REQUEST_TIMEOUT_SECONDS` and the student saw a
+503), cached in `DocumentChunk.page_note`, and never re-reads the image; the mock writes a
+deterministic note. A typed question from the drawer
 carries `focus` (`VoiceQuestion.focus`: material id and page), which `brain.prefetch_context`
 turns into `viewing_page` -- the stored reading of that page -- so "이 슬라이드" resolves without a
 search. The voice path has no focus.

@@ -2,7 +2,9 @@
 
 A note is written once, from the page's stored reading (``page_evidence``) and
 native text, and cached in ``DocumentChunk.page_note``. Nothing here reads the
-page image again: ingestion already transcribed it.
+page image again: ingestion already transcribed it. It is written by the
+voice-profile model (fast, thinking off), as the quiz is: the text model's
+thinking ran past ``MODEL_REQUEST_TIMEOUT_SECONDS`` and answered 503.
 """
 from __future__ import annotations
 
@@ -92,7 +94,9 @@ async def page_note(
         except json.JSONDecodeError:
             log.warning("Discarding unreadable page note for chunk %s", chunk_id)
     # ponytail: two first readers of the same page both write it; last write wins, same note.
-    raw = await LLMService(settings).generate_json(
+    # The voice profile (9B, thinking off) like the quiz: the 27B thinks past the request
+    # timeout on a page note, and the student is waiting on this one.
+    raw = await LLMService(settings, profile="voice").generate_json(
         system=NOTE_SYSTEM_PROMPT,
         payload={
             "file": file_name,
