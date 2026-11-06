@@ -334,6 +334,8 @@ class DocumentChunk(Base):
     embedding: Mapped[Optional[list[float]]] = mapped_column(JSON, nullable=True)
     page_evidence: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     page_image: Mapped[Optional[bytes]] = mapped_column(LargeBinary, nullable=True, deferred=True)
+    # JSON of the AI study note (title, summary, points) written on first request.
+    page_note: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     embedding_model: Mapped[Optional[str]] = mapped_column(String(120), nullable=True)
     embedded_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True),

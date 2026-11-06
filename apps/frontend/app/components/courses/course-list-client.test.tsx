@@ -36,10 +36,23 @@ afterEach(() => {
 });
 
 describe("CourseListClient", () => {
+  it("renders a student's courses as study cards", async () => {
+    apiMocks.listCourses.mockResolvedValue([activeCourse]);
+    render(<CourseListClient audience="student" />);
+
+    expect(await screen.findByText("인공지능개론")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /인공지능개론/ })).toHaveAttribute(
+      "href",
+      "/student/courses/course-1"
+    );
+    expect(screen.getByText("김교수 교수")).toBeInTheDocument();
+    expect(screen.queryByRole("table")).not.toBeInTheDocument();
+  });
+
   it("renders courses returned for the current role", async () => {
     apiMocks.listCourses.mockResolvedValue([activeCourse]);
 
-    render(<CourseListClient audience="student" />);
+    render(<CourseListClient audience="professor" />);
 
     expect(await screen.findByText("인공지능개론")).toBeInTheDocument();
     expect(screen.getByRole("columnheader", { name: "담당 교수" })).toBeInTheDocument();

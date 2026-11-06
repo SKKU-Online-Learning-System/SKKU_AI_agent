@@ -101,6 +101,11 @@ VOICE_UNAVAILABLE_MESSAGE = "음성 모델 서비스를 사용할 수 없습니�
 # ChatLog payload, not because anything can select another mode.
 TEACHING_MODE = "socratic"
 
+class PageFocus(BaseModel):
+    material_id: str = Field(min_length=1, max_length=36)
+    page: int = Field(ge=1, le=10000)
+
+
 class VoiceQuestion(BaseModel):
     text: str = Field(min_length=1, max_length=4000)
     mode: str = "socratic"
@@ -109,6 +114,9 @@ class VoiceQuestion(BaseModel):
     # ``POST .../attachments``. Only the typed path takes them: a voice turn is
     # spoken and heard, and a photo cannot be.
     attachment_ids: list[str] = Field(default_factory=list, max_length=8)
+    # The 교안 page open beside the chat when the question was typed, so the
+    # tutor can answer about "this slide" without a search.
+    focus: Optional[PageFocus] = None
 
 
 class TrustedSitePayload(BaseModel):
@@ -346,8 +354,10 @@ async def _answer(
     contents = await _read_attachments(
         attachments or [], timer, on_event, settings, query=attachment_query(context, transcript)
     )
+    focus = question.focus.model_dump() if question.focus else None
     reply, tools_used, sources, visualizations = await think(
-        context, transcript, timer, on_token=on_token, on_event=on_event, attachments=contents
+        context, transcript, timer, on_token=on_token, on_event=on_event,
+        attachments=contents, focus=focus,
     )
     return {
         "transcript": transcript,
