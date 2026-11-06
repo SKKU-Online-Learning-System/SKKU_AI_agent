@@ -1466,3 +1466,526 @@ body {
     display: none;
   }
 }
+
+/* ===========================================================================
+   One look for every page. The older role pages (professor, admin, 대화 이력,
+   dashboards, logs) were styled after i-Campus; the tokens they use are remapped
+   to the SKKU palette here and their shared furniture -- page headers, tables,
+   buttons, inputs, badges, cards -- is redrawn once, quietly, in the same voice
+   as the study page.
+   =========================================================================== */
+
+:root {
+  --icampus-rail: var(--skku-green-ink);
+  --icampus-navy: var(--skku-green);
+  --icampus-navy-dark: var(--skku-green-deep);
+  --icampus-navy-deep: var(--skku-green-ink);
+  --icampus-accent: var(--skku-green);
+  --icampus-teal: var(--skku-green);
+  --icampus-course-nav: var(--surface-2);
+  --icampus-border: var(--line);
+  --icampus-border-soft: var(--line-soft);
+  --icampus-text: var(--ink);
+  --icampus-muted: var(--ink-3);
+  --icampus-surface: var(--surface);
+  --icampus-canvas: var(--surface-2);
+  --icampus-soft: var(--surface-2);
+  --icampus-shadow: none;
+  --success: #2f7a4e;
+  --warning: #8a6a1a;
+  --danger: #b4362b;
+}
+
+a {
+  color: var(--skku-green);
+}
+
+/* Page headers: one size, one rhythm. */
+
+.role-page header,
+.role-page > header,
+.admin-page-header,
+.course-list-page > header,
+.material-manager > header,
+.admin-materials-page > header,
+.canvas-dashboard-header,
+.log-page > header,
+.rag-debug-page > header,
+.activity-header,
+.icampus-page-heading {
+  border-bottom: 1px solid var(--line);
+  margin-bottom: 4px;
+  padding-bottom: 18px;
+}
+
+.role-page h1,
+.admin-page-header h1,
+.course-list-page h1,
+.material-manager h1,
+.admin-materials-page h1,
+.canvas-dashboard-header h1,
+.log-page h1,
+.rag-debug-page h1,
+.activity-header h1,
+.icampus-page-heading h1,
+.learn-page h1 {
+  color: var(--ink);
+  font-size: 24px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  line-height: 1.3;
+}
+
+.role-page header p,
+.admin-page-header p,
+.course-list-page header p,
+.material-manager header p,
+.admin-materials-page header p,
+.canvas-dashboard-header p,
+.canvas-dashboard-header > span,
+.log-page > header p,
+.rag-debug-page > header p,
+.activity-header p,
+.icampus-page-heading p,
+.learn-page > header p {
+  color: var(--ink-3);
+  font-size: 14px;
+  line-height: 1.55;
+}
+
+.icampus-breadcrumb {
+  color: var(--ink-3);
+}
+
+.icampus-breadcrumb b {
+  color: var(--skku-green);
+}
+
+h2 {
+  color: var(--ink);
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+/* Tables */
+
+.course-table-wrap,
+.admin-table-wrap {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  box-shadow: none;
+}
+
+.course-table th,
+.admin-table th,
+.activity-table th {
+  background: transparent;
+  border-bottom: 1px solid var(--line);
+  color: var(--ink-3);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  padding: 12px 16px;
+}
+
+.course-table td,
+.admin-table td,
+.activity-table td {
+  border-bottom: 1px solid var(--line-soft);
+  color: var(--ink);
+  font-size: 14px;
+  padding: 14px 16px;
+}
+
+.course-table tbody tr:hover td,
+.admin-table tbody tr:hover td {
+  background: var(--surface-2);
+}
+
+.course-table td strong,
+.admin-table td strong {
+  font-weight: 600;
+}
+
+.course-table a,
+.admin-table a,
+.log-link,
+.course-table .log-link {
+  color: var(--skku-green);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.course-table a:hover,
+.admin-table a:hover,
+.log-link:hover {
+  text-decoration: underline;
+}
+
+.empty-state,
+.canvas-dashboard-empty,
+.weak-stats-empty,
+.canvas-activity-empty {
+  color: var(--ink-3);
+  font-size: 14px;
+}
+
+/* Buttons */
+
+.primary-action,
+.admin-course-form button[type="submit"],
+.admin-filter-bar button,
+.course-table button,
+.material-upload-form button,
+.rag-readiness button,
+.rag-debug-form button,
+.voice-primary,
+.weekly-content-tabs button:hover,
+.weekly-content-tabs button:focus-visible {
+  background: var(--skku-green);
+  border: 1px solid var(--skku-green);
+  border-radius: 8px;
+  color: white;
+  font-weight: 600;
+  min-height: 38px;
+  padding: 0 14px;
+}
+
+.primary-action:hover,
+.admin-course-form button[type="submit"]:hover,
+.admin-filter-bar button:hover,
+.course-table button:hover:not(:disabled),
+.material-upload-form button:hover:not(:disabled),
+.rag-readiness button:hover:not(:disabled),
+.rag-debug-form button:hover:not(:disabled),
+.voice-primary:hover:not(:disabled) {
+  background: var(--skku-green-deep);
+  border-color: var(--skku-green-deep);
+}
+
+.course-table button:disabled,
+.material-upload-form button:disabled,
+.rag-readiness button:disabled,
+.voice-primary:disabled {
+  background: var(--line);
+  border-color: var(--line);
+  color: var(--ink-3);
+}
+
+.secondary-action,
+.form-actions a,
+.table-actions a,
+.table-actions button,
+.voice-secondary,
+.log-filters button,
+.weekly-content-tabs button,
+.material-row-actions button,
+.icampus-user-menu button {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--ink-2);
+  font-weight: 600;
+  min-height: 38px;
+  padding: 0 14px;
+}
+
+.secondary-action:hover,
+.form-actions a:hover,
+.table-actions a:hover,
+.table-actions button:hover:not(:disabled),
+.voice-secondary:hover:not(:disabled),
+.log-filters button:hover,
+.material-row-actions button:hover:not(:disabled) {
+  border-color: var(--skku-green);
+  color: var(--skku-green);
+}
+
+.voice-danger {
+  background: var(--surface);
+  border: 1px solid #e3b5b0;
+  border-radius: 8px;
+  color: var(--danger);
+  font-weight: 600;
+  min-height: 38px;
+  padding: 0 14px;
+}
+
+/* Inputs */
+
+.admin-filter-bar input,
+.admin-filter-bar select,
+.admin-course-form input,
+.admin-course-form select,
+.admin-course-form textarea,
+.material-upload-form input,
+.material-upload-form select,
+.rag-debug-form select,
+.rag-debug-form textarea,
+.log-filters input,
+.log-filters select,
+.voice-chat-form input,
+.voice-site-form input {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--ink);
+  min-height: 38px;
+  padding: 8px 12px;
+}
+
+.admin-filter-bar input:focus,
+.admin-filter-bar select:focus,
+.admin-course-form input:focus,
+.admin-course-form select:focus,
+.admin-course-form textarea:focus,
+.material-upload-form input:focus,
+.material-upload-form select:focus,
+.rag-debug-form select:focus,
+.rag-debug-form textarea:focus,
+.log-filters input:focus,
+.log-filters select:focus,
+.voice-chat-form input:focus,
+.voice-site-form input:focus {
+  border-color: var(--skku-green);
+  box-shadow: 0 0 0 3px rgba(11, 93, 59, 0.12);
+  outline: 0;
+}
+
+.admin-filter-bar label,
+.admin-course-form label,
+.material-upload-form label,
+.rag-debug-form label,
+.log-filters label {
+  color: var(--ink-2);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.checkbox-field input {
+  accent-color: var(--skku-green);
+}
+
+/* Badges: one quiet pill, tinted by state. */
+
+.material-status,
+.icampus-term-badge,
+.admin-table td > span[data-active],
+.chat-badge,
+.weak-stats-status {
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--ink-2);
+  display: inline-flex;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1;
+  padding: 5px 10px;
+}
+
+.material-status[data-status="active"],
+.material-status[data-status="completed"],
+.admin-table td > span[data-active="true"] {
+  background: var(--skku-green-soft);
+  border-color: var(--skku-green-line);
+  color: var(--skku-green-deep);
+}
+
+.material-status[data-status="pending"],
+.material-status[data-status="processing"],
+.material-status[data-status="draft"] {
+  background: var(--skku-gold-soft);
+  border-color: #ecd9a0;
+  color: var(--warning);
+}
+
+.material-status[data-status="failed"],
+.material-status[data-status="disabled"] {
+  background: #fbf0ee;
+  border-color: #ecc8c3;
+  color: var(--danger);
+}
+
+/* Cards and panels */
+
+.icampus-card,
+.role-page-grid article,
+.dashboard-statistics-columns section,
+.dashboard-daily-summary,
+.admin-course-form,
+.admin-filter-bar,
+.material-upload-form,
+.rag-debug-form,
+.rag-debug-diagnostics > div,
+.rag-debug-results article,
+.weak-stats-course,
+.activity-tile,
+.log-detail,
+.canvas-dashboard-empty,
+.canvas-course-chat,
+.canvas-recent-activity {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  box-shadow: none;
+}
+
+.icampus-card-head {
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.dashboard-daily-summary {
+  color: var(--ink-3);
+  font-size: 12px;
+  line-height: 1.8;
+}
+
+.icampus-card-head h2 {
+  color: var(--ink);
+  font-size: 15px;
+}
+
+.activity-tile[aria-pressed="true"] {
+  border-color: var(--skku-green);
+  box-shadow: inset 0 0 0 1px var(--skku-green);
+}
+
+.activity-tile-value {
+  color: var(--ink);
+  font-weight: 700;
+}
+
+.admin-alert,
+.admin-success,
+.rag-readiness,
+.icampus-notice {
+  border-radius: 8px;
+  font-size: 13px;
+  line-height: 1.5;
+  padding: 11px 14px;
+}
+
+.admin-alert {
+  background: #fbf0ee;
+  border: 1px solid #ecc8c3;
+  color: var(--danger);
+}
+
+.admin-success {
+  background: var(--skku-green-soft);
+  border: 1px solid var(--skku-green-line);
+  color: var(--skku-green-deep);
+}
+
+.rag-readiness {
+  background: var(--skku-gold-soft);
+  border: 1px solid #ecd9a0;
+}
+
+.rag-readiness[data-ready="true"] {
+  background: var(--skku-green-soft);
+  border-color: var(--skku-green-line);
+}
+
+/* Dashboard course cards share the 내 학습 cover. */
+
+.canvas-course-card {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  box-shadow: none;
+}
+
+.canvas-course-card-visual,
+.canvas-course-card-visual[data-color="1"],
+.canvas-course-card-visual[data-color="2"],
+.canvas-course-card-visual[data-color="3"],
+.canvas-course-card-visual[data-color="4"],
+.canvas-course-card-visual[data-color="5"] {
+  background: linear-gradient(135deg, var(--skku-green-deep), var(--skku-green) 70%, #2d8a5e);
+  color: rgba(255, 255, 255, 0.82);
+  height: 112px;
+}
+
+.canvas-course-card-body strong {
+  color: var(--ink);
+  font-weight: 700;
+}
+
+.canvas-course-card-grid {
+  gap: 22px;
+}
+
+.canvas-dashboard-layout {
+  gap: 28px;
+}
+
+.canvas-dashboard-sidebar section {
+  border-bottom: 1px solid var(--line-soft);
+}
+
+/* The professor's weekly material list */
+
+.weekly-content-list {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.weekly-content-heading {
+  background: var(--surface-2);
+  border-color: var(--line-soft);
+  color: var(--ink);
+}
+
+.weekly-content-heading > span:last-child {
+  color: var(--ink-3);
+  font-weight: 600;
+}
+
+.weekly-content-panel {
+  border-color: var(--line-soft);
+}
+
+.weekly-content-tabs button {
+  font-weight: 600;
+  min-height: 34px;
+}
+
+/* Professor/admin course menu */
+
+.icampus-course-nav {
+  background: var(--surface);
+  border-right: 1px solid var(--line);
+}
+
+.icampus-context-nav nav a:hover {
+  background: var(--surface-2);
+  color: var(--skku-green);
+}
+
+.icampus-context-nav nav a[aria-current="page"] {
+  background: var(--skku-green-soft);
+  border-color: transparent;
+  color: var(--skku-green-deep);
+}
+
+/* COURSE AGENT chat colours follow the palette too. */
+
+.voice-avatar {
+  background: var(--skku-green);
+}
+
+.voice-message[data-role="user"] .voice-bubble {
+  background: var(--skku-green-soft);
+  border-color: var(--skku-green-line);
+}
+
+.voice-bubble {
+  border-color: var(--line);
+}
+
+.voice-state {
+  border-radius: 999px;
+}
