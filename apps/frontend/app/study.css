@@ -1008,31 +1008,44 @@ body {
   color: var(--skku-green);
 }
 
-/* Agent drawer */
+/* Agent drawer: the chat fills the drawer and scrolls inside it; the voice
+   control is one compact row under the composer; weak concepts fold below. */
 
 .study-agent-body {
   display: flex;
   flex: 1;
   flex-direction: column;
   min-height: 0;
-  overflow: auto;
-  padding: 12px;
+  overflow: hidden;
+  padding: 10px;
 }
 
 .course-agent-page[data-embedded="true"] {
   display: flex;
+  flex: 1;
   flex-direction: column;
-  gap: 12px;
-  min-height: 100%;
+  gap: 10px;
+  min-height: 0;
+}
+
+.course-agent-page[data-embedded="true"] .admin-alert {
+  flex: none;
+  font-size: 12px;
+  margin: 0;
+  padding: 8px 10px;
 }
 
 .course-agent-page[data-embedded="true"] .voice-chat-layout {
-  gap: 12px;
-  grid-template-columns: minmax(0, 1fr);
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;
 }
 
 .course-agent-page[data-embedded="true"] .voice-chat-card {
   border-radius: var(--radius);
+  flex: 1 1 auto;
   min-height: 0;
 }
 
@@ -1040,9 +1053,39 @@ body {
   display: none;
 }
 
+.course-agent-page[data-embedded="true"] .voice-chat-toolbar {
+  font-size: 12px;
+  padding: 6px 8px 6px 12px;
+}
+
+.course-agent-page[data-embedded="true"] .voice-chat-toolbar .voice-secondary {
+  min-height: 30px;
+  padding: 0 10px;
+}
+
 .course-agent-page[data-embedded="true"] .voice-messages {
+  flex: 1 1 auto;
   max-height: none;
-  min-height: 320px;
+  min-height: 0;
+  padding: 12px;
+}
+
+.course-agent-page[data-embedded="true"] .voice-message {
+  margin-bottom: 12px;
+}
+
+.course-agent-page[data-embedded="true"] .voice-chat-form {
+  padding: 10px;
+}
+
+.course-agent-page[data-embedded="true"] .voice-chat-form input {
+  font-size: 13px;
+  padding: 9px 10px;
+}
+
+/* Voice: one row -- small orb, state, help. */
+.course-agent-page[data-embedded="true"] .voice-panel {
+  flex: none;
 }
 
 .course-agent-page[data-embedded="true"] .voice-panel .icampus-card-head {
@@ -1050,23 +1093,79 @@ body {
 }
 
 .course-agent-page[data-embedded="true"] .voice-panel .icampus-card-body {
+  align-items: center;
   flex-direction: row;
-  gap: 14px;
-  justify-content: flex-start;
-  padding: 12px 16px;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  padding: 10px 14px;
 }
 
 .course-agent-page[data-embedded="true"] .voice-orb {
-  --orb-size: 64px;
+  --orb-size: 52px;
+  flex: none;
+}
+
+.course-agent-page[data-embedded="true"] .voice-orb-label {
+  display: none;
+}
+
+.course-agent-page[data-embedded="true"] .voice-orb-mic {
+  height: 22px;
+  width: 22px;
+}
+
+.course-agent-page[data-embedded="true"] .voice-state {
+  flex: none;
+  margin: 0;
 }
 
 .course-agent-page[data-embedded="true"] .voice-help {
+  color: var(--ink-3);
+  flex: 1 1 160px;
+  font-size: 12px;
+  line-height: 1.45;
   margin: 0;
   text-align: left;
 }
 
-.course-agent-page[data-embedded="true"] .weak-concepts-card {
+.course-agent-page[data-embedded="true"] .voice-call-controls {
   margin: 0;
+}
+
+/* Weak concepts: a folded strip that scrolls on its own, never pushing the chat off screen. */
+.course-agent-page[data-embedded="true"] .weak-concepts-card {
+  display: flex;
+  flex: 0 1 auto;
+  flex-direction: column;
+  margin: 0;
+  max-height: 34%;
+  min-height: 0;
+}
+
+.course-agent-page[data-embedded="true"] .weak-concepts-card .icampus-card-head {
+  flex: none;
+  min-height: 0;
+  padding: 8px 12px;
+}
+
+.course-agent-page[data-embedded="true"] .weak-concepts-card .icampus-card-head h2 {
+  font-size: 14px;
+}
+
+.course-agent-page[data-embedded="true"] .weak-concepts-card .icampus-card-head small {
+  display: none;
+}
+
+.course-agent-page[data-embedded="true"] .weak-concepts-card .icampus-card-head .voice-secondary {
+  min-height: 28px;
+  padding: 0 10px;
+  white-space: nowrap;
+}
+
+.course-agent-page[data-embedded="true"] .weak-concepts-card .icampus-card-body {
+  min-height: 0;
+  overflow: auto;
+  padding: 10px 12px;
 }
 
 .voice-focus-row {

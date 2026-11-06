@@ -49,11 +49,14 @@ COURSE_SEEDS = (
         "인공지능의 기본 개념과 응용을 학습하는 과목입니다.",
     ),
     CourseSeed(
-        "소프트웨어공학",
+        "시계열데이터처리개론",
         "2026-2",
-        "소프트웨어 개발 프로세스와 설계 원칙을 학습하는 과목입니다.",
+        "시계열 데이터의 전처리, 정상성, 예측 모델을 학습하는 과목입니다.",
     ),
 )
+
+# Earlier seeds used these names; an existing database is renamed in place.
+RENAMED_COURSES = {"소프트웨어공학": "시계열데이터처리개론"}
 
 
 def ensure_demo_password(user: User, hasher: PasswordHasher, password: str) -> None:
@@ -97,11 +100,12 @@ def seed_database(session: Session, password: str) -> SeedSummary:
 
         courses: list[Course] = []
         for course_seed in COURSE_SEEDS:
+            previous_names = [old for old, new in RENAMED_COURSES.items() if new == course_seed.name]
             course = session.scalar(
                 select(Course).where(
-                    Course.name == course_seed.name,
+                    Course.name.in_([course_seed.name, *previous_names]),
                     Course.semester == course_seed.semester,
-                )
+                ).order_by((Course.name == course_seed.name).desc())
             )
             if course is None:
                 course = Course(
@@ -111,6 +115,7 @@ def seed_database(session: Session, password: str) -> SeedSummary:
                 )
                 session.add(course)
 
+            course.name = course_seed.name
             course.description = course_seed.description
             course.professor_id = professor.id
             course.is_active = True

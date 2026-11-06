@@ -58,9 +58,31 @@ def test_seed_is_idempotent_and_creates_expected_demo_data() -> None:
 
         assert professor is not None
         assert student is not None
-        assert [course.name for course in courses] == ["소프트웨어공학", "인공지능개론"]
+        assert [course.name for course in courses] == ["시계열데이터처리개론", "인공지능개론"]
         assert all(course.semester == "2026-2" for course in courses)
         assert all(course.professor_id == professor.id for course in courses)
         assert {access.course_id for access in student.course_accesses} == {
             course.id for course in courses
         }
+
+
+def test_seed_renames_a_course_from_an_earlier_seed_in_place() -> None:
+    from app.db.seed import seed_database
+
+    engine = create_test_engine()
+    Base.metadata.create_all(engine)
+
+    with Session(engine) as session:
+        seed_database(session, "password123")
+    with Session(engine) as session:
+        renamed = session.scalar(select(Course).where(Course.name == "시계열데이터처리개론"))
+        old_id = renamed.id
+        renamed.name = "소프트웨어공학"
+        session.commit()
+    with Session(engine) as session:
+        seed_database(session, "password123")
+    with Session(engine) as session:
+        assert session.scalar(select(func.count()).select_from(Course)) == 2
+        again = session.scalar(select(Course).where(Course.name == "시계열데이터처리개론"))
+        assert again.id == old_id
+        assert session.scalar(select(Course).where(Course.name == "소프트웨어공학")) is None
