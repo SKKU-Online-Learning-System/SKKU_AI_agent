@@ -26,7 +26,14 @@ export default function RootLayout({
           rel="stylesheet"
         />
         <Script id="mathjax-config" strategy="beforeInteractive">
-          {`window.MathJax = { tex: { inlineMath: [["$","$"]], displayMath: [["$$","$$"]] } };`}
+          {`window.MathJax = {
+            loader: { load: ["[tex]/boldsymbol", "[tex]/ams"] },
+            tex: {
+              inlineMath: [["$","$"]],
+              displayMath: [["$$","$$"]],
+              packages: { "[+]": ["boldsymbol", "ams"] }
+            }
+          };`}
         </Script>
         <Script
           src="https://cdn.jsdelivr.net/npm/mathjax@3.2.2/es5/tex-chtml.js"
