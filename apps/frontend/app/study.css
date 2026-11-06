@@ -1611,9 +1611,16 @@ h2 {
 .course-table a,
 .admin-table a,
 .log-link,
-.course-table .log-link {
+.course-table .log-link,
+.course-table button.log-link,
+.course-table button.log-link:hover {
+  background: transparent;
+  border: 0;
+  border-radius: 0;
   color: var(--skku-green);
   font-weight: 600;
+  min-height: 0;
+  padding: 0;
   text-decoration: none;
 }
 
