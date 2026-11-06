@@ -9,6 +9,7 @@ import { useAuth } from "../auth/auth-provider";
 import { CourseAgentClient } from "../course-agent/course-agent-client";
 import type { PageFocus } from "../course-agent/course-agent-client";
 import { WeakConceptsPanel } from "../course-agent/weak-concepts-panel";
+import { HistoryPanel } from "./history-panel";
 import { useCourseMaterials } from "../courses/use-course-materials";
 import { CourseAgentSymbol } from "../ui/course-agent-symbol";
 import { UiIcon } from "../ui/ui-icon";
@@ -16,7 +17,7 @@ import { CurriculumPanel, groupByWeek, isViewable, pageCount } from "./curriculu
 import { PageNotePane } from "./page-note";
 import { SlideViewer } from "./slide-viewer";
 
-type Panel = "curriculum" | "agent" | "weak" | null;
+type Panel = "curriculum" | "agent" | "weak" | "history" | null;
 
 const EMPTY_PAGES: ReadonlySet<number> = new Set();
 
@@ -38,7 +39,8 @@ export function StudyPageClient({ courseId }: { courseId: string }) {
   const { errorMessage, isLoading, materials } = useCourseMaterials(courseId);
   const [course, setCourse] = useState<CourseSummary | null>(null);
   const [courseError, setCourseError] = useState<string | null>(null);
-  const sessionId = searchParams.get("sessionId");
+  // The conversation open in the drawer; picking one from 대화 이력 remounts the agent on it.
+  const [sessionId, setSessionId] = useState<string | null>(searchParams.get("sessionId"));
   const [chosenMaterialId, setMaterialId] = useState<string | null>(searchParams.get("m"));
   const [page, setPage] = useState<number>(Number(searchParams.get("p")) || 1);
   const [pageList, setPageList] = useState<{
@@ -51,6 +53,7 @@ export function StudyPageClient({ courseId }: { courseId: string }) {
     const requested = searchParams.get("panel");
     if (requested === "agent" || sessionId) return "agent";
     if (requested === "weak") return "weak";
+    if (requested === "history") return "history";
     return "curriculum";
   });
   const [downloadError, setDownloadError] = useState<string | null>(null);
@@ -257,11 +260,23 @@ export function StudyPageClient({ courseId }: { courseId: string }) {
                 embedded
                 focus={focus}
                 initialSessionId={sessionId}
+                key={sessionId ?? "new"}
               />
             </div>
           </section>
         ) : null}
 
+        {panel === "history" ? (
+          <HistoryPanel
+            activeSessionId={sessionId}
+            courseId={courseId}
+            onClose={() => setPanel(null)}
+            onSelect={(id) => {
+              setSessionId(id);
+              setPanel("agent");
+            }}
+          />
+        ) : null}
         {panel === "weak" ? (
           <section aria-label="취약 개념" className="study-panel">
             <header className="study-panel-head">
@@ -298,10 +313,14 @@ export function StudyPageClient({ courseId }: { courseId: string }) {
             <UiIcon name="chart" />
             <span>취약 개념</span>
           </button>
-          <Link href="/student/chat-history">
+          <button
+            aria-pressed={panel === "history"}
+            onClick={() => togglePanel("history")}
+            type="button"
+          >
             <UiIcon name="note" />
             <span>대화 이력</span>
-          </Link>
+          </button>
         </nav>
       </div>
     </div>

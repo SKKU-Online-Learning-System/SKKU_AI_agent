@@ -449,8 +449,9 @@ rendered bare by `AppShell` for `/student/courses/[courseId]`): the 교안 viewe
 (`slide-viewer.tsx`, page images from `.../pages/{n}/image`, thumbnails loaded as they scroll into
 view, ←/→ keys), the AI 해설 beside it (`page-note.tsx`, `GET .../pages/{n}/note`), and on the right a
 panel the tool rail switches between **커리큘럼** (`curriculum-panel.tsx`, materials grouped by
-주차, Inflearn's sections) and **에이전트** (`CourseAgentClient` with `embedded`, which drops the
-page heading and lays the chat out in one column). `?m=&p=&panel=&sessionId=` keep the open page
+주차, Inflearn's sections), **에이전트** (`CourseAgentClient` with `embedded`, which drops the
+page heading and lays the chat out in one column), **취약 개념** (`weak-concepts-panel.tsx`) and
+**대화 이력** (`history-panel.tsx`). `?m=&p=&panel=&sessionId=` keep the open page
 in the URL. The old `/materials` and `/course-agent` student routes redirect into it.
 
 The 해설 is written once per page by `app/services/page_notes.py` from the page's stored reading
@@ -463,8 +464,10 @@ turns into `viewing_page` -- the stored reading of that page -- so "이 슬라�
 search. The voice path has no focus.
 
 Students have exactly one question surface: COURSE AGENT inside a course. There is no separate
-"AI 질문" menu item, course tab, or route — 대화 이력 links back into COURSE AGENT with
-`?sessionId=`, which the backend rehydrates. Do not reintroduce them.
+"AI 질문" menu item, course tab, or route, and no separate 대화 이력 page either: the study page's
+대화 이력 tab lists the course's sessions and reopens one in the drawer by remounting
+`CourseAgentClient` with `initialSessionId` (`?sessionId=` in the URL), which the backend
+rehydrates. Do not reintroduce them.
 
 Styles, imported in this order by `layout.tsx`: `app/globals.css` (tokens, base, login),
 `app/shell.css` (older i-Campus furniture), `app/pages.css` (chat, logs, role pages),

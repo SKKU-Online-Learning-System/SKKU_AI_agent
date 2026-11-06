@@ -1398,6 +1398,50 @@ body {
   background-clip: padding-box;
 }
 
+/* 대화 이력 tab */
+
+.study-history ul {
+  display: grid;
+  gap: 6px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.study-history-item {
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  color: var(--ink);
+  display: grid;
+  gap: 3px;
+  padding: 10px 12px;
+  text-align: left;
+  width: 100%;
+}
+
+.study-history-item:hover {
+  background: var(--surface-2);
+}
+
+.study-history-item[aria-current="true"] {
+  background: var(--skku-green-soft);
+  border-color: var(--skku-green-line);
+}
+
+.study-history-item strong {
+  font-size: 14px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.study-history-item small {
+  color: var(--ink-3);
+  font-size: 12px;
+}
+
 /* Weak-concept tab */
 
 .study-panel-scroll {

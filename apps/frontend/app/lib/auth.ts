@@ -51,11 +51,10 @@ const roleMenuItems: Record<UserRole, RoleMenuItem[]> = {
     { href: "/professor/logs", label: "질문 로그", icon: "agent" },
     { href: "/professor/rag-debug", label: "RAG 디버그", icon: "source" }
   ],
-  // Questions are asked inside a course, through COURSE AGENT.
+  // Questions are asked inside a course, through COURSE AGENT; 대화 이력 is a tab there.
   student: [
     { href: "/student", label: "대시보드", icon: "dashboard" },
-    { href: "/student/courses", label: "내 과목", icon: "course" },
-    { href: "/student/chat-history", label: "대화 이력", icon: "material" }
+    { href: "/student/courses", label: "내 과목", icon: "course" }
   ]
 };
 
