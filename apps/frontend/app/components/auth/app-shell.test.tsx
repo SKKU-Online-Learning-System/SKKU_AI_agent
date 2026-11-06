@@ -39,7 +39,9 @@ describe("AppShell", () => {
   it("renders the SKKU header with the role menu and the active tab", () => {
     render(<AppShell><p>Course content</p></AppShell>);
 
-    expect(screen.getByAltText("성균관대학교")).toBeInTheDocument();
+    const brand = screen.getByRole("link", { name: /SKKU COURSE AGENT/ });
+    expect(brand.querySelector(".course-agent-symbol")).not.toBeNull();
+    expect(brand.querySelector("img")).toBeNull();
     const studentMenu = screen.getByRole("navigation", { name: "학생 메뉴" });
     expect(within(studentMenu).getByRole("link", { name: "내 과목" })).toHaveAttribute(
       "aria-current",
