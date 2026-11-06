@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "app",
+      "runtimeExecutable": "C:\\Program Files\\Git\\bin\\bash.exe",
+      "runtimeArgs": ["-c", "USE_MOCK_LLM=true bash run.sh"],
+      "port": 3000
+    }
+  ]
+}

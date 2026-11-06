@@ -525,6 +525,8 @@ class LLMService:
         if self.provider == "mock":
             if "quiz_concept" in payload:
                 return _mock_quiz(payload)
+            if "page_text" in payload:
+                return _mock_page_note(payload)
             return {"save": None, "reviews": []}
         if self.provider == "anthropic":
             return await self._anthropic_generate_json(system, payload, max_tokens)
@@ -918,6 +920,21 @@ def _parse_json_object(raw: str) -> dict:
     if not isinstance(value, dict):
         raise ValueError("structured response is not a JSON object")
     return value
+
+
+def _mock_page_note(payload: dict) -> dict:
+    """A deterministic study note so the 교안 해설 pane works with no model server."""
+    text = str(payload.get("page_text") or payload.get("native_text") or "").strip()
+    lines = [line.strip("-•* ") for line in text.splitlines() if line.strip()][:4]
+    return {
+        "title": f"{payload.get('page')}쪽 핵심 정리",
+        "summary": (lines[0] if lines else "이 페이지의 내용을 정리했어요.")[:200],
+        "points": [
+            {"label": line[:60], "text": f"{line[:120]} — 강의자료에 적힌 그대로의 내용이에요."}
+            for line in lines
+        ],
+        "pitfalls": "",
+    }
 
 
 def _mock_quiz(payload: dict) -> dict:

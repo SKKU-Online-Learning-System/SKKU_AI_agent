@@ -4,7 +4,7 @@ export type IconName =
   | "material" | "upload" | "source" | "shield" | "send" | "question"
   | "bolt" | "chart" | "home" | "attendance" | "grade" | "agent"
   | "attachment" | "image" | "close" | "chevron" | "check"
-  | "mic" | "mic-off";
+  | "mic" | "mic-off" | "download" | "list" | "note" | "logout";
 
 export function UiIcon({
   name,
@@ -42,6 +42,10 @@ export function UiIcon({
       {name === "attachment" ? <path d="m8.2 12.8 6.2-6.2a3 3 0 0 1 4.2 4.2l-8.2 8.2a4.5 4.5 0 0 1-6.4-6.4l8-8" /> : null}
       {name === "image" ? <><rect x="4" y="5" width="16" height="14" rx="1.5" /><circle cx="9" cy="10" r="1.5" /><path d="m5.5 17 4.2-4.2 3.1 3.1 2.1-2.1 3.6 3.2" /></> : null}
       {name === "close" ? <path d="m6 6 12 12M18 6 6 18" /> : null}
+      {name === "download" ? <><path d="M12 4.5v10.3M8.4 11.2l3.6 3.6 3.6-3.6" /><path d="M5.5 15.5v3.7h13v-3.7" /></> : null}
+      {name === "list" ? <><path d="M9 6.5h10M9 12h10M9 17.5h10" /><path d="M4.8 6.5h.1M4.8 12h.1M4.8 17.5h.1" /></> : null}
+      {name === "note" ? <><path d="M6.5 4.5h8.3l3.7 3.7v11.3H6.5z" /><path d="M14.8 4.5v3.7h3.7M9.3 12h5.4M9.3 15.2h3.6" /></> : null}
+      {name === "logout" ? <><path d="M10 5H6.2a1.2 1.2 0 0 0-1.2 1.2v11.6A1.2 1.2 0 0 0 6.2 19H10" /><path d="M14.5 8.5 18 12l-3.5 3.5M18 12H9.5" /></> : null}
       {name === "chevron" ? <path d="m9 5 7 7-7 7" /> : null}
       {name === "check" ? <path d="m5 12.5 4.5 4.5L19 7.5" /> : null}
       {name === "mic" ? <><rect x="9.2" y="2.9" width="5.6" height="11.2" rx="2.8" /><path d="M5.9 11.1a6.1 6.1 0 0 0 12.2 0" /><path d="M12 17.2v3.9M8.9 21.1h6.2" /></> : null}

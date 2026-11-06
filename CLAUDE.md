@@ -437,23 +437,38 @@ and let the routes take the fixture's settings through `Depends`.
 
 ### Frontend
 
-The UI is a clone of SKKU i-Campus (Canvas LMS, <https://canvas.skku.edu/>): a 76px dark-blue global
-rail, a 64px top bar, a 204px course menu. **i-Campus menu entries this MVP does not implement stay
-visible but inactive** (rendered as `<span>` instead of `<Link>`) so the shell keeps matching the
-real LMS — do not delete them to "clean up".
+The UI is an Inflearn-style learning site in 성균관대 green (`app/study.css` holds the tokens:
+`--skku-green`, `--skku-gold`, the `.skku-*` shell, `.learn-*` cards and `.study-*` page). `AppShell`
+is a white header -- SKKU mark, the role menu as tabs, user and logout -- over the page. Professor
+and admin pages keep their older i-Campus furniture (`.icampus-card` etc., restyled by `study.css`)
+and, inside a course, `CourseWorkspaceClient`'s left course menu; the i-Campus entries this MVP does
+not implement still render there as inactive `<span>`s.
 
-`AppShell` renders the top bar for role pages; inside a course, `CourseWorkspaceClient` renders its
-own identical top bar with the course context, which is why `AppShell` suppresses its own when
-`data-course-workspace="true"`.
+**A student's course is one full-screen study page** (`components/study/study-page-client.tsx`,
+rendered bare by `AppShell` for `/student/courses/[courseId]`): the 교안 viewer on the left
+(`slide-viewer.tsx`, page images from `.../pages/{n}/image`, thumbnails loaded as they scroll into
+view, ←/→ keys), the AI 해설 beside it (`page-note.tsx`, `GET .../pages/{n}/note`), and on the right a
+panel the tool rail switches between **커리큘럼** (`curriculum-panel.tsx`, materials grouped by
+주차, Inflearn's sections) and **에이전트** (`CourseAgentClient` with `embedded`, which drops the
+page heading and lays the chat out in one column). `?m=&p=&panel=&sessionId=` keep the open page
+in the URL. The old `/materials` and `/course-agent` student routes redirect into it.
+
+The 해설 is written once per page by `app/services/page_notes.py` from the page's stored reading
+(`page_evidence`) through `LLMService.generate_json`, cached in `DocumentChunk.page_note`, and
+never re-reads the image; the mock writes a deterministic note. A typed question from the drawer
+carries `focus` (`VoiceQuestion.focus`: material id and page), which `brain.prefetch_context`
+turns into `viewing_page` -- the stored reading of that page -- so "이 슬라이드" resolves without a
+search. The voice path has no focus.
 
 Students have exactly one question surface: COURSE AGENT inside a course. There is no separate
 "AI 질문" menu item, course tab, or route — 대화 이력 links back into COURSE AGENT with
 `?sessionId=`, which the backend rehydrates. Do not reintroduce them.
 
 Styles, imported in this order by `layout.tsx`: `app/globals.css` (tokens, base, login),
-`app/shell.css` (i-Campus shell and shared page furniture), `app/pages.css` (chat, logs, role pages),
+`app/shell.css` (older i-Campus furniture), `app/pages.css` (chat, logs, role pages),
 `app/statistics.css` (weak-concept and usage statistics), `app/course-agent.css` (Course Agent symbol
-and chat panel). Later files override earlier ones, so keep the order.
+and chat panel), `app/study.css` (SKKU tokens, site shell, 내 학습 cards, study page, embedded agent
+overrides). Later files override earlier ones, so keep the order.
 `packages/shared` exports the domain types; `app/lib/api.ts` and `app/lib/voice-api.ts` are the only
 places that talk to the backend.
 

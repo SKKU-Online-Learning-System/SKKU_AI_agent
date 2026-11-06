@@ -551,6 +551,36 @@ export function downloadCourseMaterial(courseId: string, materialId: string): Pr
   return fetchAuthorizedBlob(`/api/courses/${courseId}/materials/${materialId}/download`);
 }
 
+export type MaterialPages = {
+  material_id: string;
+  file: string;
+  pages: number[];
+};
+
+export type PageNotePoint = { label: string; text: string };
+
+/** The AI 해설 written for one 교안 page, shown beside it on the study page. */
+export type PageNote = {
+  material_id: string;
+  page: number;
+  title: string;
+  summary: string;
+  points: PageNotePoint[];
+  pitfalls: string;
+};
+
+export function listMaterialPages(courseId: string, materialId: string): Promise<MaterialPages> {
+  return apiRequest<MaterialPages>(`/api/courses/${courseId}/materials/${materialId}/pages`);
+}
+
+export function getMaterialPageNote(
+  courseId: string, materialId: string, page: number
+): Promise<PageNote> {
+  return apiRequest<PageNote>(
+    `/api/courses/${courseId}/materials/${materialId}/pages/${page}/note`
+  );
+}
+
 export function fetchMaterialPageImage(
   courseId: string, materialId: string, page: number
 ): Promise<Blob> {

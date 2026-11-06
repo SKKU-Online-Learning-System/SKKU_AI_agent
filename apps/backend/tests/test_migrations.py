@@ -81,6 +81,7 @@ def test_alembic_upgrade_and_downgrade_full_schema(tmp_path: Path) -> None:
         "embedding_model",
         "page_image",
         "page_evidence",
+        "page_note",
         "embedded_at",
         "created_at",
         "updated_at",

@@ -10,7 +10,7 @@ This monorepo keeps the Next.js UI in `apps/frontend/app`, the FastAPI service i
 
 ## UI Reference
 
-The web app clones the SKKU i-Campus layout (Canvas LMS, <https://canvas.skku.edu/>): a 76px dark-blue global rail, a 64px top bar, and a 204px course menu. Keep the i-Campus menu entries this MVP does not implement visible but inactive rather than removing them, so the shell keeps matching the real LMS. Shell styles live in `apps/frontend/app/globals.css`; COURSE AGENT styles in `apps/frontend/app/course-agent.css`.
+The web app is an Inflearn-style learning site in 성균관대 green: a white header with the SKKU mark and the role menu as tabs, 내 학습 course cards, and for students one full-screen study page per course -- 교안 pages on the left with an AI 해설 beside each page, a right panel that switches between the 주차별 커리큘럼 and the COURSE AGENT drawer. Professor and admin pages keep the older i-Campus course menu; keep its unimplemented entries visible but inactive. Tokens, shell and study-page styles live in `apps/frontend/app/study.css`; COURSE AGENT styles in `apps/frontend/app/course-agent.css`.
 
 ## Architecture & Data Boundaries
 

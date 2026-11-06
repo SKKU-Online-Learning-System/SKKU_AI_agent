@@ -97,6 +97,8 @@ export type VoiceQuestionPayload = {
   mode: VoiceMode;
   chat_session_id?: string | null;
   attachment_ids?: string[];
+  /** The 교안 page open beside the chat, so "이 슬라이드" resolves without a search. */
+  focus?: { material_id: string; page: number } | null;
 };
 
 /** Callbacks for the events a streamed turn emits before and around the answer. */

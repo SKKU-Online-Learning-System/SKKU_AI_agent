@@ -171,14 +171,24 @@ function webSourceLabel(url: string): string | null {
   }
 }
 
+export type PageFocus = { materialId: string; page: number; label: string };
+
 export function CourseAgentClient({
   courseId,
+  embedded = false,
+  focus = null,
   initialSessionId = null
 }: {
   courseId: string;
+  /** Rendered inside the study page's drawer: no page heading, one column. */
+  embedded?: boolean;
+  /** The 교안 page the student is looking at; sent with each typed question. */
+  focus?: PageFocus | null;
   /** Set when the learner reopened this conversation from 대화 이력. */
   initialSessionId?: string | null;
 }) {
+  const focusRef = useRef<PageFocus | null>(focus);
+  focusRef.current = focus;
   const [config, setConfig] = useState<VoiceConfig | null>(null);
   const [configError, setConfigError] = useState<string | null>(null);
   const [chatSessionId, setChatSessionId] = useState<string | null>(initialSessionId);
@@ -722,6 +732,9 @@ export function CourseAgentClient({
         {
           attachment_ids: sending.map((item) => item.attachment.id),
           chat_session_id: chatSessionId,
+          focus: focusRef.current
+            ? { material_id: focusRef.current.materialId, page: focusRef.current.page }
+            : null,
           mode: "socratic",
           text
         },
@@ -1172,23 +1185,27 @@ export function CourseAgentClient({
       : "마이크를 사용할 수 없습니다. 텍스트 질문은 그대로 사용할 수 있습니다.";
 
   return (
-    <section className="course-agent-page">
-      <div className="icampus-breadcrumb">
-        과목 &gt; {config?.course_name ?? "강의"} &gt; <b>COURSE AGENT</b>
-      </div>
+    <section className="course-agent-page" data-embedded={embedded}>
+      {!embedded ? (
+        <>
+          <div className="icampus-breadcrumb">
+            과목 &gt; {config?.course_name ?? "강의"} &gt; <b>COURSE AGENT</b>
+          </div>
 
-      <div className="icampus-page-heading">
-        <div>
-          <h1>COURSE AGENT</h1>
-          <p>강의자료를 근거로 함께 답을 찾아가는 AI 음성 조교</p>
-        </div>
-        <span className="icampus-term-badge">학습자 화면</span>
-      </div>
+          <div className="icampus-page-heading">
+            <div>
+              <h1>COURSE AGENT</h1>
+              <p>강의자료를 근거로 함께 답을 찾아가는 AI 음성 조교</p>
+            </div>
+            <span className="icampus-term-badge">학습자 화면</span>
+          </div>
 
-      <div className="icampus-notice">
-        AI 답변은 강의자료의 파일명과 페이지를 근거로 제공합니다. 중요한 내용은 담당 교수자의
-        안내와 원문을 함께 확인하세요.
-      </div>
+          <div className="icampus-notice">
+            AI 답변은 강의자료의 파일명과 페이지를 근거로 제공합니다. 중요한 내용은 담당
+            교수자의 안내와 원문을 함께 확인하세요.
+          </div>
+        </>
+      ) : null}
 
       {configError ? (
         <p className="admin-alert" role="alert">
@@ -1373,6 +1390,15 @@ export function CourseAgentClient({
               <p className="voice-attach-hint" role="status">
                 긴 PDF는 대화에 남아 질문마다 관련 쪽만 찾아 참고해요. ×로 빼면 참고를 멈춰요.
               </p>
+            ) : null}
+            {embedded && focus ? (
+              <div className="voice-focus-row">
+                <span className="voice-focus-chip" title="질문과 함께 전달되는 교안 위치">
+                  <UiIcon name="material" />
+                  {focus.label}
+                </span>
+                <small>지금 보는 페이지를 함께 전달해요</small>
+              </div>
             ) : null}
             <div className="voice-chat-form-row">
               <input

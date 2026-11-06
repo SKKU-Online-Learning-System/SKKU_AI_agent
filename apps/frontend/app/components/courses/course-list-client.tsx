@@ -62,6 +62,49 @@ export function CourseListClient({ audience }: CourseListClientProps) {
     };
   }, []);
 
+  if (isStudent) {
+    return (
+      <section className="learn-page">
+        <header>
+          <div>
+            <h1>내 학습</h1>
+            <p>과목을 열면 주차별 교안을 AI 해설과 함께 읽고, COURSE AGENT에게 바로 물어볼 수 있어요.</p>
+          </div>
+        </header>
+        {errorMessage ? (
+          <p className="admin-alert" role="alert">
+            {errorMessage}
+          </p>
+        ) : isLoading ? (
+          <p className="learn-loading">과목 목록을 불러오고 있습니다.</p>
+        ) : courses.length === 0 ? (
+          <p className="learn-empty">{emptyMessage}</p>
+        ) : (
+          <div className="learn-grid">
+            {courses.map((course) => (
+              <Link className="learn-card" href={`/student/courses/${course.id}`} key={course.id}>
+                <div className="learn-card-cover" data-status={course.agentStatus}>
+                  <span>{course.code}</span>
+                  <span>{course.term}</span>
+                </div>
+                <div className="learn-card-body">
+                  <strong>{course.title}</strong>
+                  <span>{course.instructorName} 교수</span>
+                </div>
+                <div className="learn-card-foot">
+                  <span>학습하기 →</span>
+                  <span className="material-status" data-status={course.agentStatus}>
+                    {agentStatusLabels[course.agentStatus]}
+                  </span>
+                </div>
+              </Link>
+            ))}
+          </div>
+        )}
+      </section>
+    );
+  }
+
   return (
     <section className="course-list-page">
       <header>

@@ -1,11 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { ApiError, getAdminCourse, listCourses } from "../../lib/api";
-import { roleLabels } from "../../lib/auth";
-import { useAuth } from "../auth/auth-provider";
 import { CourseAgentSymbol } from "../ui/course-agent-symbol";
 import type { IconName } from "../ui/ui-icon";
 import { UiIcon } from "../ui/ui-icon";
@@ -72,8 +70,6 @@ export function CourseWorkspaceClient({
   role: CourseWorkspaceRole;
 }) {
   const pathname = usePathname();
-  const router = useRouter();
-  const { logout, user } = useAuth();
   const [course, setCourse] = useState<WorkspaceCourse | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isNavigationOpen, setIsNavigationOpen] = useState(true);
@@ -122,39 +118,8 @@ export function CourseWorkspaceClient({
     };
   }, [courseId, role]);
 
-  const handleLogout = () => {
-    logout();
-    router.replace("/login");
-  };
-
   return (
     <section className="icampus-course-workspace">
-      <header className="icampus-app-topbar">
-        <button
-          aria-controls="icampus-course-navigation"
-          aria-expanded={isNavigationOpen}
-          aria-label={isNavigationOpen ? "과목 메뉴 접기" : "과목 메뉴 열기"}
-          className="icampus-menu-toggle"
-          onClick={() => setIsNavigationOpen((isOpen) => !isOpen)}
-          type="button"
-        >
-          <span aria-hidden="true">☰</span>
-        </button>
-        <strong>
-          <b>{course?.title ?? "과목을 불러오는 중입니다."}</b>
-          {activeItem.label !== "홈" ? <> &nbsp;›&nbsp; {activeItem.label}</> : null}
-        </strong>
-        <div className="icampus-user-menu">
-          {user ? (
-            <span>
-              {user.name} {roleLabels[user.role]}
-            </span>
-          ) : null}
-          <button type="button" onClick={handleLogout}>
-            로그아웃
-          </button>
-        </div>
-      </header>
       <div className="icampus-course-layout" data-nav-open={isNavigationOpen}>
         <aside
           aria-label="과목 메뉴 영역"
@@ -162,9 +127,21 @@ export function CourseWorkspaceClient({
           data-open={isNavigationOpen}
           id="icampus-course-navigation"
         >
+          <button
+            aria-controls="icampus-course-navigation"
+            aria-expanded={isNavigationOpen}
+            aria-label={isNavigationOpen ? "과목 메뉴 접기" : "과목 메뉴 열기"}
+            className="icampus-menu-toggle"
+            onClick={() => setIsNavigationOpen((isOpen) => !isOpen)}
+            type="button"
+          >
+            <span aria-hidden="true">☰</span>
+          </button>
+          <h2>{course?.title ?? "과목을 불러오는 중입니다."}</h2>
           <strong>
             {course?.term ?? "학기 정보"}
             {course ? ` · ${course.code}` : ""}
+            {activeItem.label !== "홈" ? ` · ${activeItem.label}` : ""}
           </strong>
           <nav aria-label="과목 메뉴">
             {items.map((item) =>

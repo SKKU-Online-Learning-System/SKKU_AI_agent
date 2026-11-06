@@ -6,6 +6,7 @@ import "./shell.css";
 import "./pages.css";
 import "./statistics.css";
 import "./course-agent.css";
+import "./study.css";
 
 export const metadata: Metadata = {
   title: "SKKU Course Agent",
@@ -20,6 +21,10 @@ export default function RootLayout({
   return (
     <html lang="ko">
       <body>
+        <link
+          href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css"
+          rel="stylesheet"
+        />
         <Script id="mathjax-config" strategy="beforeInteractive">
           {`window.MathJax = { tex: { inlineMath: [["$","$"]], displayMath: [["$$","$$"]] } };`}
         </Script>

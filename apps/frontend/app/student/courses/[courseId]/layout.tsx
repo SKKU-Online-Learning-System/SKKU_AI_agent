@@ -1,16 +1,4 @@
-import { CourseWorkspaceClient } from "../../../components/courses/course-workspace-client";
-
-export default async function StudentCourseLayout({
-  children,
-  params
-}: {
-  children: React.ReactNode;
-  params: Promise<{ courseId: string }>;
-}) {
-  const { courseId } = await params;
-  return (
-    <CourseWorkspaceClient courseId={courseId} role="student">
-      {children}
-    </CourseWorkspaceClient>
-  );
+// A student's course is one full-screen study page; no course menu wraps it.
+export default function StudentCourseLayout({ children }: { children: React.ReactNode }) {
+  return <>{children}</>;
 }
