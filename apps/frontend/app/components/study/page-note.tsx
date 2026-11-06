@@ -15,12 +15,15 @@ export function PageNotePane({
   courseId,
   materialId,
   onAsk,
+  onNoted,
   page,
   week
 }: {
   courseId: string;
   materialId: string;
   onAsk?: () => void;
+  /** Called once the page's note exists, so the thumbnail strip can mark it. */
+  onNoted?: (page: number) => void;
   page: number;
   week: number;
 }) {
@@ -51,7 +54,10 @@ export function PageNotePane({
     getMaterialPageNote(courseId, materialId, page).then(
       (note) => {
         cache.current.set(key, note);
-        if (!cancelled) setState({ status: "ready", note });
+        if (!cancelled) {
+          setState({ status: "ready", note });
+          onNoted?.(page);
+        }
       },
       (error) => {
         if (!cancelled) {
@@ -65,6 +71,8 @@ export function PageNotePane({
     return () => {
       cancelled = true;
     };
+    // onNoted is a stable callback from the study page; the note is keyed by page.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [attempt, courseId, materialId, page]);
 
   return (

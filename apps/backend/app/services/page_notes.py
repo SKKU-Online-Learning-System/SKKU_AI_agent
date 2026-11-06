@@ -35,10 +35,10 @@ NOTE_SYSTEM_PROMPT = (
 )
 
 
-def list_pages(session: Session, course_id: str, material_id: str) -> list[int]:
-    """Page numbers that have a rendered image, in order."""
+def list_pages(session: Session, course_id: str, material_id: str) -> tuple[list[int], list[int]]:
+    """Page numbers that have a rendered image, in order, and those with a note written."""
     rows = session.execute(
-        select(DocumentChunk.page_number)
+        select(DocumentChunk.page_number, DocumentChunk.page_note.is_not(None))
         .where(
             DocumentChunk.course_id == course_id,
             DocumentChunk.material_id == material_id,
@@ -46,8 +46,10 @@ def list_pages(session: Session, course_id: str, material_id: str) -> list[int]:
             DocumentChunk.page_image.is_not(None),
         )
         .order_by(DocumentChunk.page_number)
-    ).scalars()
-    return sorted({int(number) for number in rows})
+    ).all()
+    pages = sorted({int(number) for number, _ in rows})
+    noted = sorted({int(number) for number, has_note in rows if has_note})
+    return pages, noted
 
 
 def _normalize(note: dict) -> dict:

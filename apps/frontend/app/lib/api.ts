@@ -555,6 +555,8 @@ export type MaterialPages = {
   material_id: string;
   file: string;
   pages: number[];
+  /** Pages whose AI 해설 has already been written. */
+  noted: number[];
 };
 
 export type PageNotePoint = { label: string; text: string };

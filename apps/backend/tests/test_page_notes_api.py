@@ -38,7 +38,9 @@ def test_pages_and_note_are_course_scoped_and_cached(chat_api, monkeypatch):
     pages_url = f"/api/courses/{course_id}/materials/{material_id}/pages"
     listed = chat_api.get(pages_url, "student")
     assert listed.status_code == 200
-    assert listed.json() == {"material_id": material_id, "file": "week1.pdf", "pages": [1]}
+    assert listed.json() == {
+        "material_id": material_id, "file": "week1.pdf", "pages": [1], "noted": [],
+    }
     assert chat_api.get(pages_url, "other_student").status_code == 403
 
     calls = []
@@ -61,6 +63,7 @@ def test_pages_and_note_are_course_scoped_and_cached(chat_api, monkeypatch):
     # The second reader gets the cached note: no second model call.
     assert chat_api.get(note_url, "student").json() == body
     assert len(calls) == 1
+    assert chat_api.get(pages_url, "student").json()["noted"] == [1]
     assert chat_api.get(f"{pages_url}/9/note", "student").status_code == 404
     assert chat_api.get(note_url, "other_student").status_code == 403
 

@@ -18,6 +18,8 @@ import { SlideViewer } from "./slide-viewer";
 
 type Panel = "curriculum" | "agent" | "weak" | null;
 
+const EMPTY_PAGES: ReadonlySet<number> = new Set();
+
 /** Keep the open 교안 and page in the URL so a reload or a shared link lands on the same slide. */
 function writeLocation(materialId: string | null, page: number | null, panel: Panel, sessionId: string | null) {
   const params = new URLSearchParams();
@@ -42,6 +44,7 @@ export function StudyPageClient({ courseId }: { courseId: string }) {
   const [pageList, setPageList] = useState<{
     materialId: string;
     pages: number[];
+    noted: Set<number>;
     error: string | null;
   } | null>(null);
   const [panel, setPanel] = useState<Panel>(() => {
@@ -77,6 +80,7 @@ export function StudyPageClient({ courseId }: { courseId: string }) {
   const materialId = chosenMaterialId ?? groupByWeek(viewable)[0]?.items[0]?.id ?? null;
   const material = materials.find((item) => item.id === materialId) ?? null;
   const pages = pageList?.materialId === materialId ? pageList.pages : [];
+  const notedPages = pageList?.materialId === materialId ? pageList.noted : EMPTY_PAGES;
   const pagesError = pageList?.materialId === materialId ? pageList.error : null;
 
   useEffect(() => {
@@ -85,7 +89,12 @@ export function StudyPageClient({ courseId }: { courseId: string }) {
     listMaterialPages(courseId, materialId).then(
       (result) => {
         if (cancelled) return;
-        setPageList({ materialId, pages: result.pages, error: null });
+        setPageList({
+          materialId,
+          pages: result.pages,
+          noted: new Set(result.noted ?? []),
+          error: null
+        });
         setPage((current) => (result.pages.includes(current) ? current : (result.pages[0] ?? 1)));
       },
       (error) => {
@@ -93,6 +102,7 @@ export function StudyPageClient({ courseId }: { courseId: string }) {
           setPageList({
             materialId,
             pages: [],
+            noted: new Set(),
             error: error instanceof ApiError ? error.message : "교안 페이지를 불러오지 못했습니다."
           });
         }
@@ -106,6 +116,14 @@ export function StudyPageClient({ courseId }: { courseId: string }) {
   useEffect(() => {
     writeLocation(materialId, page, panel, sessionId);
   }, [materialId, page, panel, sessionId]);
+
+  const markNoted = useCallback((noted: number) => {
+    setPageList((current) =>
+      current && !current.noted.has(noted)
+        ? { ...current, noted: new Set(current.noted).add(noted) }
+        : current
+    );
+  }, []);
 
   const selectMaterial = useCallback((item: CourseMaterial) => {
     setMaterialId(item.id);
@@ -196,6 +214,7 @@ export function StudyPageClient({ courseId }: { courseId: string }) {
               <SlideViewer
                 courseId={courseId}
                 materialId={material.id}
+                notedPages={notedPages}
                 onPageChange={setPage}
                 page={page}
                 pages={pages}
@@ -205,6 +224,7 @@ export function StudyPageClient({ courseId }: { courseId: string }) {
                 courseId={courseId}
                 materialId={material.id}
                 onAsk={() => setPanel("agent")}
+                onNoted={markNoted}
                 page={page}
                 week={material.week}
               />

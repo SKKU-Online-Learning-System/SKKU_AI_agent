@@ -284,8 +284,9 @@ def list_material_pages(
 ) -> dict:
     """The rendered pages of a 교안, for the study page's viewer."""
     material = _load_course_material(session, course.id, material_id)
-    pages = list_pages(session, course.id, material_id)
-    return {"material_id": material_id, "file": material.original_file_name, "pages": pages}
+    pages, noted = list_pages(session, course.id, material_id)
+    return {"material_id": material_id, "file": material.original_file_name,
+            "pages": pages, "noted": noted}
 
 
 @router.get("/courses/{course_id}/materials/{material_id}/pages/{page_number}/note")
