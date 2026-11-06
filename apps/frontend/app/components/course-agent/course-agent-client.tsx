@@ -9,14 +9,12 @@ import type {
   VoiceConfig,
   VoiceMaterialSource,
   VoiceTraceStep,
-  VoiceVisualization,
-  WeakConcept
+  VoiceVisualization
 } from "../../lib/voice-api";
 import {
   deleteVoiceAttachment,
   getVoiceAttachment,
   getVoiceConfig,
-  listWeakConcepts,
   openNextReview,
   resetVoiceConversation,
   streamVoiceAnswer,
@@ -54,7 +52,7 @@ import {
 import type { PendingAttachment, SentAttachment } from "./course-agent-attachments";
 import { CourseAgentVisualizationCard } from "./course-agent-visualization";
 import { MathText } from "./math-text";
-import { WeakConceptQuiz } from "./weak-concept-quiz";
+import { WeakConceptsPanel } from "./weak-concepts-panel";
 
 const SAMPLE_RATE = 16000;
 // The speech server emits 24 kHz PCM. The playback AudioContext must run at
@@ -88,12 +86,6 @@ const VOICE_STATE_CAPTIONS: Record<VoiceState, string> = {
   hearing: "말씀하시는 중",
   thinking: "생각하는 중",
   speaking: "답변하는 중"
-};
-
-const WEAK_CONCEPT_STATUS_LABELS: Record<WeakConcept["status"], string> = {
-  new: "신규",
-  practicing: "학습 중",
-  mastered: "학습 완료"
 };
 
 export type ChatEntry =
@@ -204,10 +196,6 @@ export function CourseAgentClient({
   const [isMuted, setIsMuted] = useState(false);
   const [isVoiceOpen, setIsVoiceOpen] = useState(false);
   const [isMicrophoneAvailable, setIsMicrophoneAvailable] = useState(true);
-  const [weakConcepts, setWeakConcepts] = useState<WeakConcept[]>([]);
-  const [weakConceptError, setWeakConceptError] = useState<string | null>(null);
-  const [isWeakConceptLoading, setIsWeakConceptLoading] = useState(true);
-  const [quizMemoryId, setQuizMemoryId] = useState<string | null>(null);
 
   const nextId = useRef(1);
   const messagesRef = useRef<HTMLDivElement | null>(null);
@@ -293,41 +281,6 @@ export function CourseAgentClient({
     };
   }, [courseId]);
 
-  const loadWeakConcepts = useCallback(async () => {
-    setIsWeakConceptLoading(true);
-    setWeakConceptError(null);
-    try {
-      const result = await listWeakConcepts(courseId);
-      setWeakConcepts(result.concepts);
-    } catch (error) {
-      setWeakConceptError(
-        error instanceof ApiError ? error.message : "취약 개념을 불러오지 못했습니다."
-      );
-    } finally {
-      setIsWeakConceptLoading(false);
-    }
-  }, [courseId]);
-
-  useEffect(() => {
-    let isCancelled = false;
-    listWeakConcepts(courseId)
-      .then((result) => {
-        if (!isCancelled) setWeakConcepts(result.concepts);
-      })
-      .catch((error: unknown) => {
-        if (!isCancelled) {
-          setWeakConceptError(
-            error instanceof ApiError ? error.message : "취약 개념을 불러오지 못했습니다."
-          );
-        }
-      })
-      .finally(() => {
-        if (!isCancelled) setIsWeakConceptLoading(false);
-      });
-    return () => {
-      isCancelled = true;
-    };
-  }, [courseId]);
 
   // Scroll to the end for a new message, and follow an answer being written
   // only while the student is already reading the end. Trace updates change
@@ -1543,80 +1496,8 @@ export function CourseAgentClient({
         </aside>
       </div>
 
-      {config?.can_manage === false ? (
-        <section aria-labelledby="weak-concepts-title" className="icampus-card weak-concepts-card">
-        <div className="icampus-card-head">
-          <div>
-            <h2 id="weak-concepts-title">내 취약 개념</h2>
-            <small>COURSE AGENT가 대화에서 발견한 현재 과목의 학습 포인트입니다.</small>
-          </div>
-          <button
-            className="voice-secondary"
-            disabled={isWeakConceptLoading}
-            onClick={() => void loadWeakConcepts()}
-            type="button"
-          >
-            {isWeakConceptLoading ? "불러오는 중" : "새로고침"}
-          </button>
-        </div>
-        <div className="icampus-card-body">
-          {weakConceptError ? (
-            <p className="admin-alert" role="alert">
-              {weakConceptError}
-            </p>
-          ) : null}
-          {!weakConceptError && isWeakConceptLoading && weakConcepts.length === 0 ? (
-            <p className="voice-empty">취약 개념을 불러오는 중입니다.</p>
-          ) : null}
-          {!weakConceptError && !isWeakConceptLoading && weakConcepts.length === 0 ? (
-            <p className="voice-empty">아직 저장된 취약 개념이 없습니다.</p>
-          ) : null}
-          {weakConcepts.length > 0 ? (
-            <div className="weak-concept-list">
-              {weakConcepts.map((item) => (
-                <article className="weak-concept-item" key={item.memory_id}>
-                  <div className="weak-concept-head">
-                    <h3>{item.concept}</h3>
-                    <span className="icampus-term-badge">
-                      {WEAK_CONCEPT_STATUS_LABELS[item.status]}
-                    </span>
-                  </div>
-                  <p>{item.difficulty_note}</p>
-                  <div className="weak-mastery-row">
-                    <div
-                      aria-label={`${item.concept} 이해도`}
-                      aria-valuemax={100}
-                      aria-valuemin={0}
-                      aria-valuenow={item.mastery_percent}
-                      className="weak-mastery-track"
-                      role="progressbar"
-                    >
-                      <span style={{ width: `${item.mastery_percent}%` }} />
-                    </div>
-                    <strong>{item.mastery_percent}%</strong>
-                  </div>
-                  {quizMemoryId === item.memory_id ? (
-                    <WeakConceptQuiz
-                      courseId={courseId}
-                      memoryId={item.memory_id}
-                      onClose={() => setQuizMemoryId(null)}
-                      onRecorded={loadWeakConcepts}
-                    />
-                  ) : (
-                    <button
-                      className="voice-secondary weak-quiz-start"
-                      onClick={() => setQuizMemoryId(item.memory_id)}
-                      type="button"
-                    >
-                      O/X 퀴즈 풀기
-                    </button>
-                  )}
-                </article>
-              ))}
-            </div>
-          ) : null}
-        </div>
-        </section>
+      {config?.can_manage === false && !embedded ? (
+        <WeakConceptsPanel courseId={courseId} />
       ) : null}
     </section>
   );

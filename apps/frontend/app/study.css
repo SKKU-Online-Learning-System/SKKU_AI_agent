@@ -720,6 +720,10 @@ body {
   white-space: pre-wrap;
 }
 
+.study-note-label {
+  display: inline;
+}
+
 .study-note-summary,
 .study-note-pitfall {
   display: flex;
@@ -763,8 +767,84 @@ body {
   color: var(--ink-3);
   display: grid;
   font-size: 13px;
-  gap: 6px;
-  padding: 24px 0;
+  gap: 18px;
+  padding: 8px 0 16px;
+}
+
+.study-note-progress {
+  align-items: center;
+  display: grid;
+  gap: 4px 10px;
+  grid-template-columns: auto minmax(0, 1fr);
+}
+
+.study-note-progress > * {
+  min-width: 0;
+}
+
+.study-note-progress .study-note-shimmer {
+  display: block;
+  font-size: 14px;
+  line-height: 1.4;
+}
+
+.study-note-progress small {
+  color: var(--ink-3);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  grid-column: 2;
+}
+
+.study-note-spinner {
+  animation: study-spin 0.9s linear infinite;
+  border: 3px solid var(--skku-green-soft);
+  border-radius: 50%;
+  border-top-color: var(--skku-green);
+  grid-row: 1 / span 2;
+  height: 22px;
+  width: 22px;
+}
+
+@keyframes study-spin {
+  to { transform: rotate(360deg); }
+}
+
+.study-note-skeleton {
+  display: grid;
+  gap: 10px;
+}
+
+.study-note-skeleton i {
+  animation: study-skeleton 1.6s ease-in-out infinite;
+  background: linear-gradient(90deg, var(--line-soft) 0%, var(--surface-2) 50%, var(--line-soft) 100%);
+  background-size: 200% 100%;
+  border-radius: 6px;
+  display: block;
+  height: 14px;
+}
+
+.study-note-skeleton .study-note-skeleton-block {
+  height: 52px;
+  width: 100%;
+}
+
+@keyframes study-skeleton {
+  from { background-position: 200% 0; }
+  to { background-position: -200% 0; }
+}
+
+.study-note-error {
+  display: grid;
+  gap: 10px;
+  justify-items: start;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .study-note-spinner,
+  .study-note-skeleton i,
+  .study-note-shimmer {
+    animation: none;
+  }
 }
 
 .study-note-shimmer {
@@ -1206,12 +1286,95 @@ body {
 /* Tool rail */
 
 .study-rail {
+  align-self: stretch;
   background: var(--surface);
   border-left: 1px solid var(--line);
   display: flex;
   flex-direction: column;
   gap: 4px;
+  height: 100%;
   padding: 8px 4px;
+}
+
+/* Scrollbars on the study page: thin, no track, thumb only while hovered. */
+.study-page * {
+  scrollbar-color: transparent transparent;
+  scrollbar-width: thin;
+}
+
+.study-page *:hover {
+  scrollbar-color: rgba(10, 46, 32, 0.22) transparent;
+}
+
+.study-page *::-webkit-scrollbar {
+  height: 8px;
+  width: 8px;
+}
+
+.study-page *::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.study-page *::-webkit-scrollbar-thumb {
+  background: transparent;
+  border: 2px solid transparent;
+  border-radius: 8px;
+}
+
+.study-page *:hover::-webkit-scrollbar-thumb {
+  background: rgba(10, 46, 32, 0.22);
+  background-clip: padding-box;
+}
+
+/* Weak-concept tab */
+
+.study-panel-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 14px 16px 24px;
+}
+
+.study-weak {
+  display: grid;
+  gap: 12px;
+}
+
+.study-weak-toolbar {
+  align-items: center;
+  display: flex;
+  gap: 10px;
+  justify-content: space-between;
+}
+
+.study-weak-toolbar small {
+  color: var(--ink-3);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.study-weak-toolbar .voice-secondary {
+  flex: none;
+  min-height: 32px;
+  white-space: nowrap;
+}
+
+.study-weak .weak-concept-list {
+  display: grid;
+  gap: 10px;
+}
+
+.study-weak .weak-concept-item {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 14px;
+}
+
+.study-weak .voice-empty {
+  color: var(--ink-3);
+  font-size: 14px;
+  padding: 24px 0;
+  text-align: center;
 }
 
 .study-rail button,

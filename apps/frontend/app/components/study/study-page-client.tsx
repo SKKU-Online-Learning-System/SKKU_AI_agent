@@ -8,6 +8,7 @@ import type { CourseMaterial, CourseSummary } from "../../lib/api";
 import { useAuth } from "../auth/auth-provider";
 import { CourseAgentClient } from "../course-agent/course-agent-client";
 import type { PageFocus } from "../course-agent/course-agent-client";
+import { WeakConceptsPanel } from "../course-agent/weak-concepts-panel";
 import { useCourseMaterials } from "../courses/use-course-materials";
 import { CourseAgentSymbol } from "../ui/course-agent-symbol";
 import { UiIcon } from "../ui/ui-icon";
@@ -15,7 +16,7 @@ import { CurriculumPanel, groupByWeek, isViewable, pageCount } from "./curriculu
 import { PageNotePane } from "./page-note";
 import { SlideViewer } from "./slide-viewer";
 
-type Panel = "curriculum" | "agent" | null;
+type Panel = "curriculum" | "agent" | "weak" | null;
 
 /** Keep the open 교안 and page in the URL so a reload or a shared link lands on the same slide. */
 function writeLocation(materialId: string | null, page: number | null, panel: Panel, sessionId: string | null) {
@@ -46,7 +47,7 @@ export function StudyPageClient({ courseId }: { courseId: string }) {
   const [panel, setPanel] = useState<Panel>(() => {
     const requested = searchParams.get("panel");
     if (requested === "agent" || sessionId) return "agent";
-    if (requested === "curriculum") return "curriculum";
+    if (requested === "weak") return "weak";
     return "curriculum";
   });
   const [downloadError, setDownloadError] = useState<string | null>(null);
@@ -241,6 +242,20 @@ export function StudyPageClient({ courseId }: { courseId: string }) {
           </section>
         ) : null}
 
+        {panel === "weak" ? (
+          <section aria-label="취약 개념" className="study-panel">
+            <header className="study-panel-head">
+              <h2>내 취약 개념</h2>
+              <button aria-label="패널 닫기" onClick={() => setPanel(null)} type="button">
+                <UiIcon name="close" />
+              </button>
+            </header>
+            <div className="study-panel-scroll">
+              <WeakConceptsPanel courseId={courseId} variant="panel" />
+            </div>
+          </section>
+        ) : null}
+
         <nav aria-label="학습 도구" className="study-rail">
           <button
             aria-pressed={panel === "curriculum"}
@@ -258,6 +273,10 @@ export function StudyPageClient({ courseId }: { courseId: string }) {
           >
             <CourseAgentSymbol size={26} state="presence" />
             <span>에이전트</span>
+          </button>
+          <button aria-pressed={panel === "weak"} onClick={() => togglePanel("weak")} type="button">
+            <UiIcon name="chart" />
+            <span>취약 개념</span>
           </button>
           <Link href="/student/chat-history">
             <UiIcon name="note" />

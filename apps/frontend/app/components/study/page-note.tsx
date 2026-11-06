@@ -26,6 +26,17 @@ export function PageNotePane({
 }) {
   const cache = useRef(new Map<string, PageNote>());
   const [state, setState] = useState<NoteState>({ status: "loading" });
+  const [attempt, setAttempt] = useState(0);
+  const [elapsed, setElapsed] = useState(0);
+
+  // Seconds since this page's note was requested, so a 20-second wait reads as
+  // progress rather than a hang.
+  useEffect(() => {
+    if (state.status !== "loading") return;
+    const startedAt = Date.now();
+    const timer = window.setInterval(() => setElapsed(Math.floor((Date.now() - startedAt) / 1000)), 1000);
+    return () => window.clearInterval(timer);
+  }, [state.status, materialId, page, attempt]);
 
   useEffect(() => {
     const key = `${materialId}:${page}`;
@@ -36,6 +47,7 @@ export function PageNotePane({
     }
     let cancelled = false;
     setState({ status: "loading" });
+    setElapsed(0);
     getMaterialPageNote(courseId, materialId, page).then(
       (note) => {
         cache.current.set(key, note);
@@ -53,7 +65,7 @@ export function PageNotePane({
     return () => {
       cancelled = true;
     };
-  }, [courseId, materialId, page]);
+  }, [attempt, courseId, materialId, page]);
 
   return (
     <aside aria-label="AI 교안 해설" className="study-note">
@@ -62,12 +74,32 @@ export function PageNotePane({
       </div>
       {state.status === "loading" ? (
         <div className="study-note-loading" role="status">
-          <span className="study-note-shimmer">AI가 이 페이지를 해설하는 중…</span>
-          <p>처음 여는 페이지는 몇 초가 걸려요. 한 번 쓴 해설은 바로 열립니다.</p>
+          <div className="study-note-progress">
+            <span aria-hidden="true" className="study-note-spinner" />
+            <span className="study-note-shimmer">
+              {elapsed < 2 ? "해설을 불러오는 중…" : "AI가 이 페이지를 읽고 해설을 쓰는 중…"}
+            </span>
+            {elapsed >= 2 ? <small>{elapsed}초 · 처음 여는 페이지는 20초 정도 걸려요</small> : null}
+          </div>
+          <div aria-hidden="true" className="study-note-skeleton">
+            <i style={{ width: "62%" }} />
+            <i className="study-note-skeleton-block" />
+            <i style={{ width: "38%" }} />
+            <i style={{ width: "92%" }} />
+            <i style={{ width: "84%" }} />
+            <i style={{ width: "44%" }} />
+            <i style={{ width: "96%" }} />
+            <i style={{ width: "70%" }} />
+          </div>
         </div>
       ) : null}
       {state.status === "error" ? (
-        <p className="admin-alert" role="alert">{state.message}</p>
+        <div className="study-note-error">
+          <p className="admin-alert" role="alert">{state.message}</p>
+          <button className="voice-secondary" onClick={() => setAttempt((n) => n + 1)} type="button">
+            다시 시도
+          </button>
+        </div>
       ) : null}
       {state.status === "ready" ? (
         <article>
@@ -82,7 +114,11 @@ export function PageNotePane({
             <ul className="study-note-points">
               {state.note.points.map((point, index) => (
                 <li key={index}>
-                  {point.label ? <strong>{point.label}</strong> : null}
+                  {point.label ? (
+                    <strong>
+                      <MathText className="study-note-label" text={point.label} />
+                    </strong>
+                  ) : null}
                   <MathText className="study-note-text" text={point.text} />
                 </li>
               ))}
