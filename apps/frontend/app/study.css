@@ -263,12 +263,15 @@ body {
   flex-direction: column;
   overflow: hidden;
   text-decoration: none;
-  transition: box-shadow 0.15s ease, transform 0.15s ease;
+  transition: border-color 0.15s ease;
 }
 
 .learn-card:hover {
-  box-shadow: var(--shadow-card);
-  transform: translateY(-2px);
+  border-color: var(--skku-green-line);
+}
+
+.learn-card:hover .learn-card-body strong {
+  color: var(--skku-green);
 }
 
 .learn-card-cover {
@@ -1995,4 +1998,36 @@ h2 {
 
 .voice-state {
   border-radius: 999px;
+}
+
+/* Hover: text turns green, nothing moves. */
+
+.course-table button.log-link:hover:not(:disabled),
+.course-table button.log-link:focus-visible {
+  background: transparent;
+  border: 0;
+  color: var(--skku-green-deep);
+  text-decoration: underline;
+}
+
+.canvas-course-card {
+  transition: border-color 0.15s ease;
+}
+
+.canvas-course-card:hover {
+  border-color: var(--skku-green-line);
+  box-shadow: none;
+  transform: none;
+}
+
+.canvas-course-card:hover .canvas-course-card-body strong {
+  color: var(--skku-green);
+}
+
+.canvas-course-card-body strong {
+  transition: color 0.15s ease;
+}
+
+.learn-card-body strong {
+  transition: color 0.15s ease;
 }
