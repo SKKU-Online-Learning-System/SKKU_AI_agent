@@ -6,6 +6,12 @@
       "runtimeExecutable": "C:\\Program Files\\Git\\bin\\bash.exe",
       "runtimeArgs": ["-c", "USE_MOCK_LLM=true bash run.sh"],
       "port": 3000
+    },
+    {
+      "name": "app-real",
+      "runtimeExecutable": "C:\\Program Files\\Git\\bin\\bash.exe",
+      "runtimeArgs": ["-c", "bash run.sh"],
+      "port": 3000
     }
   ]
 }
