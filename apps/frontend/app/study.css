@@ -870,6 +870,7 @@ body {
   border-left: 1px solid var(--line);
   display: flex;
   flex-direction: column;
+  grid-column: 2;
   min-height: 0;
   width: 380px;
 }
@@ -1292,6 +1293,9 @@ body {
   display: flex;
   flex-direction: column;
   gap: 4px;
+  /* Always the last column: with no panel open the rail would otherwise be
+     auto-placed into the panel's column, leaving an empty 64px strip at the edge. */
+  grid-column: 3;
   height: 100%;
   padding: 8px 4px;
 }
@@ -1427,6 +1431,10 @@ body {
 @media (max-width: 900px) {
   .study-body {
     grid-template-columns: minmax(0, 1fr) 64px;
+  }
+
+  .study-rail {
+    grid-column: 2;
   }
 
   .study-panel {
