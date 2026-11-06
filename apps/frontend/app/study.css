@@ -285,16 +285,6 @@ body {
   position: relative;
 }
 
-.learn-card-cover::after {
-  background: var(--skku-gold);
-  bottom: 0;
-  content: "";
-  height: 4px;
-  left: 0;
-  position: absolute;
-  width: 56px;
-}
-
 .learn-card-cover[data-status="disabled"] {
   filter: grayscale(0.7);
   opacity: 0.8;
