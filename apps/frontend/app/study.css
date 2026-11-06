@@ -1131,8 +1131,9 @@ body {
   color: var(--skku-green);
 }
 
-/* Agent drawer: the chat fills the drawer and scrolls inside it; the voice
-   control is one compact row under the composer; weak concepts fold below. */
+/* Agent drawer: one flat column -- no card inside the panel. The chat fills
+   the drawer and scrolls inside it, the composer and the voice row sit at the
+   bottom behind thin rules, everything on the same 16px gutter. */
 
 .study-agent-body {
   display: flex;
@@ -1140,21 +1141,21 @@ body {
   flex-direction: column;
   min-height: 0;
   overflow: hidden;
-  padding: 10px;
+  padding: 0;
 }
 
 .course-agent-page[data-embedded="true"] {
   display: flex;
   flex: 1;
   flex-direction: column;
-  gap: 10px;
+  gap: 0;
   min-height: 0;
 }
 
 .course-agent-page[data-embedded="true"] .admin-alert {
   flex: none;
   font-size: 12px;
-  margin: 0;
+  margin: 12px 16px 0;
   padding: 8px 10px;
 }
 
@@ -1162,12 +1163,14 @@ body {
   display: flex;
   flex: 1 1 auto;
   flex-direction: column;
-  gap: 10px;
+  gap: 0;
   min-height: 0;
 }
 
 .course-agent-page[data-embedded="true"] .voice-chat-card {
-  border-radius: var(--radius);
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
   flex: 1 1 auto;
   min-height: 0;
 }
@@ -1177,8 +1180,11 @@ body {
 }
 
 .course-agent-page[data-embedded="true"] .voice-chat-toolbar {
+  align-items: center;
+  border-bottom: 1px solid var(--line-soft);
+  color: var(--ink-3);
   font-size: 12px;
-  padding: 6px 8px 6px 12px;
+  padding: 8px 12px 8px 16px;
 }
 
 .course-agent-page[data-embedded="true"] .voice-chat-toolbar .voice-secondary {
@@ -1187,27 +1193,47 @@ body {
 }
 
 .course-agent-page[data-embedded="true"] .voice-messages {
+  background: transparent;
   flex: 1 1 auto;
   max-height: none;
   min-height: 0;
-  padding: 12px;
+  padding: 16px;
 }
 
 .course-agent-page[data-embedded="true"] .voice-message {
-  margin-bottom: 12px;
+  margin-bottom: 14px;
+}
+
+.course-agent-page[data-embedded="true"] .voice-avatar {
+  flex-basis: 30px;
+  height: 30px;
+  width: 30px;
+}
+
+.course-agent-page[data-embedded="true"] .voice-who {
+  font-size: 11px;
 }
 
 .course-agent-page[data-embedded="true"] .voice-chat-form {
-  padding: 10px;
+  border-top: 1px solid var(--line);
+  padding: 12px 16px;
 }
 
 .course-agent-page[data-embedded="true"] .voice-chat-form input {
   font-size: 13px;
-  padding: 9px 10px;
+  padding: 9px 12px;
 }
 
-/* Voice: one row -- small orb, state, help. */
+.course-agent-page[data-embedded="true"] .voice-attach-button {
+  border-radius: 8px;
+}
+
+/* Voice: a flat footer row -- small orb, state, help. */
 .course-agent-page[data-embedded="true"] .voice-panel {
+  border: 0;
+  border-radius: 0;
+  border-top: 1px solid var(--line);
+  box-shadow: none;
   flex: none;
 }
 
@@ -1220,11 +1246,11 @@ body {
   flex-direction: row;
   flex-wrap: wrap;
   gap: 6px 12px;
-  padding: 10px 14px;
+  padding: 12px 16px;
 }
 
 .course-agent-page[data-embedded="true"] .voice-orb {
-  --orb-size: 52px;
+  --orb-size: 44px;
   flex: none;
 }
 
@@ -1233,8 +1259,8 @@ body {
 }
 
 .course-agent-page[data-embedded="true"] .voice-orb-mic {
-  height: 22px;
-  width: 22px;
+  height: 20px;
+  width: 20px;
 }
 
 .course-agent-page[data-embedded="true"] .voice-state {
