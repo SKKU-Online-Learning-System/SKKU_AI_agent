@@ -71,9 +71,8 @@ body {
   text-decoration: none;
 }
 
-.skku-brand img {
-  height: 36px;
-  width: 36px;
+.skku-brand .course-agent-symbol {
+  flex: none;
 }
 
 .skku-brand strong {

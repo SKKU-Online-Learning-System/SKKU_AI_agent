@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { getRoleHomePath, getRoleMenuItems, roleLabels } from "../../lib/auth";
+import { CourseAgentSymbol } from "../ui/course-agent-symbol";
 import { UiIcon } from "../ui/ui-icon";
 import { useAuth } from "./auth-provider";
 
@@ -13,7 +14,7 @@ function isActivePath(pathname: string, href: string, roleHomePath: string): boo
 }
 
 /**
- * The site shell: a white header with the SKKU mark and the role's menu as
+ * The site shell: a white header with the Course Agent mark and the role's menu as
  * tabs, the page below. A student's course page is a full-screen study view
  * with its own bar, so it is rendered bare.
  */
@@ -46,9 +47,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       <header className="skku-header">
         <div className="skku-header-inner">
           <Link className="skku-brand" href={roleHomePath}>
-            {/* Fixed-size local crest. */}
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img alt="성균관대학교" src="/skku-logo.svg" />
+            <CourseAgentSymbol size={36} state="presence" />
             <span>
               <strong>SKKU COURSE AGENT</strong>
               <small>성균관대학교 AI 학습 조교</small>
