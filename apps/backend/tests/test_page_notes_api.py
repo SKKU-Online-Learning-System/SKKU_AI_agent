@@ -90,3 +90,14 @@ def test_prefetch_supplies_the_page_the_student_is_viewing(monkeypatch):
     assert focused["viewing_page"]["page"] == 3
     assert focused["viewing_page"]["excerpt"] == "경사하강법 수식"
     assert "viewing_page" in brain.answer_instructions(context, focused)
+
+
+def test_tex_backslashes_survive_json_parsing():
+    import json
+
+    from app.services.llm_service import escape_tex_backslashes
+
+    raw = r'{"a": "$\frac{1}{\sqrt{d}}$ \boldsymbol{q}^\top \nabla \underline{x}", "b": "줄1\n줄2 \"q\" \u00e9"}'
+    value = json.loads(escape_tex_backslashes(raw))
+    assert value["a"] == r"$\frac{1}{\sqrt{d}}$ \boldsymbol{q}^\top \nabla \underline{x}"
+    assert value["b"] == '줄1\n줄2 "q" é'

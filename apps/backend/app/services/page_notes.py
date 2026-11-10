@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import Settings
 from app.models import CourseMaterial, CourseMaterialStatus, DocumentChunk
-from app.services.llm_service import LLMService
+from app.services.llm_service import LLMService, escape_tex_backslashes
 
 log = logging.getLogger(__name__)
 
@@ -92,7 +92,8 @@ async def page_note(
     chunk_id, cached, evidence, native_text, file_name = row
     if cached:
         try:
-            return json.loads(cached)
+            # Notes cached before the parser repaired TeX backslashes still hold "$\frac".
+            return json.loads(escape_tex_backslashes(cached))
         except json.JSONDecodeError:
             log.warning("Discarding unreadable page note for chunk %s", chunk_id)
     # ponytail: two first readers of the same page both write it; last write wins, same note.
