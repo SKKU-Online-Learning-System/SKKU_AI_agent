@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sys
+from argparse import ArgumentParser
 from dataclasses import dataclass
 
 from argon2 import PasswordHasher
@@ -144,25 +145,22 @@ def seed_database(session: Session, password: str) -> SeedSummary:
     )
 
 
-# The documented demo password: fine on a laptop, a public login anywhere else.
-DEMO_PASSWORDS = frozenset({"password123"})
-
-
-def main() -> int:
+def main(*, only_if_empty: bool = False) -> int:
     settings = get_settings()
+    if settings.app_env != "local":
+        print("Seed refused: demo accounts are local development only.", file=sys.stderr)
+        return 1
     password = settings.seed_password
-    if not password:
-        print("Seed failed. Set SEED_PASSWORD in .env.", file=sys.stderr)
-        return 1
-    if settings.app_env != "local" and (password in DEMO_PASSWORDS or len(password) < 12):
-        print(
-            "Seed failed. SEED_PASSWORD must be a unique password of at least 12 characters "
-            "when APP_ENV is not local.",
-            file=sys.stderr,
-        )
-        return 1
     with SessionLocal() as session:
         try:
+            if only_if_empty:
+                if session.scalar(select(User.id).limit(1)) is not None:
+                    print("Seed skipped: the database already contains users.")
+                    return 0
+                session.rollback()
+            if not password:
+                print("Seed failed. Set SEED_PASSWORD in .env.", file=sys.stderr)
+                return 1
             summary = seed_database(session, password)
         except SQLAlchemyError as exc:
             session.rollback()
@@ -182,4 +180,6 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    parser = ArgumentParser(description="Seed local demo accounts and courses.")
+    parser.add_argument("--if-empty", action="store_true", help="Skip if users already exist.")
+    raise SystemExit(main(only_if_empty=parser.parse_args().if_empty))

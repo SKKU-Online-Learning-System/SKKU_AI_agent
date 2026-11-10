@@ -185,12 +185,7 @@ def tool_runner(context: VoiceContext) -> Callable[[str, dict], Awaitable[object
                             {item.original_file_name for item in materials if _is_processed(item)}
                         )[:12],
                     }
-                    log.warning(
-                        "visualization rejected course_id=%s args=%s result=%s",
-                        context.course_id,
-                        args,
-                        failure,
-                    )
+                    log.warning("visualization rejected: no matching PDF")
                     return failure
                 max_page = session.scalar(
                     select(func.max(DocumentChunk.page_number)).where(
@@ -203,22 +198,12 @@ def tool_runner(context: VoiceContext) -> Callable[[str, dict], Awaitable[object
                         "file": material.original_file_name,
                         "max_page": int(max_page),
                     }
-                    log.warning(
-                        "visualization rejected course_id=%s args=%s result=%s",
-                        context.course_id,
-                        args,
-                        failure,
-                    )
+                    log.warning("visualization rejected: page outside PDF")
                     return failure
                 result["material_id"] = material.id
                 result["file"] = material.original_file_name
         if name == "show_visualization" and "error" in result:
-            log.warning(
-                "visualization rejected course_id=%s args=%s result=%s",
-                context.course_id,
-                args,
-                result,
-            )
+            log.warning("visualization rejected: invalid payload")
         return result
 
     return run

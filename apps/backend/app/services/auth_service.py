@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from secrets import token_urlsafe
 from typing import Optional, Protocol
 
 from sqlalchemy import func, select
@@ -8,6 +9,9 @@ from sqlalchemy.orm import Session
 
 from app.core.security import JWTService, PasswordService
 from app.models import User
+from argon2 import PasswordHasher
+
+DUMMY_PASSWORD_HASH = PasswordHasher().hash(token_urlsafe(24))
 
 
 class InvalidCredentialsError(Exception):
@@ -44,6 +48,7 @@ class LocalPasswordAuthProvider:
         user = session.scalar(select(User).where(func.lower(User.email) == normalized_email))
 
         if user is None or user.password_hash is None:
+            self.password_service.verify(password, DUMMY_PASSWORD_HASH)
             return None
         if not self.password_service.verify(password, user.password_hash):
             return None

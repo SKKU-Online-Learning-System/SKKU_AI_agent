@@ -568,17 +568,6 @@ def _json(data: dict) -> str:
     return json.dumps(data, ensure_ascii=False)
 
 
-def _tool_log_value(value: object, limit: int = 600) -> str:
-    """Return compact, bounded JSON for tool debugging logs."""
-    if isinstance(value, str):
-        try:
-            value = json.loads(value)
-        except json.JSONDecodeError:
-            pass
-    text = json.dumps(value, ensure_ascii=False, default=str, separators=(",", ":"))
-    return text if len(text) <= limit else f"{text[:limit]}…"
-
-
 def show_visualization(**args) -> str:
     """Validate one formula, flow diagram, or numeric plot for the chat UI.
 
@@ -1160,7 +1149,7 @@ async def run_tool(context: VoiceContext, name: str, args: dict, timer: StageTim
         "review_weak_concept": "review",
         "show_visualization": "visual",
     }.get(name, "tool")
-    log.info("tool call name=%s args=%s", name, _tool_log_value(args))
+    log.info("tool call stage=%s", stage)
     try:
         if not isinstance(args, dict):
             raise TypeError("tool arguments must be an object")
@@ -1189,7 +1178,7 @@ async def run_tool(context: VoiceContext, name: str, args: dict, timer: StageTim
     except (TypeError, ValueError) as exc:
         result = _json({"error": f"invalid {name} arguments: {exc}"})
     except Exception as exc:
-        log.exception("tool %s failed", name)
+        log.warning("tool failed stage=%s type=%s", stage, type(exc).__name__)
         result = _json({"error": str(exc)})
     finally:
         timer.record(stage, started_at)
@@ -1197,11 +1186,10 @@ async def run_tool(context: VoiceContext, name: str, args: dict, timer: StageTim
     status = "error" if isinstance(payload, dict) and "error" in payload else "ok"
     elapsed_ms = round((time.perf_counter() - started_at) * 1000)
     log.info(
-        "tool result name=%s status=%s elapsed_ms=%d result=%s",
-        name,
+        "tool result stage=%s status=%s elapsed_ms=%d",
+        stage,
         status,
         elapsed_ms,
-        _tool_log_value(payload),
     )
     return result
 

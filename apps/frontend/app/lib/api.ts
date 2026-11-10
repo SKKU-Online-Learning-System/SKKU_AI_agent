@@ -8,7 +8,7 @@ export const apiConnectionErrorMessage =
   "API 서버에 연결할 수 없습니다. 백엔드 실행 상태와 API 주소를 확인해 주세요.";
 
 export type LoginResponse = {
-  access_token: string;
+  access_token?: string;
   token_type: "bearer";
   user: AuthUser;
 };
@@ -227,24 +227,6 @@ export type ChatLogListItem = {
   createdAt: string;
 };
 
-export type ChatLogDetail = {
-  id: string;
-  courseId: string;
-  courseName: string;
-  userLabel: string;
-  userId?: string | null;
-  question: string;
-  answer: string;
-  referencedDocuments: AnswerSource[];
-  retrievalResult: Record<string, unknown>;
-  safetyResult: Record<string, unknown>;
-  isGrounded: boolean;
-  answerSourceType: AnswerSourceType;
-  modelName?: string | null;
-  responseTimeMs?: number | null;
-  createdAt: string;
-};
-
 export type ChatLogListResponse = {
   logs: ChatLogListItem[];
   total: number;
@@ -252,7 +234,6 @@ export type ChatLogListResponse = {
 
 export type ChatLogFilters = {
   courseId?: string;
-  userId?: string;
   keyword?: string;
   isGrounded?: boolean | null;
   safetyCategory?: string;
@@ -270,14 +251,6 @@ export type CourseStatistic = {
 };
 
 export type DateStatistic = { date: string; count: number };
-export type RecentQuestion = {
-  id: string;
-  courseId: string;
-  courseName: string;
-  question: string;
-  createdAt: string;
-};
-export type KeywordStatistic = { keyword: string; count: number };
 
 export type ServiceStatistics = {
   totals: { courseCount: number; userCount: number; questionCount: number };
@@ -325,10 +298,15 @@ export type ActivityStatistics = {
 };
 
 export type ProfessorStatistics = {
-  courses: CourseStatistic[];
-  questionsByDate: DateStatistic[];
-  recentQuestions: RecentQuestion[];
-  keywords: KeywordStatistic[];
+  courses: Array<Pick<CourseStatistic, "courseId" | "courseName" | "materialCount">>;
+};
+
+export type CourseKeywordCounts = {
+  courseId: string;
+  weeks: Array<{
+    week: number;
+    keywords: Array<{ keyword: string; questionCount: number }>;
+  }>;
 };
 
 export type MyStatistics = {
@@ -336,76 +314,6 @@ export type MyStatistics = {
   sessionCount: number;
   questionsByDate: DateStatistic[];
   courses: Array<Pick<CourseStatistic, "courseId" | "courseName" | "questionCount">>;
-};
-
-/** Weak concepts the course agent captured, aggregated for the teaching side. */
-export type WeakConceptStatus = "new" | "practicing" | "mastered";
-export type WeakConceptStatusCounts = Record<WeakConceptStatus, number>;
-
-export type WeakConceptCourseSummary = {
-  courseId: string;
-  courseName: string;
-  recordCount: number;
-  conceptCount: number;
-  studentCount: number;
-  statusCounts: WeakConceptStatusCounts;
-  averageMastery: number;
-  dueReviewCount: number;
-  lastActivityAt: string | null;
-};
-
-export type WeakConceptStatistics = {
-  totals: Omit<WeakConceptCourseSummary, "courseId" | "courseName"> & { courseCount: number };
-  courses: WeakConceptCourseSummary[];
-};
-
-export type WeakConceptConceptRow = {
-  concept: string;
-  topic: string;
-  detail: string;
-  studentCount: number;
-  failureCount: number;
-  successCount: number;
-  statusCounts: WeakConceptStatusCounts;
-  averageMastery: number;
-  lastSeenAt: string | null;
-  sampleNotes: string[];
-};
-
-export type WeakConceptTopicRow = {
-  topic: string;
-  conceptCount: number;
-  studentCount: number;
-  failureCount: number;
-  averageMastery: number;
-};
-
-export type WeakConceptStudentRow = {
-  studentId: string;
-  label: string;
-  conceptCount: number;
-  statusCounts: WeakConceptStatusCounts;
-  averageMastery: number;
-  dueReviewCount: number;
-  lastSeenAt: string | null;
-  weakestConcepts: string[];
-};
-
-export type WeakConceptCapture = {
-  concept: string;
-  status: WeakConceptStatus;
-  difficultyNote: string;
-  studentLabel: string;
-  masteryPercent: number;
-  lastSeenAt: string | null;
-};
-
-export type CourseWeakConceptStatistics = WeakConceptCourseSummary & {
-  concepts: WeakConceptConceptRow[];
-  topics: WeakConceptTopicRow[];
-  students: WeakConceptStudentRow[];
-  savedByDate: DateStatistic[];
-  recentCaptures: WeakConceptCapture[];
 };
 
 export class ApiError extends Error {
@@ -669,7 +577,6 @@ export function getChatSession(sessionId: string): Promise<ChatSessionDetail> {
 function chatLogQuery(filters: ChatLogFilters = {}): string {
   const params = new URLSearchParams();
   if (filters.courseId) params.set("course_id", filters.courseId);
-  if (filters.userId) params.set("user_id", filters.userId);
   if (filters.keyword) params.set("keyword", filters.keyword);
   if (filters.isGrounded !== undefined && filters.isGrounded !== null) {
     params.set("is_grounded", String(filters.isGrounded));
@@ -681,22 +588,6 @@ function chatLogQuery(filters: ChatLogFilters = {}): string {
 
   const query = params.toString();
   return query ? `?${query}` : "";
-}
-
-export function listCourseChatLogs(
-  courseId: string,
-  filters: ChatLogFilters = {}
-): Promise<ChatLogListResponse> {
-  const { courseId: _ignored, ...rest } = filters;
-  return apiRequest<ChatLogListResponse>(
-    `/api/professor/courses/${courseId}/chat-logs${chatLogQuery(rest)}`
-  );
-}
-
-export function listAdminChatLogs(
-  filters: ChatLogFilters = {}
-): Promise<ChatLogListResponse> {
-  return apiRequest<ChatLogListResponse>(`/api/admin/chat-logs${chatLogQuery(filters)}`);
 }
 
 export function listOwnChatLogs(
@@ -721,24 +612,10 @@ export function getMyStatistics(): Promise<MyStatistics> {
   return apiRequest<MyStatistics>("/api/stats/me");
 }
 
-export function getWeakConceptStatistics(): Promise<WeakConceptStatistics> {
-  return apiRequest<WeakConceptStatistics>("/api/stats/weak-concepts");
-}
-
-export function getCourseWeakConceptStatistics(
-  courseId: string
-): Promise<CourseWeakConceptStatistics> {
-  return apiRequest<CourseWeakConceptStatistics>(
-    `/api/stats/weak-concepts/courses/${encodeURIComponent(courseId)}`
+export function getCourseKeywordCounts(courseId: string): Promise<CourseKeywordCounts> {
+  return apiRequest<CourseKeywordCounts>(
+    `/api/stats/courses/${encodeURIComponent(courseId)}/keywords`
   );
-}
-
-export function getCourseChatLog(logId: string): Promise<ChatLogDetail> {
-  return apiRequest<ChatLogDetail>(`/api/professor/chat-logs/${logId}`);
-}
-
-export function getAdminChatLog(logId: string): Promise<ChatLogDetail> {
-  return apiRequest<ChatLogDetail>(`/api/admin/chat-logs/${logId}`);
 }
 
 function adminCourseQuery(filters: AdminCourseFilters = {}): string {

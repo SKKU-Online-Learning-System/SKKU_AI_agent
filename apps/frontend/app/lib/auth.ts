@@ -41,14 +41,14 @@ const roleMenuItems: Record<UserRole, RoleMenuItem[]> = {
     { href: "/admin/courses", label: "과목", icon: "course" },
     { href: "/admin/users", label: "사용자", icon: "group" },
     { href: "/admin/materials", label: "자료", icon: "material" },
-    { href: "/admin/logs", label: "질문 로그", icon: "agent" },
+    { href: "/admin/logs", label: "핵심 키워드", icon: "agent" },
     { href: "/admin/activity", label: "이용 통계", icon: "dashboard" }
   ],
   professor: [
     { href: "/professor", label: "대시보드", icon: "dashboard" },
     { href: "/professor/courses", label: "해당 과목", icon: "course" },
     { href: "/professor/materials", label: "강의자료", icon: "material" },
-    { href: "/professor/logs", label: "질문 로그", icon: "agent" },
+    { href: "/professor/logs", label: "핵심 키워드", icon: "agent" },
     { href: "/professor/rag-debug", label: "RAG 디버그", icon: "source" }
   ],
   // Questions are asked inside a course, through COURSE AGENT; 대화 이력 is a tab there.

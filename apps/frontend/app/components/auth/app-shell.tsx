@@ -19,7 +19,7 @@ function isActivePath(pathname: string, href: string, roleHomePath: string): boo
  * with its own bar, so it is rendered bare.
  */
 export function AppShell({ children }: { children: React.ReactNode }) {
-  const { logout, user } = useAuth();
+  const { isLoggingOut, logout, logoutError, user } = useAuth();
   const pathname = usePathname();
   const router = useRouter();
   const isStudyPage = /^\/student\/courses\/[^/]+/.test(pathname);
@@ -37,9 +37,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const menuItems = getRoleMenuItems(user.role);
   const roleHomePath = getRoleHomePath(user.role);
 
-  const handleLogout = () => {
-    logout();
-    router.replace("/login");
+  const handleLogout = async () => {
+    if (await logout()) router.replace("/login");
   };
 
   return (
@@ -70,12 +69,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               {user.name}
               <b>{roleLabels[user.role]}</b>
             </span>
-            <button onClick={handleLogout} type="button">
+            <button disabled={isLoggingOut} onClick={handleLogout} type="button">
               로그아웃
             </button>
           </div>
         </div>
       </header>
+      {logoutError ? <p className="admin-alert" role="alert">{logoutError}</p> : null}
       {isCourseWorkspace ? (
         <div className="skku-content skku-content--course">{children}</div>
       ) : (

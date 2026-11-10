@@ -35,7 +35,7 @@ function writeLocation(materialId: string | null, page: number | null, panel: Pa
 export function StudyPageClient({ courseId }: { courseId: string }) {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { logout, user } = useAuth();
+  const { isLoggingOut, logout, logoutError, user } = useAuth();
   const { errorMessage, isLoading, materials } = useCourseMaterials(courseId);
   const [course, setCourse] = useState<CourseSummary | null>(null);
   const [courseError, setCourseError] = useState<string | null>(null);
@@ -160,7 +160,7 @@ export function StudyPageClient({ courseId }: { courseId: string }) {
 
   const weekCount = groupByWeek(materials).length;
   const totalPages = materials.reduce((sum, item) => sum + pageCount(item), 0);
-  const alert = courseError ?? errorMessage ?? downloadError;
+  const alert = logoutError ?? courseError ?? errorMessage ?? downloadError;
 
   return (
     <div className="study-page" data-panel={panel ?? "none"}>
@@ -186,9 +186,9 @@ export function StudyPageClient({ courseId }: { courseId: string }) {
           {user ? <span>{user.name}</span> : null}
           <button
             aria-label="로그아웃"
-            onClick={() => {
-              logout();
-              router.replace("/login");
+            disabled={isLoggingOut}
+            onClick={async () => {
+              if (await logout()) router.replace("/login");
             }}
             title="로그아웃"
             type="button"

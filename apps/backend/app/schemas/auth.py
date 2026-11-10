@@ -5,7 +5,7 @@ from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
 class LoginRequest(BaseModel):
     email: EmailStr
-    password: str = Field(min_length=1)
+    password: str = Field(min_length=1, max_length=1024)
 
 
 class AuthUserRead(BaseModel):
@@ -18,6 +18,6 @@ class AuthUserRead(BaseModel):
 
 
 class LoginResponse(BaseModel):
-    access_token: str
+    access_token: str | None = None
     token_type: Literal["bearer"] = "bearer"
     user: AuthUserRead

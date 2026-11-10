@@ -273,7 +273,7 @@ def test_visualization_normalizes_delimiters_and_rejects_placeholder_latex() -> 
         )
 
 
-def test_tool_logs_include_args_status_timing_and_result() -> None:
+def test_tool_logs_include_status_and_timing_but_not_private_payload() -> None:
     args = {
         "title": "소프트맥스",
         "kind": "formula",
@@ -299,9 +299,11 @@ def test_tool_logs_include_args_status_timing_and_result() -> None:
         brain.log.setLevel(previous_level)
 
     output = "\n".join(record.getMessage() for record in records)
-    assert 'tool call name=show_visualization args={"title":"소프트맥스"' in output
-    assert "tool result name=show_visualization status=ok elapsed_ms=" in output
-    assert 'result={"title":"소프트맥스"' in output
+    assert "tool call stage=visual" in output
+    assert "tool result stage=visual status=ok elapsed_ms=" in output
+    assert args["title"] not in output
+    assert args["caption"] not in output
+    assert "args=" not in output and "result=" not in output
 
 def test_speech_text_drops_urls() -> None:
     assert brain.for_speech("설명이에요. https://arxiv.org/abs/1706.03762") == "설명이에요."

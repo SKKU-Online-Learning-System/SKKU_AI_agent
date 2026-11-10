@@ -18,7 +18,9 @@ import {
 
 type AuthContextValue = {
   login: (email: string, password: string) => Promise<AuthUser>;
-  logout: () => void;
+  logout: () => Promise<boolean>;
+  logoutError: string | null;
+  isLoggingOut: boolean;
   refresh: () => Promise<void>;
   status: AuthStatus;
   user: AuthUser | null;
@@ -29,6 +31,8 @@ const AuthContext = createContext<AuthContextValue | null>(null);
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [status, setStatus] = useState<AuthStatus>("loading");
   const [user, setUser] = useState<AuthUser | null>(null);
+  const [logoutError, setLogoutError] = useState<string | null>(null);
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
 
   const setUnauthenticated = useCallback(() => {
     setUser(null);
@@ -58,6 +62,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [refresh]);
 
   const login = useCallback(async (email: string, password: string) => {
+    setLogoutError(null);
     setStatus("loading");
     try {
       const response = await loginRequest(email, password);
@@ -70,21 +75,32 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, [setUnauthenticated]);
 
-  const logout = useCallback(() => {
-    setUnauthenticated();
-    // Best effort: a cookie the API never cleared still expires on its own.
-    void logoutRequest().catch(() => undefined);
+  const logout = useCallback(async () => {
+    setLogoutError(null);
+    setIsLoggingOut(true);
+    try {
+      await logoutRequest();
+      setUnauthenticated();
+      return true;
+    } catch {
+      setLogoutError("로그아웃을 완료하지 못했습니다. 다시 시도해 주세요.");
+      return false;
+    } finally {
+      setIsLoggingOut(false);
+    }
   }, [setUnauthenticated]);
 
   const value = useMemo<AuthContextValue>(
     () => ({
       login,
       logout,
+      logoutError,
+      isLoggingOut,
       refresh,
       status,
       user
     }),
-    [login, logout, refresh, status, user]
+    [isLoggingOut, login, logout, logoutError, refresh, status, user]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

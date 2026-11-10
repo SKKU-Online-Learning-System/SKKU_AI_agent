@@ -1,8 +1,7 @@
 """COURSE AGENT endpoints: text answers, hands-free voice, and settings.
 
 Every route is course-scoped and reuses the project's RBAC, SAFE guardrails and
-chat-log persistence. The realtime WebSocket authenticates with the same JWT,
-passed as a query parameter because browsers cannot set WebSocket headers.
+chat-log persistence. Browsers use the session cookie for realtime WebSockets.
 """
 
 from __future__ import annotations
@@ -40,6 +39,7 @@ from app.core.config import Settings, get_settings
 from app.core.security import InvalidAccessTokenError, JWTService
 from app.db.session import SessionLocal, get_db
 from app.models import Course, User
+from app.services.access_session import resolve_access_user
 from app.services.llm_service import LLMError, LLMService
 from app.services.rag_service import RagService
 from app.services.safety_service import NORMAL_RESULT, SafetyGuardService, SafetyResult
@@ -97,6 +97,7 @@ log = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/voice", tags=["voice"])
 VOICE_UNAVAILABLE_MESSAGE = "음성 모델 서비스를 사용할 수 없습니다. 잠시 후 다시 시도해 주세요."
+SOCKET_ACCESS_CHECK_SECONDS = 5
 # Teaching is always Socratic. Kept as a constant because it is written into the
 # ChatLog payload, not because anything can select another mode.
 TEACHING_MODE = "socratic"
@@ -369,6 +370,7 @@ async def _answer(
         "tokens": timer.tokens,
         "safety": safety,
         "attachments": contents,
+        "focus_material_id": question.focus.material_id if question.focus else None,
     }
 
 
@@ -493,6 +495,7 @@ def _persist(
         visualizations=context.last_visualizations,
         attachments=attachments_module.logged_list(payload.get("attachments", [])),
         tokens=payload.get("tokens"),
+        focus_material_id=payload.get("focus_material_id"),
     )
     return {"session_id": chat_session.id, "log_id": log_id}
 
@@ -757,7 +760,7 @@ async def answer_text_stream(
         events(),
         media_type="application/x-ndjson",
         headers={
-            "Cache-Control": "no-cache, no-transform",
+            "Cache-Control": "private, no-store, no-transform",
             "X-Accel-Buffering": "no",
             "X-Content-Type-Options": "nosniff",
         },
@@ -777,11 +780,8 @@ def _authenticate_socket(token: str, course_id: str) -> tuple[User, Course]:
         algorithm=settings.jwt_algorithm,
         expires_in=settings.jwt_expires_in,
     )
-    user_id = jwt_service.decode_access_token(token)
     with SessionLocal() as db:
-        user = db.get(User, user_id)
-        if user is None:
-            raise InvalidAccessTokenError("unknown user")
+        user, _ = resolve_access_user(db, jwt_service, token)
         course = authorize_course_access(db, user, course_id)
         db.expunge(user)
         db.expunge(course)
@@ -792,16 +792,20 @@ def _authenticate_socket(token: str, course_id: str) -> tuple[User, Course]:
 async def voice_stream(websocket: WebSocket, course_id: str) -> None:
     """Relay 20 ms PCM frames through the configured provider-neutral transport."""
     await websocket.accept()
-    token = websocket.query_params.get("token", "")
+    scheme, _, bearer = websocket.headers.get("authorization", "").partition(" ")
+    token = (bearer.strip() if scheme.lower() == "bearer" else "") or (
+        websocket.query_params.get("token", "")
+    )
+    origin = websocket.headers.get("origin")
+    if (origin or not token) and origin not in get_settings().cors_origins:
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION, reason="origin not allowed")
+        return
     if not token:
         # The browser authenticates with its cookie. A cookie rides along on a
         # socket opened by any same-site page, so only our own origins may use it.
         token = websocket.cookies.get(ACCESS_TOKEN_COOKIE, "")
-        if websocket.headers.get("origin") not in get_settings().cors_origins:
-            await websocket.close(code=status.WS_1008_POLICY_VIOLATION, reason="origin not allowed")
-            return
     try:
-        user, course = _authenticate_socket(token, course_id)
+        user, course = await asyncio.to_thread(_authenticate_socket, token, course_id)
     except InvalidAccessTokenError:
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION, reason="invalid token")
         return
@@ -870,7 +874,12 @@ async def voice_stream(websocket: WebSocket, course_id: str) -> None:
         await websocket.send_json(
             {"type": "ready", "provider": transport.name, "session_id": context.chat_session_id}
         )
-        await _pump_caller_audio(websocket, transport)
+        await _pump_caller_audio(websocket, transport, token, course_id)
+    except (InvalidAccessTokenError, HTTPException):
+        if reader is not None:
+            reader.cancel()
+            await asyncio.gather(reader, return_exceptions=True)
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION, reason="access expired")
     except WebSocketDisconnect:
         log.info("voice stream closed")
     except Exception:
@@ -884,10 +893,21 @@ async def voice_stream(websocket: WebSocket, course_id: str) -> None:
         await transport.close()
 
 
-async def _pump_caller_audio(websocket: WebSocket, transport: Transport) -> None:
+async def _pump_caller_audio(
+    websocket: WebSocket, transport: Transport, token: str, course_id: str,
+) -> None:
     """Relay PCM or typed turns through the same live session."""
+    next_check = 0.0
     while True:
-        message = await websocket.receive_json()
+        now = time.monotonic()
+        if now >= next_check:
+            await asyncio.to_thread(_authenticate_socket, token, course_id)
+            next_check = time.monotonic() + SOCKET_ACCESS_CHECK_SECONDS
+        try:
+            async with asyncio.timeout(max(0, next_check - time.monotonic())):
+                message = await websocket.receive_json()
+        except TimeoutError:
+            continue
         if not isinstance(message, dict):
             continue
         if message.get("type") == "text":

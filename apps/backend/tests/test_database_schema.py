@@ -13,6 +13,7 @@ def test_metadata_contains_only_expected_tables() -> None:
         "chat_sessions",
         "chat_logs",
         "login_events",
+        "revoked_access_tokens",
     }
 
 

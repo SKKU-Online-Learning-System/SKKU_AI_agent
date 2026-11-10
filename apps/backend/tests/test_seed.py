@@ -5,6 +5,7 @@ from argon2 import PasswordHasher
 from sqlalchemy import create_engine, event, func, select
 from sqlalchemy.orm import Session
 
+from app.core.config import Settings
 from app.models import Base, Course, CourseAccess, CourseMaterial, User, UserRole
 
 
@@ -19,6 +20,47 @@ def create_test_engine():
         dbapi_connection.execute("PRAGMA foreign_keys=ON")
 
     return engine
+
+
+def test_seed_refuses_nonlocal_environment_before_opening_db(monkeypatch, capsys) -> None:
+    from app.db import seed
+
+    settings = Settings(
+        app_env="production", jwt_secret="q" * 36, seed_password="not-a-demo-password",
+        _env_file=None,
+    )
+    monkeypatch.setattr(seed, "get_settings", lambda: settings)
+
+    def unexpected_db():
+        raise AssertionError("Production seed must not access the database")
+
+    monkeypatch.setattr(seed, "SessionLocal", unexpected_db)
+    assert seed.main() == 1
+    assert "local development only" in capsys.readouterr().err
+
+
+def test_seed_if_empty_does_not_overwrite_existing_users(monkeypatch, capsys) -> None:
+    from app.db import seed
+
+    engine = create_test_engine()
+    Base.metadata.create_all(engine)
+    with Session(engine) as session:
+        session.add(User(
+            name="Existing administrator", email="admin@skku.edu",
+            external_auth_id="preserve-existing", role=UserRole.admin,
+        ))
+        session.commit()
+    settings = Settings(app_env="local", seed_password="demo-password", _env_file=None)
+    monkeypatch.setattr(seed, "get_settings", lambda: settings)
+    monkeypatch.setattr(seed, "SessionLocal", lambda: Session(engine))
+
+    assert seed.main(only_if_empty=True) == 0
+    assert "Seed skipped" in capsys.readouterr().out
+    with Session(engine) as session:
+        assert session.scalar(select(func.count()).select_from(User)) == 1
+        user = session.scalar(select(User))
+        assert user.external_auth_id == "preserve-existing"
+        assert user.password_hash is None
 
 
 def test_seed_is_idempotent_and_creates_expected_demo_data() -> None:

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import "@testing-library/jest-dom/vitest";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AppShell } from "./app-shell";
@@ -51,11 +51,20 @@ describe("AppShell", () => {
     expect(screen.getByText("Course content")).toBeInTheDocument();
   });
 
-  it("logs out and returns to login", () => {
+  it("returns to login only after logout succeeds", async () => {
+    mocks.logout.mockResolvedValue(true);
     render(<AppShell><p>Content</p></AppShell>);
     fireEvent.click(screen.getByRole("button", { name: "로그아웃" }));
     expect(mocks.logout).toHaveBeenCalledTimes(1);
-    expect(mocks.replace).toHaveBeenCalledWith("/login");
+    await waitFor(() => expect(mocks.replace).toHaveBeenCalledWith("/login"));
+  });
+
+  it("does not navigate away when the server did not confirm logout", async () => {
+    mocks.logout.mockResolvedValue(false);
+    render(<AppShell><p>Content</p></AppShell>);
+    fireEvent.click(screen.getByRole("button", { name: "로그아웃" }));
+    await mocks.logout.mock.results[0].value;
+    expect(mocks.replace).not.toHaveBeenCalled();
   });
 
   it("renders a student's course page bare: the study view brings its own bar", () => {

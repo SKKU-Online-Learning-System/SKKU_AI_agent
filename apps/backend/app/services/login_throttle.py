@@ -1,75 +1,53 @@
-"""Failed-login throttling, so a password cannot be guessed at request speed.
-
-Counted per account *and* client address. Per account alone, anyone who knows a
-professor's email could keep them locked out with five wrong passwords every
-fifteen minutes; per address alone, a lecture hall behind one NAT would share a
-budget. Only failures against accounts that exist are counted (the route checks),
-so made-up addresses cannot fill the table, and a success clears the account's
-record from that address.
-
-ponytail: process-local, like the voice session store. Move to Redis with it
-when the API runs on more than one worker. Behind a reverse proxy every client
-shares the proxy's address, which degrades this to per-account counting.
-"""
-
-from __future__ import annotations
+"""Bound password checks per address, account, and account/address pair."""
 
 import math
 import time
-from collections import deque
+from collections import OrderedDict, deque
 from threading import Lock
 
 WINDOW_SECONDS = 15 * 60
 MAX_FAILURES = 5
-# Bounded no matter what is sent: the oldest record goes first when full.
 MAX_TRACKED = 10_000
 
 _lock = Lock()
-_failures: dict[str, deque[float]] = {}
+_attempts: OrderedDict[tuple, deque[float]] = OrderedDict()
 
 
-def _key(email: str, address: str) -> str:
-    return f"{email.strip().lower()}|{address}"
-
-
-def _recent(key: str, now: float) -> deque[float]:
-    attempts = _failures.get(key)
-    if attempts is None:
-        return deque()
-    while attempts and now - attempts[0] >= WINDOW_SECONDS:
-        attempts.popleft()
-    if not attempts:
-        del _failures[key]
-    return attempts
-
-
-def retry_after(email: str, address: str) -> int:
-    """Seconds until another attempt is allowed; 0 when it is allowed now."""
+def claim_attempt(email: str, address: str) -> int:
+    """Reserve a password check before doing Argon2 work, for any email."""
     now = time.monotonic()
+    email = email.strip().lower()
+    limits = (
+        (("all",), 600, 60),
+        (("ip", address), 120, 60),
+        (("account", email), 20, WINDOW_SECONDS),
+        (("pair", email, address), MAX_FAILURES, WINDOW_SECONDS),
+    )
     with _lock:
-        attempts = _recent(_key(email, address), now)
-        if len(attempts) < MAX_FAILURES:
-            return 0
-        return max(1, math.ceil(WINDOW_SECONDS - (now - attempts[-MAX_FAILURES])))
-
-
-def record_failure(email: str, address: str) -> None:
-    now = time.monotonic()
-    key = _key(email, address)
-    with _lock:
-        attempts = _recent(key, now)
-        if not attempts:
-            if len(_failures) >= MAX_TRACKED:
-                del _failures[next(iter(_failures))]
-            attempts = _failures[key] = deque()
-        attempts.append(now)
+        entries = []
+        for key, limit, window in limits:
+            attempts = _attempts.get(key)
+            if attempts is None:
+                attempts = deque()
+            while attempts and now - attempts[0] >= window:
+                attempts.popleft()
+            if len(attempts) >= limit:
+                return max(1, math.ceil(window - (now - attempts[0])))
+            entries.append((key, attempts))
+        for key, attempts in entries:
+            attempts.append(now)
+            _attempts[key] = attempts
+            _attempts.move_to_end(key)
+        while len(_attempts) > MAX_TRACKED:
+            _attempts.popitem(last=False)
+    return 0
 
 
 def record_success(email: str, address: str) -> None:
     with _lock:
-        _failures.pop(_key(email, address), None)
+        _attempts.pop(("pair", email.strip().lower(), address), None)
 
 
 def reset() -> None:
     with _lock:
-        _failures.clear()
+        _attempts.clear()
