@@ -40,16 +40,17 @@ def test_professor_statistics_are_limited_to_assigned_courses(chat_api: ChatApiC
     assert response.status_code == 200
     body = response.json()
     assert [course["courseName"] for course in body["courses"]] == ["인공지능개론"]
-    assert len(body["recentQuestions"]) == 2
-    assert body["keywords"]
+    assert set(body) == {"courses"}
+    assert set(body["courses"][0]) == {"courseId", "courseName", "materialCount"}
     assert chat_api.get("/api/stats/professor", "student").status_code == 403
 
 
-def test_course_statistics_enforce_professor_assignment(chat_api: ChatApiContext) -> None:
+def test_course_statistics_reserve_date_breakdown_for_admin(chat_api: ChatApiContext) -> None:
     seed_usage(chat_api)
 
-    owned = chat_api.get(f"/api/stats/courses/{chat_api.courses['ai']}", "professor")
-    denied = chat_api.get(f"/api/stats/courses/{chat_api.courses['se']}", "professor")
+    path = f"/api/stats/courses/{chat_api.courses['ai']}"
+    owned = chat_api.get(path, "admin")
+    denied = chat_api.get(path, "professor")
 
     assert owned.status_code == 200
     assert owned.json()["questionCount"] == 2
@@ -72,25 +73,6 @@ def test_student_statistics_and_logs_never_expose_other_users(chat_api: ChatApiC
     assert logs.json()["total"] == 2
     assert {item["userId"] for item in logs.json()["logs"]} == {chat_api.users["student"]}
     assert filtered.status_code == 403
-
-
-def test_log_user_filter_is_scoped_by_role(chat_api: ChatApiContext) -> None:
-    seed_usage(chat_api)
-
-    professor = chat_api.get(
-        "/api/professor/courses/"
-        f"{chat_api.courses['ai']}/chat-logs?user_id={chat_api.users['student']}",
-        "professor",
-    )
-    admin = chat_api.get(
-        f"/api/admin/chat-logs?user_id={chat_api.users['other_student']}",
-        "admin",
-    )
-
-    assert professor.status_code == 200
-    assert professor.json()["total"] == 2
-    assert admin.status_code == 200
-    assert admin.json()["total"] == 1
 
 
 def test_admin_activity_statistics_sum_logins_tokens_turns_and_active_time(

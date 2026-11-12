@@ -13,10 +13,5 @@
     "build:frontend": "npm run build --workspace @skku-course-agent/frontend",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "lint": "npm run lint --workspaces --if-present"
-  },
-  "overrides": {
-    "next@16.2.10": {
-      "postcss": "8.5.16"
-    }
   }
 }

@@ -172,7 +172,7 @@ def test_text_stream_sends_filler_before_answer(
     assert response.status_code == 200
     # Proxies on the way (the Next.js rewrite, nginx) must pass each line through
     # as it is written, not compress or buffer the body until the end.
-    assert response.headers["cache-control"] == "no-cache, no-transform"
+    assert response.headers["cache-control"] == "private, no-store, no-transform"
     assert response.headers["x-accel-buffering"] == "no"
     events = [json.loads(line) for line in response.text.splitlines()]
     assert events[0]["type"] == "status"
@@ -515,6 +515,30 @@ def test_voice_stream_takes_the_cookie_only_from_our_origin(
                     socket.receive_json()
     finally:
         chat_api.client.cookies.clear()
+
+
+def test_revoked_token_closes_an_idle_voice_socket(chat_api, monkeypatch) -> None:
+    async def events():
+        if False:
+            yield
+
+    monkeypatch.setattr(voice_routes, "SessionLocal", chat_api.session_factory)
+    monkeypatch.setattr(voice_routes, "SOCKET_ACCESS_CHECK_SECONDS", 0.05)
+    monkeypatch.setattr(
+        voice_routes, "get_voice_availability", lambda _: SimpleNamespace(enabled=True),
+    )
+    monkeypatch.setattr(
+        voice_routes,
+        "create_voice_transport",
+        lambda **_: SimpleNamespace(name="test", start=AsyncMock(), close=AsyncMock(), events=events),
+    )
+    url = f"/api/voice/courses/{chat_api.courses['ai']}/stream"
+    with chat_api.client.websocket_connect(url, headers=chat_api.headers("student")) as socket:
+        assert socket.receive_json()["type"] == "ready"
+        assert chat_api.post("/api/auth/logout", "student", {}).status_code == 204
+        with pytest.raises(WebSocketDisconnect) as closed:
+            socket.receive_json()
+        assert closed.value.code == 1008
 
 
 def _student_memory(chat_api, monkeypatch, tmp_path):

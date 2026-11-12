@@ -18,7 +18,6 @@ import type {
   ServiceStatistics
 } from "../../lib/api";
 import { UiIcon } from "../ui/ui-icon";
-import { WeakConceptStatisticsPanel } from "./weak-concept-statistics";
 
 type DashboardAudience = "admin" | "professor" | "student";
 type DashboardStatistics = ServiceStatistics | ProfessorStatistics | MyStatistics;
@@ -123,22 +122,15 @@ function StatisticsPanel({
       <section className="dashboard-statistics" aria-label="담당 과목 통계">
         <div className="course-table-wrap">
           <table className="course-table">
-            <thead><tr><th>담당 과목</th><th>업로드 자료</th><th>질문</th></tr></thead>
+            <thead><tr><th>담당 과목</th><th>업로드 자료</th></tr></thead>
             <tbody>{data.courses.map((course) => (
               <tr key={course.courseId}>
-                <td>{course.courseName}</td><td>{course.materialCount}</td><td>{course.questionCount}</td>
+                <td>{course.courseName}</td><td>{course.materialCount}</td>
               </tr>
             ))}</tbody>
           </table>
         </div>
-        <div className="dashboard-statistics-columns">
-          <section><h2>최근 질문</h2>{data.recentQuestions.length
-            ? <ul>{data.recentQuestions.map((item) => <li key={item.id}>{item.courseName} · {item.question}</li>)}</ul>
-            : <p>최근 질문이 없습니다.</p>}</section>
-          <section><h2>자주 나온 키워드</h2>{data.keywords.length
-            ? <ul>{data.keywords.map((item) => <li key={item.keyword}>{item.keyword} ({item.count})</li>)}</ul>
-            : <p>분석할 질문이 없습니다.</p>}</section>
-        </div>
+        <Link href="/professor/logs">주차별 핵심 키워드</Link>
       </section>
     );
   }
@@ -219,10 +211,7 @@ export function CourseDashboardClient({ audience }: { audience: DashboardAudienc
 
       {errorMessage ? <p className="admin-alert" role="alert">{errorMessage}</p> : null}
       {!isLoading && !errorMessage && statistics ? (
-        <>
-          <StatisticsPanel audience={audience} statistics={statistics} />
-          {audience !== "student" ? <WeakConceptStatisticsPanel audience={audience} /> : null}
-        </>
+        <StatisticsPanel audience={audience} statistics={statistics} />
       ) : null}
 
       <div className="canvas-dashboard-layout">

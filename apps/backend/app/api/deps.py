@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Annotated, NoReturn, Optional, Sequence, Union
 
-from fastapi import Depends, HTTPException, Request, status
+from fastapi import Depends, HTTPException, Request, Response, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.orm import Session
 
@@ -10,6 +10,7 @@ from app.core.config import Settings, get_settings
 from app.core.security import InvalidAccessTokenError, JWTService, PasswordService
 from app.db.session import get_db
 from app.models import Course, User, UserRole
+from app.services.access_session import resolve_access_user
 from app.services.auth_service import AuthService, LocalPasswordAuthProvider
 from app.services.rbac_service import (
     CourseNotFoundError,
@@ -58,33 +59,34 @@ def raise_invalid_access_token() -> NoReturn:
     )
 
 
-def get_current_user(
+def request_access_token(
     request: Request,
     credentials: Annotated[
         Optional[HTTPAuthorizationCredentials],
         Depends(bearer_scheme),
     ],
+) -> str | None:
+    if credentials is not None:
+        return credentials.credentials
+    token = request.cookies.get(ACCESS_TOKEN_COOKIE)
+    if token and request.method not in SAFE_METHODS and not request.headers.get(CSRF_HEADER):
+        raise_forbidden("Missing CSRF header")
+    return token
+
+
+def get_current_user(
+    response: Response,
+    token: Annotated[str | None, Depends(request_access_token)],
     session: Annotated[Session, Depends(get_db)],
     jwt_service: Annotated[JWTService, Depends(get_jwt_service)],
 ) -> User:
-    if credentials is not None:
-        token = credentials.credentials
-    else:
-        token = request.cookies.get(ACCESS_TOKEN_COOKIE)
-        if not token:
-            raise_invalid_access_token()
-        if request.method not in SAFE_METHODS and not request.headers.get(CSRF_HEADER):
-            raise_forbidden("Missing CSRF header")
-
+    if not token:
+        raise_invalid_access_token()
     try:
-        user_id = jwt_service.decode_access_token(token)
+        user, _ = resolve_access_user(session, jwt_service, token)
     except InvalidAccessTokenError:
         raise_invalid_access_token()
-
-    user = session.get(User, user_id)
-    if user is None:
-        raise_invalid_access_token()
-
+    response.headers["Cache-Control"] = "private, no-store"
     return user
 
 

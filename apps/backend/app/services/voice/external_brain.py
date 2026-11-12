@@ -141,11 +141,7 @@ class ExternalBrain:
                 # concept; fall back to the "주제 - 구체 설명" label built from
                 # the evidence, or skip the save when nothing names a concept.
                 replacement = _concept_from_evidence(evidence[-1]) if evidence else None
-                log.info(
-                    "external brain concept looked like a tutor utterance; replaced %r with %r",
-                    concept,
-                    replacement,
-                )
+                log.info("external brain discarded a tutor utterance as a concept label")
                 concept = replacement or ""
             if concept and question and note and _contains_korean(concept + note):
                 await self.memory.save(self.course_name, concept, question, note)

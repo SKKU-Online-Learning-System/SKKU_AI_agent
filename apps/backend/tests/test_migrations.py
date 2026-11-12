@@ -1,8 +1,12 @@
 from pathlib import Path
 
+import pytest
 from alembic import command
 from alembic.config import Config
-from sqlalchemy import create_engine, inspect
+from sqlalchemy import create_engine, inspect, select
+from sqlalchemy.orm import Session
+
+from app.models import User, UserRole
 
 
 def test_alembic_upgrade_and_downgrade_full_schema(tmp_path: Path) -> None:
@@ -25,6 +29,7 @@ def test_alembic_upgrade_and_downgrade_full_schema(tmp_path: Path) -> None:
         "chat_sessions",
         "chat_logs",
         "login_events",
+        "revoked_access_tokens",
     }
     chunk_columns = {column["name"] for column in inspector.get_columns("document_chunks")}
     assert {
@@ -116,3 +121,35 @@ def test_alembic_upgrade_and_downgrade_full_schema(tmp_path: Path) -> None:
     command.downgrade(config, "base")
 
     assert inspect(create_engine(database_url)).get_table_names() == ["alembic_version"]
+
+
+@pytest.mark.parametrize("old_revision", ["20260907_0007", "20261027_0009", "20261110_0010"])
+def test_existing_migration_histories_join_without_losing_rows(
+    tmp_path: Path, old_revision: str,
+) -> None:
+    database_url = f"sqlite:///{(tmp_path / 'existing.sqlite').as_posix()}"
+    config = Config(str(Path(__file__).resolve().parents[1] / "alembic.ini"))
+    config.set_main_option("sqlalchemy.url", database_url)
+    command.upgrade(config, old_revision)
+    engine = create_engine(database_url)
+    try:
+        with Session(engine) as session:
+            session.add(User(
+                name="Existing user", email="existing@example.test",
+                external_auth_id="existing", role=UserRole.student,
+            ))
+            session.commit()
+
+        command.upgrade(config, "head")
+        command.current(config, check_heads=True)
+
+        with Session(engine) as session:
+            assert session.scalar(select(User.email)) == "existing@example.test"
+        inspector = inspect(engine)
+        assert "revoked_access_tokens" in inspector.get_table_names()
+        assert "page_note" in {col["name"] for col in inspector.get_columns("document_chunks")}
+        assert "ix_chat_logs_course_id_created_at" in {
+            index["name"] for index in inspector.get_indexes("chat_logs")
+        }
+    finally:
+        engine.dispose()

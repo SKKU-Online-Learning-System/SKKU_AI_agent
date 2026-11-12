@@ -158,7 +158,7 @@ def validate_spoken_turn(args: dict, context: brain.VoiceContext, transcript: st
         turn = turn.model_copy(update={"student_state": "social"})
     plain = brain.rule_based_student_state(context, transcript)
     if plain == "stuck" and turn.student_state != "stuck":
-        log.info("student_state %s overridden to stuck for %r", turn.student_state, transcript)
+        log.info("student_state %s overridden to stuck", turn.student_state)
         turn = turn.model_copy(update={"student_state": "stuck"})
     return turn
 

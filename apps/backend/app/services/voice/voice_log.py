@@ -1,8 +1,6 @@
 """Persist voice-agent turns into the shared chat log and session tables.
 
-Voice answers must be auditable exactly like text chat answers, so they reuse
-``ChatSession``/``ChatLog`` instead of a parallel store. Professors and admins
-then see voice questions in the existing log screens for free.
+Voice and text answers share the owner-only conversation history.
 """
 
 from __future__ import annotations
@@ -75,7 +73,11 @@ def restore_history(
 
     logs = db.scalars(
         select(ChatLog)
-        .where(ChatLog.session_id == chat_session.id)
+        .where(
+            ChatLog.session_id == chat_session.id,
+            ChatLog.user_id == user.id,
+            ChatLog.course_id == course.id,
+        )
         .order_by(ChatLog.created_at)
     ).all()
 
@@ -151,6 +153,7 @@ def log_turn(
     visualizations: Sequence[dict] = (),
     attachments: Sequence[dict] = (),
     tokens: Optional[dict] = None,
+    focus_material_id: Optional[str] = None,
 ) -> str:
     """Write one voice turn to the chat log and return its id.
 
@@ -181,6 +184,8 @@ def log_turn(
         retrieval_result["provider"] = provider_name
     if attachments:
         retrieval_result["attachments"] = list(attachments)
+    if focus_material_id:
+        retrieval_result["focus_material_id"] = focus_material_id
 
     log = ChatLog(
         session_id=chat_session.id,

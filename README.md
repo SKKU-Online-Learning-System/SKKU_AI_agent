@@ -3,8 +3,8 @@
 성균관대학교 강의자료를 기반으로 답변하는 RAG 코스 에이전트입니다.
 
 - 학생: 수강 과목 질문, 출처가 포함된 답변, 대화 이력 조회, COURSE AGENT 음성 대화
-- 교수자: 담당 과목 자료 업로드·처리, 질문 로그와 통계 조회, 음성 조교 신뢰 사이트 관리
-- 관리자: 사용자·과목·권한·전체 로그와 통계 관리
+- 교수자: 담당 과목 자료 업로드·처리, 주차별 핵심 키워드 집계 조회, 음성 조교 신뢰 사이트 관리
+- 관리자: 사용자·과목·권한 관리, 사용량 및 키워드 집계 조회
 
 답변은 업로드된 강의자료를 우선 사용하고 출처를 표시합니다. 자료가 부족하면 이를
 명시하며, 과제·시험의 정답 요청에는 정답 대신 개념과 힌트를 제공합니다.
@@ -39,10 +39,8 @@
 - 응답과 분리된 External Brain이 완료된 대화를 진단해 취약 개념 저장·복습 상태 갱신
 - 소크라테스식 대화: 학생 답에 대한 피드백, 단계별 힌트, 한 번에 하나의 사고 질문
 - 강의자료 근거가 부족할 때만 교수자가 등록한 신뢰 도메인에서 SearXNG 보충 검색
-- 모든 음성·텍스트 turn은 기존 질문 로그(`ChatLog`)에 저장되어 교수자·관리자 화면에 노출
-- 교수자·관리자 대시보드의 `취약 개념 현황`: 과목별 요약과 주제·개념·학생별 상세
-  (`GET /api/stats/weak-concepts`, `GET /api/stats/weak-concepts/courses/{id}`; 교수자에게는
-  학생 이메일이 마스킹됨)
+- 음성·텍스트 대화는 `ChatLog`에 저장되고 해당 대화 계정의 이력에만 표시
+- 교수자 메뉴 `핵심 키워드`: 담당 과목의 주차, 승인 용어, 질문 건수만 표시
 
 학생의 질문 창구는 과목 안의 COURSE AGENT 하나입니다. 별도의 "AI 질문" 메뉴와 탭은
 없습니다. `대화 이력`에서 지난 대화를 열면 해당 과목의 COURSE AGENT가 그 대화를 다시
@@ -72,7 +70,24 @@ Browser microphone -> FastAPI WebSocket -> Silero VAD (CPU)
 회귀 비교를 위한 legacy provider로 남아 있습니다.
 
 Moss 자격 증명이 없으면 취약 개념은 `uploads/voice/weak-concepts.json`에 로컬 저장됩니다.
-Moss를 쓸 때도 같은 파일에 미러링되며, 교수자·관리자 통계는 이 파일을 읽습니다.
+Moss를 쓸 때도 같은 파일에 미러링됩니다. 취약 개념은 학생 본인의 복습에만 사용합니다.
+
+### 대화 보호 및 로그인
+
+- `핵심 키워드`는 같은 과목·주차에서 서로 다른 학생 5명 이상이 질문한 승인 용어만 공개합니다.
+  한 질문에 같은 용어가 여러 번 있어도 1건입니다. 학습 화면에서 열어 둔 교안의 주차를
+  우선 사용하고, 없으면 답변이 인용한 해당 과목 교안을 기준으로 합니다. 주차가 확인되지
+  않거나 SAFE 분류가 일반 질문이 아닌 대화는 집계에서 제외합니다.
+- 기본 용어 대신 과목별 승인 용어를 쓰려면 `COURSE_KEYWORD_TERMS={"과목_ID":["학습률","경사하강법"]}`
+  처럼 설정합니다. `KEYWORD_MINIMUM_STUDENTS`는 5 이상으로 높일 수 있습니다.
+- 학생 질문·답변, 대화 제목과 첨부 기록은 교수자와 관리자에게 제공하지 않습니다.
+  이는 앱의 접근 제한입니다. DB·파일과 백업 자체의 암호화, 운영자 접근 권한, 모델 서버 및
+  선택형 외부 메모리(Moss)의 데이터 처리 정책은 실제 학생 데이터 투입 전에 별도 점검합니다.
+- 로그아웃은 브라우저 쿠키 제거와 함께 서버에서 해당 JWT를 폐기합니다. 새 버전으로
+  시작할 때 Alembic을 최신 상태로 적용하고 다시 로그인하세요. 비밀번호 시도 제한은
+  현재 프로세스 단위입니다. 여러 워커로 배포할 때는 공용 제한을 적용해야 합니다.
+- `APP_ENV`가 `local`이 아니면 데모 계정 seed 명령을 실행할 수 없습니다.
+  이미 존재하는 데모 계정은 자동 삭제하지 않으므로 운영 DB에 가져오지 마세요.
 
 ## 프로젝트 구조
 
@@ -90,7 +105,8 @@ docs                제품·기술 문서
 
 ## 실행
 
-필수 도구는 [uv](https://docs.astral.sh/uv/), Python 3.12+, Node.js, Docker입니다.
+필수 도구는 [uv](https://docs.astral.sh/uv/), Python 3.12+, Node.js입니다.
+기본 실행은 Docker의 PostgreSQL 16을 사용합니다. 이미 접속할 수 있는 PostgreSQL이 있으면 Docker는 필요 없습니다.
 먼저 Model Server와 필요하면 SearXNG를 실행하고 `.env`에 endpoint를 설정합니다.
 
 ```dotenv
@@ -118,13 +134,73 @@ localhost 값은 모델 서버가 같은 머신에 있을 때의 기본값입니
 bash run.sh
 ```
 
-환경 파일 복사, 의존성 설치, 데이터베이스 기동, 마이그레이션, Seed, 백엔드와
+환경 파일 복사, 의존성 설치, 데이터베이스 기동, 마이그레이션, 빈 DB의 데모 데이터 생성, 백엔드와
 프론트엔드 실행까지 처리합니다. `Ctrl+C`로 둘 다 종료합니다.
+
+- DB는 노트북의 `127.0.0.1:5432`에서만 수신합니다. 데이터는 `postgres_data` 볼륨에 남습니다.
+- 8000번 포트를 다른 앱이 쓰고 있으면 `BACKEND_PORT=18000 bash run.sh`로 실행할 수 있습니다.
+- Docker가 꺼져 있어도 SQLite로 자동 전환하지 않습니다. 기존 `course-agent.sqlite`는 수정하거나
+  PostgreSQL에 자동으로 가져오지 않습니다. 기존 Docker DB에 기록이 있으면 아래처럼 먼저 백업하세요.
 
 - 웹: <http://localhost:3000>
 - API 문서: <http://localhost:8000/docs>
 - 앱 상태: <http://localhost:8000/api/health>
 - Model Server 상태: <http://localhost:8000/api/health/model-server>
+
+### 이미 설치된 PostgreSQL 사용
+
+`.env`에 `APP_ENV=local`과 앱용 개발 DB의 `DATABASE_URL`(`postgresql+psycopg://`)을 설정합니다.
+전용 DB를 먼저 만들고, 초기화하거나 버전을 올릴 때만 대상 DB를 확인한 뒤 다음 명령을 실행합니다.
+
+```bash
+UV_PROJECT_ENVIRONMENT=.venv-app uv run --locked --all-packages --extra dev --extra voice \
+  alembic -c apps/backend/alembic.ini upgrade head
+bash run.sh --external-db
+```
+
+`--external-db`는 Docker를 실행하지 않고 DB 스키마 버전만 확인합니다. 데모 계정을 생성하지
+않습니다. PostgreSQL은 사용자·과목·자료·대화와 임베딩을 저장합니다. 현재 검색은
+`VECTOR_SEARCH_MODE=local`에서 JSON 임베딩의 코사인 유사도를 계산하므로 외부 DB에
+pgvector 확장을 반드시 설치할 필요는 없습니다.
+
+### 로컬 백업과 복구
+
+파일과 DB가 같은 시점의 상태를 갖도록 앱을 종료하고 DB 컨테이너만 실행한 상태에서 백업합니다.
+`UPLOAD_DIR`를 바꿨다면 스크립트에 실제 경로를 인자로 전달합니다.
+
+```bash
+bash scripts/backup_local_postgres.sh
+```
+
+`backups/`에 `db.dump`와 `uploads.tar.gz`가 생성됩니다(업로드 폴더가 없으면 덤프만 생성).
+별도 경로를 쓰려면 `BACKUP_ROOT`를 지정하세요. 외부 경로의 취약 개념 메모리 파일과 환경
+설정은 별도로 보관합니다. 덤프와 파일에는 개인 대화·첨부가 포함될 수 있으므로 접근을
+제한하고 암호화된 별도 저장소에도 복사하세요. 로컬 백업은 서버나 디스크 장애에 대비한
+별도 보관본을 대체하지 않습니다.
+
+기존 DB에 덮어쓰지 않고, 사용하지 않는 새 DB 이름으로 복구를 먼저 확인합니다.
+
+```bash
+docker compose exec -T db createdb -U course_agent course_agent_restore
+docker compose exec -T db pg_restore -U course_agent -d course_agent_restore \
+  --exit-on-error --single-transaction --no-owner < /path/to/backup/db.dump
+```
+
+업로드 압축도 별도 폴더에 풀어 DB의 자료 경로와 대조합니다. 운영 복구에서 파일 경로가 바뀌면
+원래 경로에 배치하거나 경로를 이전해야 합니다. 이전 버전의 덤프를 복구한 경우, 복구 DB를
+가리키도록 설정한 후 그 DB에만 최신 마이그레이션을 적용합니다. `docker compose down -v`는
+원본 DB 볼륨을 삭제하므로 일상 종료에 사용하지 않습니다.
+
+### PostgreSQL 회귀 테스트
+
+별도로 만든 테스트 DB의 URL을 `TEST_POSTGRES_URL`로 설정하고 실행합니다. 테스트는
+임시 스키마를 만들어 Alembic으로 마이그레이션하고 삭제하므로, 해당 계정에 스키마 생성
+권한이 필요합니다. 운영 DB나 실제 학생 데이터가 있는 DB를 지정하지 마세요.
+
+```bash
+UV_PROJECT_ENVIRONMENT=.venv-app uv run --locked --all-packages --extra dev --extra voice \
+  pytest apps/backend/tests/test_stage4_chat_api.py apps/backend/tests/test_question_keywords_api.py
+```
 
 ### 모델 서버가 Backend.AI에 있을 때
 
