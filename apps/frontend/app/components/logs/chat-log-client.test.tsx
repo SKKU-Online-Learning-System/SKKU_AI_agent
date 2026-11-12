@@ -3,67 +3,27 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import "@testing-library/jest-dom/vitest";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { ChatLogListResponse } from "../../lib/api";
+import { ApiError } from "../../lib/api";
 import { ChatLogClient } from "./chat-log-client";
 
-const apiMocks = vi.hoisted(() => ({
-  getAdminChatLog: vi.fn(),
-  getCourseChatLog: vi.fn(),
-  listAdminChatLogs: vi.fn(),
-  listAdminUsers: vi.fn(),
-  listCourseChatLogs: vi.fn(),
-  listCourses: vi.fn()
+const api = vi.hoisted(() => ({ listCourses: vi.fn(), getCourseKeywordCounts: vi.fn() }));
+
+vi.mock("../../lib/api", async (importOriginal) => ({
+  ...await importOriginal<typeof import("../../lib/api")>(),
+  ...api
 }));
 
-vi.mock("../../lib/api", async () => {
-  const actual = await vi.importActual<typeof import("../../lib/api")>("../../lib/api");
-  return {
-    ...actual,
-    getAdminChatLog: apiMocks.getAdminChatLog,
-    getCourseChatLog: apiMocks.getCourseChatLog,
-    listAdminChatLogs: apiMocks.listAdminChatLogs,
-    listAdminUsers: apiMocks.listAdminUsers,
-    listCourseChatLogs: apiMocks.listCourseChatLogs,
-    listCourses: apiMocks.listCourses
-  };
-});
-
-const course = {
-  id: "course-1",
-  code: "AI101",
-  title: "인공지능개론",
-  term: "2026-2",
-  instructorId: "professor-1",
-  instructorName: "김교수",
-  agentStatus: "active" as const,
-  createdAt: "2026-08-01T00:00:00Z",
-  updatedAt: "2026-08-01T00:00:00Z"
-};
-
-const logResponse: ChatLogListResponse = {
-  logs: [
-    {
-      id: "log-1",
-      courseId: "course-1",
-      courseName: "인공지능개론",
-      userLabel: "ch***@skku.edu",
-      userId: null,
-      question: "경사하강법이 뭐야?",
-      answerPreview: "경사하강법은 손실 함수를...",
-      isGrounded: true,
-      answerSourceType: "rag",
-      safetyCategory: "normal",
-      createdAt: "2026-08-01T00:00:00Z"
-    }
-  ],
-  total: 1
-};
-
 beforeEach(() => {
-  apiMocks.listCourses.mockResolvedValue([course]);
-  apiMocks.listCourseChatLogs.mockResolvedValue(logResponse);
-  apiMocks.listAdminChatLogs.mockResolvedValue(logResponse);
-  apiMocks.listAdminUsers.mockResolvedValue([]);
+  api.listCourses.mockResolvedValue([
+    { id: "ai", title: "인공지능개론", term: "2026-2" },
+    { id: "db", title: "데이터베이스", term: "2026-2" }
+  ]);
+  api.getCourseKeywordCounts.mockImplementation(async (courseId: string) => ({
+    courseId,
+    weeks: courseId === "ai" ? [
+      { week: 2, keywords: [{ keyword: "경사하강법", questionCount: 6 }] }
+    ] : []
+  }));
 });
 
 afterEach(() => {
@@ -71,99 +31,35 @@ afterEach(() => {
   vi.resetAllMocks();
 });
 
-describe("ChatLogClient", () => {
-  it("loads the professor's own course logs with a masked user label", async () => {
-    render(<ChatLogClient audience="professor" />);
+describe("course keyword statistics", () => {
+  it("renders only week, approved keyword and question count", async () => {
+    render(<ChatLogClient />);
 
-    expect(await screen.findByText("경사하강법이 뭐야?")).toBeInTheDocument();
-    expect(screen.getByText("ch***@skku.edu")).toBeInTheDocument();
-    expect(screen.getByRole("cell", { name: "강의자료 기반" })).toBeInTheDocument();
-    expect(apiMocks.listCourseChatLogs).toHaveBeenCalledWith("course-1", {
-      from: undefined,
-      keyword: undefined,
-      isGrounded: null,
-      to: undefined,
-      userId: undefined
-    });
+    expect(await screen.findByRole("row", { name: "2주차 경사하강법 6건" }))
+      .toBeInTheDocument();
+    expect(api.getCourseKeywordCounts).toHaveBeenCalledWith("ai");
+    expect(screen.getAllByRole("columnheader").map((header) => header.textContent))
+      .toEqual(["주차", "핵심 키워드", "질문 건수"]);
+    expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
   });
 
-  it("offers an all-courses option for admins", async () => {
-    render(<ChatLogClient audience="admin" />);
+  it("drops the previous course's rows when switching courses", async () => {
+    render(<ChatLogClient />);
+    await screen.findByText("경사하강법");
 
-    expect(await screen.findByText("경사하강법이 뭐야?")).toBeInTheDocument();
-    expect(screen.getByRole("option", { name: "전체 과목" })).toBeInTheDocument();
-    expect(apiMocks.listAdminChatLogs).toHaveBeenCalled();
+    fireEvent.change(screen.getByLabelText("과목"), { target: { value: "db" } });
+
+    expect(screen.queryByText("경사하강법")).not.toBeInTheDocument();
+    expect(await screen.findByText("공개 기준을 충족한 키워드가 없습니다."))
+      .toBeInTheDocument();
+    expect(api.getCourseKeywordCounts).toHaveBeenLastCalledWith("db");
   });
 
-  it("applies the keyword and grounded filters on submit", async () => {
-    render(<ChatLogClient audience="professor" />);
-    await screen.findByText("경사하강법이 뭐야?");
+  it("shows a safe error when course access is denied", async () => {
+    api.getCourseKeywordCounts.mockRejectedValue(new ApiError(403, "internal detail"));
+    render(<ChatLogClient />);
 
-    fireEvent.change(screen.getByLabelText("검색어"), { target: { value: "경사" } });
-    fireEvent.change(screen.getByLabelText("자료 기반 여부"), { target: { value: "false" } });
-    fireEvent.click(screen.getByRole("button", { name: "검색" }));
-
-    expect(apiMocks.listCourseChatLogs).toHaveBeenLastCalledWith("course-1", {
-      from: undefined,
-      keyword: "경사",
-      isGrounded: false,
-      to: undefined,
-      userId: undefined
-    });
-  });
-
-  it("opens the log detail with sources and safety result", async () => {
-    apiMocks.getCourseChatLog.mockResolvedValue({
-      id: "log-1",
-      courseId: "course-1",
-      courseName: "인공지능개론",
-      userLabel: "ch***@skku.edu",
-      userId: null,
-      question: "경사하강법이 뭐야?",
-      answer: "경사하강법은 손실 함수를 줄이는 최적화 방법입니다.",
-      referencedDocuments: [
-        {
-          materialId: "material-1",
-          documentName: "lecture1.pdf",
-          pageNumber: 12,
-          chunkIndex: 3,
-          score: 0.87
-        }
-      ],
-      retrievalResult: {
-        result_count: 1,
-        attachments: [
-          { id: "att-1", name: "문제 사진.png", kind: "image", pages: 1, size: 2048,
-            text: "손실 함수 그래프가 그려져 있다." },
-          { id: "att-2", name: "notes.pdf", kind: "pdf", pages: 3, size: 4096, text: "정리 노트" }
-        ]
-      },
-      safetyResult: { category: "normal", blocked: false },
-      isGrounded: true,
-      answerSourceType: "rag",
-      modelName: "mock-llm",
-      responseTimeMs: 42,
-      createdAt: "2026-08-01T00:00:00Z"
-    });
-    render(<ChatLogClient audience="professor" />);
-    fireEvent.click(await screen.findByRole("button", { name: "경사하강법이 뭐야?" }));
-
-    expect(await screen.findByText("로그 상세")).toBeInTheDocument();
-    expect(screen.getByText("lecture1.pdf (p.12)")).toBeInTheDocument();
-    expect(screen.getByText("mock-llm")).toBeInTheDocument();
-    // The files the student attached are listed by name; the text read from them
-    // stays out of the raw retrieval summary so the detail stays readable.
-    expect(screen.getByText("문제 사진.png (이미지)")).toBeInTheDocument();
-    expect(screen.getByText("notes.pdf (PDF, 3쪽)")).toBeInTheDocument();
-    expect(screen.getByText('{"result_count":1}')).toBeInTheDocument();
-    expect(screen.queryByText(/손실 함수 그래프가 그려져 있다/)).not.toBeInTheDocument();
-  });
-
-  it("shows an empty state when there is nothing to review", async () => {
-    apiMocks.listCourseChatLogs.mockResolvedValue({ logs: [], total: 0 });
-
-    render(<ChatLogClient audience="professor" />);
-
-    expect(await screen.findByText("조회된 질문 로그가 없습니다.")).toBeInTheDocument();
+    expect(await screen.findByRole("alert")).toHaveTextContent("이 과목의 통계를 볼 수 없습니다.");
+    expect(screen.queryByText("internal detail")).not.toBeInTheDocument();
   });
 });

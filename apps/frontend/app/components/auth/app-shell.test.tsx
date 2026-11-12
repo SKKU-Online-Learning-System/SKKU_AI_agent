@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import "@testing-library/jest-dom/vitest";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AppShell } from "./app-shell";
@@ -36,76 +36,42 @@ afterEach(() => {
 });
 
 describe("AppShell", () => {
-  it("renders SKKU branding, global icons, and the active context link", () => {
+  it("renders the SKKU header with the role menu and the active tab", () => {
     render(<AppShell><p>Course content</p></AppShell>);
 
-    expect(screen.getByAltText("성균관대학교")).toBeInTheDocument();
-    expect(screen.getByRole("navigation", { name: "i-Campus 전역 메뉴" })).toBeInTheDocument();
+    const brand = screen.getByRole("link", { name: /SKKU COURSE AGENT/ });
+    expect(brand.querySelector(".course-agent-symbol")).not.toBeNull();
+    expect(brand.querySelector("img")).toBeNull();
     const studentMenu = screen.getByRole("navigation", { name: "학생 메뉴" });
-    expect(studentMenu).toBeInTheDocument();
     expect(within(studentMenu).getByRole("link", { name: "내 과목" })).toHaveAttribute(
       "aria-current",
       "page"
     );
+    expect(within(screen.getByRole("banner")).getByText("Student")).toBeInTheDocument();
     expect(screen.getByText("Course content")).toBeInTheDocument();
   });
 
-  it("logs out and returns to login", () => {
+  it("returns to login only after logout succeeds", async () => {
+    mocks.logout.mockResolvedValue(true);
     render(<AppShell><p>Content</p></AppShell>);
     fireEvent.click(screen.getByRole("button", { name: "로그아웃" }));
     expect(mocks.logout).toHaveBeenCalledTimes(1);
-    expect(mocks.replace).toHaveBeenCalledWith("/login");
+    await waitFor(() => expect(mocks.replace).toHaveBeenCalledWith("/login"));
   });
 
-  it("shows the current route title in the top bar", () => {
-    render(<AppShell><p>Course content</p></AppShell>);
-
-    expect(within(screen.getByRole("banner")).getByText("내 과목")).toBeInTheDocument();
+  it("does not navigate away when the server did not confirm logout", async () => {
+    mocks.logout.mockResolvedValue(false);
+    render(<AppShell><p>Content</p></AppShell>);
+    fireEvent.click(screen.getByRole("button", { name: "로그아웃" }));
+    await mocks.logout.mock.results[0].value;
+    expect(mocks.replace).not.toHaveBeenCalled();
   });
 
-  it("exposes a keyboard-operable context menu toggle", () => {
-    render(<AppShell><p>Course content</p></AppShell>);
-
-    // i-Campus opens the context menu by default; the hamburger collapses it.
-    const toggle = screen.getByRole("button", { name: "보조 메뉴 접기" });
-    const contextNavigation = screen.getByRole("complementary", { name: "학생 보조 메뉴" });
-
-    expect(toggle).toHaveAttribute("aria-expanded", "true");
-    expect(toggle).toHaveAttribute("aria-controls", "icampus-context-navigation");
-    expect(contextNavigation).toHaveAttribute("data-open", "true");
-
-    fireEvent.click(toggle);
-
-    expect(screen.getByRole("button", { name: "보조 메뉴 열기" })).toHaveAttribute(
-      "aria-expanded",
-      "false"
-    );
-    expect(contextNavigation).toHaveAttribute("data-open", "false");
-  });
-
-  it("renders the nine i-Campus rail entries with unavailable tools inactive", () => {
-    render(<AppShell><p>Course content</p></AppShell>);
-
-    const rail = screen.getByRole("navigation", { name: "i-Campus 전역 메뉴" });
-    ["계정", "대시보드", "과목", "그룹", "캘린더", "메시지함", "전체게시물", "마이페이지", "이용안내"].forEach(
-      (label) => {
-        expect(within(rail).getByText(label)).toBeInTheDocument();
-      }
-    );
-    expect(within(rail).getByRole("link", { name: "과목" })).toHaveAttribute(
-      "href",
-      "/student/courses"
-    );
-    expect(within(rail).queryByRole("link", { name: "캘린더" })).not.toBeInTheDocument();
-  });
-
-  it("hands course detail routes over to the course workspace", () => {
+  it("renders a student's course page bare: the study view brings its own bar", () => {
     mocks.pathname.value = "/student/courses/course-1";
+    render(<AppShell><p>Study view</p></AppShell>);
 
-    render(<AppShell><p>Course workspace</p></AppShell>);
-
-    expect(screen.queryByRole("navigation", { name: "학생 메뉴" })).not.toBeInTheDocument();
     expect(screen.queryByRole("banner")).not.toBeInTheDocument();
-    expect(screen.getByText("Course workspace")).toBeInTheDocument();
+    expect(screen.getByText("Study view")).toBeInTheDocument();
   });
 });

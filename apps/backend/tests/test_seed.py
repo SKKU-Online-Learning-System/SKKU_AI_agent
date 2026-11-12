@@ -5,6 +5,7 @@ from argon2 import PasswordHasher
 from sqlalchemy import create_engine, event, func, select
 from sqlalchemy.orm import Session
 
+from app.core.config import Settings
 from app.models import Base, Course, CourseAccess, CourseMaterial, User, UserRole
 
 
@@ -19,6 +20,47 @@ def create_test_engine():
         dbapi_connection.execute("PRAGMA foreign_keys=ON")
 
     return engine
+
+
+def test_seed_refuses_nonlocal_environment_before_opening_db(monkeypatch, capsys) -> None:
+    from app.db import seed
+
+    settings = Settings(
+        app_env="production", jwt_secret="q" * 36, seed_password="not-a-demo-password",
+        _env_file=None,
+    )
+    monkeypatch.setattr(seed, "get_settings", lambda: settings)
+
+    def unexpected_db():
+        raise AssertionError("Production seed must not access the database")
+
+    monkeypatch.setattr(seed, "SessionLocal", unexpected_db)
+    assert seed.main() == 1
+    assert "local development only" in capsys.readouterr().err
+
+
+def test_seed_if_empty_does_not_overwrite_existing_users(monkeypatch, capsys) -> None:
+    from app.db import seed
+
+    engine = create_test_engine()
+    Base.metadata.create_all(engine)
+    with Session(engine) as session:
+        session.add(User(
+            name="Existing administrator", email="admin@skku.edu",
+            external_auth_id="preserve-existing", role=UserRole.admin,
+        ))
+        session.commit()
+    settings = Settings(app_env="local", seed_password="demo-password", _env_file=None)
+    monkeypatch.setattr(seed, "get_settings", lambda: settings)
+    monkeypatch.setattr(seed, "SessionLocal", lambda: Session(engine))
+
+    assert seed.main(only_if_empty=True) == 0
+    assert "Seed skipped" in capsys.readouterr().out
+    with Session(engine) as session:
+        assert session.scalar(select(func.count()).select_from(User)) == 1
+        user = session.scalar(select(User))
+        assert user.external_auth_id == "preserve-existing"
+        assert user.password_hash is None
 
 
 def test_seed_is_idempotent_and_creates_expected_demo_data() -> None:
@@ -58,9 +100,31 @@ def test_seed_is_idempotent_and_creates_expected_demo_data() -> None:
 
         assert professor is not None
         assert student is not None
-        assert [course.name for course in courses] == ["소프트웨어공학", "인공지능개론"]
+        assert [course.name for course in courses] == ["시계열데이터처리개론", "인공지능개론"]
         assert all(course.semester == "2026-2" for course in courses)
         assert all(course.professor_id == professor.id for course in courses)
         assert {access.course_id for access in student.course_accesses} == {
             course.id for course in courses
         }
+
+
+def test_seed_renames_a_course_from_an_earlier_seed_in_place() -> None:
+    from app.db.seed import seed_database
+
+    engine = create_test_engine()
+    Base.metadata.create_all(engine)
+
+    with Session(engine) as session:
+        seed_database(session, "password123")
+    with Session(engine) as session:
+        renamed = session.scalar(select(Course).where(Course.name == "시계열데이터처리개론"))
+        old_id = renamed.id
+        renamed.name = "소프트웨어공학"
+        session.commit()
+    with Session(engine) as session:
+        seed_database(session, "password123")
+    with Session(engine) as session:
+        assert session.scalar(select(func.count()).select_from(Course)) == 2
+        again = session.scalar(select(Course).where(Course.name == "시계열데이터처리개론"))
+        assert again.id == old_id
+        assert session.scalar(select(Course).where(Course.name == "소프트웨어공학")) is None

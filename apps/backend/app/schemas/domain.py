@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Annotated, Any, Literal, Optional
+from typing import Annotated, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, StringConstraints
 
@@ -393,24 +393,6 @@ class ChatLogListItemRead(CamelModel):
     is_grounded: bool
     answer_source_type: AnswerSourceType
     safety_category: SafetyCategory
-    created_at: datetime
-
-
-class ChatLogDetailRead(CamelModel):
-    id: str
-    course_id: str
-    course_name: str
-    user_label: str
-    user_id: Optional[str] = None
-    question: str
-    answer: str
-    referenced_documents: list[AnswerSourceRead] = Field(default_factory=list)
-    retrieval_result: dict[str, Any] = Field(default_factory=dict)
-    safety_result: dict[str, Any] = Field(default_factory=dict)
-    is_grounded: bool
-    answer_source_type: AnswerSourceType
-    model_name: Optional[str] = None
-    response_time_ms: Optional[int] = None
     created_at: datetime
 
 

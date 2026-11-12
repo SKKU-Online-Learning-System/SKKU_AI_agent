@@ -246,7 +246,11 @@ def _read_session_detail(
 
     logs = session.scalars(
         select(ChatLog)
-        .where(ChatLog.session_id == chat_session.id)
+        .where(
+            ChatLog.session_id == chat_session.id,
+            ChatLog.user_id == current_user.id,
+            ChatLog.course_id == chat_session.course_id,
+        )
         .order_by(ChatLog.created_at)
     ).all()
 
@@ -274,24 +278,6 @@ def _read_session_detail(
             for log in logs
         ],
     )
-    session.add(chat_session)
-    session.commit()
-    session.refresh(chat_session)
-    return ChatSessionRead.model_validate(chat_session)
-
-
-@router.get("/chat/sessions", response_model=list[ChatSessionRead])
-def list_chat_sessions(
-    session: Annotated[Session, Depends(get_db)],
-    current_user: Annotated[User, Depends(get_current_user)],
-) -> list[ChatSession]:
-    return list(
-        session.scalars(
-            select(ChatSession)
-            .where(ChatSession.user_id == current_user.id)
-            .order_by(ChatSession.updated_at.desc(), ChatSession.id)
-        ).all()
-    )
 
 
 def get_owned_chat_session(
@@ -311,29 +297,6 @@ def get_owned_chat_session(
             detail="Chat session not found",
         )
     return chat_session
-
-
-@router.get("/chat/sessions/{session_id}", response_model=ChatSessionDetailRead)
-def get_chat_session(
-    session_id: str,
-    session: Annotated[Session, Depends(get_db)],
-    current_user: Annotated[User, Depends(get_current_user)],
-) -> ChatSession:
-    return get_owned_chat_session(session, current_user, session_id)
-
-
-@router.delete(
-    "/chat/sessions/{session_id}",
-    status_code=status.HTTP_204_NO_CONTENT,
-)
-def delete_chat_session(
-    session_id: str,
-    session: Annotated[Session, Depends(get_db)],
-    current_user: Annotated[User, Depends(get_current_user)],
-) -> None:
-    chat_session = get_owned_chat_session(session, current_user, session_id)
-    session.delete(chat_session)
-    session.commit()
 
 
 def _list_sessions(
@@ -363,7 +326,9 @@ def _session_summary(session: Session, chat_session: ChatSession) -> ChatSession
     course_name = session.scalar(select(Course.name).where(Course.id == chat_session.course_id))
     message_count, last_message_at = session.execute(
         select(func.count(ChatLog.id), func.max(ChatLog.created_at)).where(
-            ChatLog.session_id == chat_session.id
+            ChatLog.session_id == chat_session.id,
+            ChatLog.user_id == chat_session.user_id,
+            ChatLog.course_id == chat_session.course_id,
         )
     ).one()
 

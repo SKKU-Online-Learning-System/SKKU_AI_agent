@@ -317,8 +317,8 @@ backend/
 | 자료 삭제           |           X | 담당 과목만 |     O |
 | 학생 챗봇 사용      | 접근 과목만 | 선택적 허용 |     O |
 | 본인 대화 이력 조회 |           O |           O |     O |
-| 과목 질문 로그 조회 |           X | 담당 과목만 |     O |
-| 전체 로그 조회      |           X |           X |     O |
+| 과목·주차별 키워드 집계 |        X | 담당 과목만 |     O |
+| 개인 대화 원문 조회  |        본인 |        본인 |  본인 |
 | 통계 조회           |      제한적 | 담당 과목만 |     O |
 
 ---
@@ -348,7 +348,7 @@ course.professor_id = current_user.id
 
 ### 관리자
 
-관리자는 모든 과목, 사용자, 자료, 로그에 접근할 수 있다.
+관리자는 모든 과목, 사용자, 자료 및 운영 통계에 접근할 수 있다. 타인 대화 원문은 제외한다.
 
 ---
 
@@ -944,9 +944,9 @@ DELETE /api/chat/sessions/{id}              # 세션 삭제
 
 ---
 
-### GET /professor/courses/{course_id}/chat-logs
+### GET /api/stats/courses/{course_id}/keywords
 
-교수자 담당 과목 질문 로그 조회.
+과목·교안 주차별 반복 핵심 키워드와 질문 건수를 조회한다.
 
 권한:
 
@@ -957,30 +957,10 @@ admin: 전체 과목
 
 ---
 
-### GET /admin/chat-logs
-
-전체 로그 조회.
-
-권한:
-
-```text id="tk4782"
-admin
-```
-
-**구현 현황 (2026-08 기준)**
-
-```text
-GET /api/professor/courses/{course_id}/chat-logs
-GET /api/professor/chat-logs/{log_id}
-GET /api/admin/chat-logs
-GET /api/admin/chat-logs/{log_id}
-```
-
-- 지원 필터: `keyword`(질문·답변 본문), `from`, `to`, `is_grounded`, `safety_category`, `limit`, `offset`. 관리자 목록은 `course_id`, `user_id`도 지원한다.
-- 응답은 `{ "logs": [...], "total": n }` 형태이며, 목록에는 답변 전문 대신 120자 미리보기(`answerPreview`)만 담는다.
-- 개인정보 최소화: 교수자 화면에는 학생 이메일을 마스킹한 `userLabel`만 주고 `userId`는 `null`이다. 관리자에게만 이름·이메일과 `userId`를 노출한다.
-- 교수자는 담당 과목이 아닌 로그를 목록·상세 어느 쪽으로도 조회할 수 없다(403).
-- CSV 내보내기는 5단계로 남긴다.
+- 응답은 `{ "courseId": "...", "weeks": [{ "week": 2, "keywords": [{ "keyword": "학습률", "questionCount": 8 }] }] }` 형식이다.
+- 과목·주차·키워드마다 최소 5명의 학생이 필요하며, 학생 목록과 개인별 필터는 제공하지 않는다.
+- 주차는 선택된 교안 또는 출처 교안에서만 결정한다. 일반 질문으로 분류되지 않거나 주차가 없는 기록은 제외한다.
+- 교수자·관리자의 원문 로그 및 개인 취약 개념 통계 API는 제공하지 않는다.
 
 ---
 
@@ -1309,7 +1289,14 @@ uploads/
 
 ## 12.1 인증 방식
 
-MVP에서는 JWT 기반 인증을 사용한다.
+MVP에서는 JWT 기반 인증을 사용한다. 브라우저에는 HttpOnly·SameSite=Lax 쿠키만
+전달하며 비로컬 환경에서는 Secure가 적용된다. 브라우저 변경 요청은 CSRF 헤더,
+로그인·로그아웃과 음성 연결은 Origin을 확인한다. 브라우저 응답 JSON에는 토큰이 없다.
+비브라우저 API 클라이언트는 Bearer 토큰을 사용할 수 있다.
+
+로그아웃한 토큰의 `jti`를 만료 시각까지 DB에 기록해 REST와 WebSocket에서 거부한다.
+열려 있는 음성 연결은 5초마다 토큰과 과목 접근을 다시 확인한다. 로그인 시도 제한은
+계정·IP·두 값의 조합·프로세스 전체에 적용하며 계정 존재 여부에 무관하다.
 
 ```text id="33hrkc"
 POST /auth/login
@@ -1498,11 +1485,8 @@ MAX_UPLOAD_SIZE=
 교수자 통계:
 
 ```text id="yiyih0"
-- 담당 과목별 질문 수
-- 담당 과목별 사용자 수
 - 담당 과목별 업로드 자료 수
-- 최근 질문 로그
-- 자주 등장한 질문 키워드
+- 담당 과목·주차별 반복 핵심 키워드와 질문 건수
 ```
 
 학생 통계:
@@ -1531,7 +1515,15 @@ Docker Compose
 
 ---
 
-## 16.2 docker-compose 구성 예시
+## 16.2 로컬 PostgreSQL
+
+실제 개발 Compose는 PostgreSQL 서비스만 실행한다. FastAPI와 Next.js는 `run.sh`에서
+호스트 프로세스로 실행하며, DB 포트는 호스트 루프백에만 바인딩한다.
+Docker 없이 개발할 때는 별도 PostgreSQL의 연결 주소를 설정하고 `--external-db`를 쓴다.
+SQLite는 앱 실행 시 자동으로 선택되지 않는다.
+
+다음은 로컬 개발용 예시이며 운영 배포 설정이 아니다. 서버에서 앱과 DB를 함께
+배포할 때는 DB 포트를 외부에 게시하지 않는다.
 
 ```yaml id="f73k0v"
 services:
@@ -1542,7 +1534,7 @@ services:
       POSTGRES_PASSWORD: course_agent
       POSTGRES_DB: course_agent
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
 
@@ -1715,7 +1707,7 @@ MVP는 다음 조건을 만족하면 완료로 본다.
 9. 자료 부족 시 한계를 명시한다.
 10. 과제/시험 정답 요청은 직접 답변하지 않고 학습 보조 방식으로 전환한다.
 11. 질문과 답변 로그가 저장된다.
-12. 교수자와 관리자는 권한 범위 내에서 로그를 확인할 수 있다.
+12. 교수자와 관리자는 권한 범위 내에서 집계만 확인할 수 있고, 원문은 대화 소유자에게만 제공된다.
 13. 관리자 통계 화면에서 기본 사용 현황을 확인할 수 있다.
 14. README만 보고 로컬 실행과 테스트가 가능하다.
 ```

@@ -1,0 +1,2141 @@
+/* ---------------------------------------------------------------------------
+   SKKU study design: an Inflearn-style learning shell in 성균관대 green.
+   Loaded last, so it overrides the older i-Campus shell where both apply.
+   --------------------------------------------------------------------------- */
+
+:root {
+  --skku-green: #0b5d3b;
+  --skku-green-deep: #083f2a;
+  --skku-green-ink: #0a2e20;
+  --skku-green-soft: #e7f3ec;
+  --skku-green-line: #bfdccb;
+  --skku-gold: #d9a21b;
+  --skku-gold-soft: #fff4d6;
+  --ink: #1b1c1d;
+  --ink-2: #3e4347;
+  --ink-3: #7b8188;
+  --line: #e4e7ea;
+  --line-soft: #eef0f2;
+  --surface: #ffffff;
+  --surface-2: #f6f8f9;
+  --radius: 10px;
+  --shadow-card: 0 1px 2px rgba(10, 46, 32, 0.06), 0 6px 18px rgba(10, 46, 32, 0.06);
+}
+
+body {
+  background: var(--surface-2);
+  color: var(--ink);
+  font-family: "Pretendard Variable", Pretendard, -apple-system, BlinkMacSystemFont,
+    "Apple SD Gothic Neo", "Noto Sans KR", "Malgun Gothic", sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+:focus-visible {
+  outline: 3px solid rgba(11, 93, 59, 0.45);
+}
+
+/* ---------------------------------------------------------------------------
+   Site shell: a white top header with the SKKU mark, the role menu as tabs.
+   --------------------------------------------------------------------------- */
+
+.skku-shell {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+}
+
+.skku-header {
+  background: var(--surface);
+  border-bottom: 1px solid var(--line);
+  border-top: 4px solid var(--skku-green);
+  position: sticky;
+  top: 0;
+  z-index: 20;
+}
+
+.skku-header-inner {
+  align-items: center;
+  display: flex;
+  gap: 28px;
+  height: 64px;
+  margin: 0 auto;
+  max-width: 1280px;
+  padding: 0 24px;
+}
+
+.skku-brand {
+  align-items: center;
+  color: var(--ink);
+  display: flex;
+  gap: 10px;
+  text-decoration: none;
+}
+
+.skku-brand .course-agent-symbol {
+  flex: none;
+}
+
+.skku-brand strong {
+  color: var(--skku-green-deep);
+  font-size: 17px;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+}
+
+.skku-brand small {
+  color: var(--ink-3);
+  display: block;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+}
+
+.skku-header nav {
+  align-self: stretch;
+  display: flex;
+  flex: 1;
+  gap: 4px;
+  min-width: 0;
+  overflow-x: auto;
+}
+
+.skku-header nav a {
+  align-items: center;
+  border-bottom: 3px solid transparent;
+  color: var(--ink-2);
+  display: flex;
+  font-size: 14px;
+  font-weight: 600;
+  gap: 6px;
+  padding: 0 12px;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.skku-header nav a .ui-icon {
+  height: 17px;
+  width: 17px;
+}
+
+.skku-header nav a:hover {
+  color: var(--skku-green);
+}
+
+.skku-header nav a[aria-current="page"] {
+  border-bottom-color: var(--skku-green);
+  color: var(--skku-green);
+}
+
+.skku-user {
+  align-items: center;
+  display: flex;
+  gap: 10px;
+}
+
+.skku-user > span {
+  color: var(--ink-2);
+  font-size: 13px;
+}
+
+.skku-user > span b {
+  color: var(--skku-green);
+  font-weight: 700;
+  margin-left: 4px;
+}
+
+.skku-user button {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--ink-2);
+  font-size: 13px;
+  font-weight: 600;
+  min-height: 34px;
+  padding: 0 12px;
+}
+
+.skku-user button:hover {
+  border-color: var(--skku-green);
+  color: var(--skku-green);
+}
+
+.skku-content {
+  flex: 1;
+  margin: 0 auto;
+  max-width: 1280px;
+  min-width: 0;
+  padding: 28px 24px 56px;
+  width: 100%;
+}
+
+.skku-content--course {
+  max-width: none;
+  padding: 0;
+}
+
+/* Role pages still use the i-Campus furniture; round it off to match. */
+.skku-content .icampus-card,
+.skku-content .canvas-course-card {
+  border-color: var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-card);
+}
+
+.skku-content .icampus-page-heading h1,
+.skku-content .canvas-dashboard-header h1 {
+  color: var(--ink);
+  font-weight: 800;
+  letter-spacing: -0.01em;
+}
+
+.skku-content .icampus-notice {
+  background: var(--skku-green-soft);
+  border-color: var(--skku-green-line);
+  border-left-color: var(--skku-green);
+  border-radius: 8px;
+  color: var(--skku-green-ink);
+}
+
+.skku-content .icampus-term-badge {
+  background: var(--skku-green-soft);
+  border-color: var(--skku-green-line);
+  border-radius: 999px;
+  color: var(--skku-green);
+}
+
+/* Professor/admin course workspace: the course menu stays, the duplicate top bar goes. */
+.icampus-course-workspace .icampus-course-layout {
+  min-height: calc(100vh - 68px);
+}
+
+.icampus-course-nav > strong {
+  color: var(--ink-3);
+}
+
+.icampus-course-nav h2 {
+  color: var(--skku-green-deep);
+  font-size: 15px;
+  font-weight: 800;
+  margin: 0 10px 12px;
+}
+
+.icampus-context-nav nav a[aria-current="page"] {
+  border-color: var(--skku-green-line);
+  color: var(--skku-green);
+}
+
+/* ---------------------------------------------------------------------------
+   내 학습: the student's course cards.
+   --------------------------------------------------------------------------- */
+
+.learn-page > header {
+  align-items: end;
+  display: flex;
+  gap: 16px;
+  justify-content: space-between;
+  margin-bottom: 22px;
+}
+
+.learn-page h1 {
+  font-size: 26px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}
+
+.learn-page > header p {
+  color: var(--ink-3);
+  font-size: 14px;
+  margin-top: 6px;
+}
+
+.learn-grid {
+  display: grid;
+  gap: 22px;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+}
+
+.learn-card {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  color: var(--ink);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  text-decoration: none;
+  transition: border-color 0.15s ease;
+}
+
+.learn-card:hover {
+  border-color: var(--skku-green-line);
+}
+
+.learn-card:hover .learn-card-body strong {
+  color: var(--skku-green);
+}
+
+.learn-card-cover {
+  align-items: flex-end;
+  background: linear-gradient(135deg, var(--skku-green-deep), var(--skku-green) 70%, #2d8a5e);
+  color: white;
+  display: flex;
+  height: 132px;
+  justify-content: space-between;
+  padding: 14px 16px;
+  position: relative;
+}
+
+.learn-card-cover[data-status="disabled"] {
+  filter: grayscale(0.7);
+  opacity: 0.8;
+}
+
+.learn-card-cover > span {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  max-width: 60%;
+  opacity: 0.85;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.learn-card-body {
+  display: grid;
+  gap: 6px;
+  padding: 16px 16px 14px;
+}
+
+.learn-card-body strong {
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  line-height: 1.35;
+}
+
+.learn-card-body span {
+  color: var(--ink-3);
+  font-size: 13px;
+}
+
+.learn-card-foot {
+  align-items: center;
+  border-top: 1px solid var(--line-soft);
+  color: var(--skku-green);
+  display: flex;
+  font-size: 13px;
+  font-weight: 700;
+  gap: 6px;
+  justify-content: space-between;
+  margin-top: auto;
+  padding: 11px 16px;
+}
+
+.learn-card-foot .material-status {
+  font-weight: 600;
+}
+
+.learn-empty,
+.learn-loading {
+  background: var(--surface);
+  border: 1px dashed var(--line);
+  border-radius: 12px;
+  color: var(--ink-3);
+  padding: 48px 20px;
+  text-align: center;
+}
+
+/* ---------------------------------------------------------------------------
+   Study page: 교안 on the left, AI 해설 beside it, curriculum or agent on the
+   right, a tool rail at the edge.
+   --------------------------------------------------------------------------- */
+
+.study-page {
+  background: var(--surface-2);
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+}
+
+.study-topbar {
+  align-items: center;
+  background: var(--skku-green-ink);
+  color: white;
+  display: flex;
+  flex: none;
+  gap: 18px;
+  height: 56px;
+  padding: 0 16px;
+}
+
+.study-back {
+  align-items: center;
+  color: white;
+  display: inline-flex;
+  font-size: 14px;
+  font-weight: 700;
+  gap: 2px;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.study-back .ui-icon {
+  transform: rotate(180deg);
+}
+
+.study-title {
+  display: grid;
+  flex: 1;
+  gap: 1px;
+  min-width: 0;
+}
+
+.study-title strong {
+  font-size: 15px;
+  font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.study-title span {
+  color: rgba(255, 255, 255, 0.72);
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.study-stats {
+  color: rgba(255, 255, 255, 0.78);
+  display: flex;
+  font-size: 12px;
+  gap: 12px;
+}
+
+.study-stats span + span::before {
+  content: "·";
+  margin-right: 12px;
+  opacity: 0.6;
+}
+
+.study-user {
+  align-items: center;
+  display: flex;
+  font-size: 13px;
+  gap: 8px;
+}
+
+.study-user button {
+  align-items: center;
+  background: rgba(255, 255, 255, 0.1);
+  border: 0;
+  border-radius: 50%;
+  color: white;
+  display: inline-flex;
+  height: 34px;
+  justify-content: center;
+  width: 34px;
+}
+
+.study-user button:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.study-body {
+  display: grid;
+  flex: 1;
+  grid-template-columns: minmax(0, 1fr) auto 64px;
+  min-height: 0;
+}
+
+.study-main {
+  min-width: 0;
+  overflow: auto;
+  padding: 20px 22px 32px;
+}
+
+.study-empty {
+  align-items: center;
+  color: var(--ink-3);
+  display: grid;
+  gap: 10px;
+  justify-items: center;
+  margin: 80px auto;
+  max-width: 440px;
+  text-align: center;
+}
+
+.study-empty h2 {
+  color: var(--ink);
+  font-size: 18px;
+  margin: 0;
+}
+
+.study-reader {
+  align-items: start;
+  display: grid;
+  gap: 20px;
+  grid-template-columns: minmax(0, 3fr) minmax(340px, 2fr);
+}
+
+.study-viewer {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+
+.study-stage {
+  align-items: center;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-card);
+  display: flex;
+  justify-content: center;
+  min-height: 320px;
+  overflow: auto;
+}
+
+.study-stage img {
+  cursor: default;
+  display: block;
+  height: auto;
+  max-height: calc(100vh - 230px);
+  max-width: 100%;
+  width: auto;
+}
+
+.study-stage[data-zoomed="true"] {
+  align-items: flex-start;
+  cursor: grab;
+  justify-content: flex-start;
+  max-height: calc(100vh - 230px);
+  user-select: none;
+}
+
+.study-stage[data-zoomed="true"][data-dragging="true"] {
+  cursor: grabbing;
+}
+
+.study-stage[data-zoomed="true"] img {
+  cursor: inherit;
+  max-height: none;
+  max-width: none;
+  user-select: none;
+}
+
+.study-stage-loading,
+.study-stage-error {
+  color: var(--ink-3);
+  font-size: 14px;
+  padding: 40px;
+}
+
+.study-pager {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.study-pager button,
+.study-page-select select {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--ink-2);
+  font-size: 13px;
+  font-weight: 600;
+  min-height: 36px;
+  padding: 0 12px;
+}
+
+.study-pager button:hover:not(:disabled) {
+  border-color: var(--skku-green);
+  color: var(--skku-green);
+}
+
+.study-pager button:disabled {
+  opacity: 0.45;
+}
+
+.study-page-select {
+  flex: 1;
+  min-width: 120px;
+}
+
+.study-page-select select {
+  width: 100%;
+}
+
+.study-zoom {
+  align-items: center;
+  display: inline-flex;
+}
+
+.study-zoom button {
+  border-radius: 0;
+  min-width: 36px;
+  padding: 0 10px;
+}
+
+.study-zoom button:first-child {
+  border-radius: 8px 0 0 8px;
+}
+
+.study-zoom button:last-child {
+  border-radius: 0 8px 8px 0;
+}
+
+.study-zoom button + button {
+  border-left: 0;
+}
+
+.study-zoom-level {
+  font-variant-numeric: tabular-nums;
+  min-width: 56px;
+}
+
+.study-zoom-level:disabled {
+  color: var(--ink-2);
+  opacity: 1;
+}
+
+.study-page-count {
+  color: var(--ink-3);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.study-pager-hint {
+  color: var(--ink-3);
+  font-size: 12px;
+}
+
+.study-thumbs {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding: 4px 2px 8px;
+  scroll-snap-type: x proximity;
+}
+
+.study-thumb {
+  background: var(--surface);
+  border: 2px solid var(--line);
+  border-radius: 6px;
+  display: grid;
+  flex: none;
+  gap: 2px;
+  justify-items: center;
+  padding: 3px;
+  scroll-snap-align: center;
+  width: 92px;
+}
+
+.study-thumb img,
+.study-thumb > span {
+  aspect-ratio: 4 / 3;
+  background: var(--surface-2);
+  border-radius: 3px;
+  display: block;
+  object-fit: contain;
+  width: 100%;
+}
+
+.study-thumb small {
+  align-items: center;
+  color: var(--ink-3);
+  display: inline-flex;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  gap: 4px;
+}
+
+.study-thumb-noted {
+  background: var(--skku-green);
+  border-radius: 50%;
+  display: inline-block;
+  height: 6px;
+  width: 6px;
+}
+
+.study-pager-hint .study-thumb-noted {
+  margin: 0 2px 1px 0;
+}
+
+.study-thumb:hover {
+  border-color: var(--skku-green-line);
+}
+
+.study-thumb[aria-current="true"] {
+  border-color: var(--skku-green);
+}
+
+.study-thumb[aria-current="true"] small {
+  color: var(--skku-green);
+  font-weight: 700;
+}
+
+/* AI 해설 */
+
+.study-note {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-card);
+  font-size: 15px;
+  line-height: 1.7;
+  max-height: calc(100vh - 96px);
+  min-width: 0;
+  overflow: auto;
+  padding: 20px 22px 24px;
+  position: sticky;
+  top: 0;
+}
+
+.study-note-kicker {
+  color: var(--skku-green);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  margin-bottom: 8px;
+  text-transform: uppercase;
+}
+
+.study-note h2 {
+  font-size: 20px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  line-height: 1.35;
+  margin: 0 0 14px;
+}
+
+.study-note-summary {
+  background: var(--skku-gold-soft);
+  border-left: 4px solid var(--skku-gold);
+  border-radius: 6px;
+  margin-bottom: 16px;
+  padding: 12px 14px;
+}
+
+.study-note-summary b,
+.study-note-pitfall b {
+  color: var(--skku-green-deep);
+  font-weight: 800;
+  margin-right: 6px;
+}
+
+.study-note-points {
+  display: grid;
+  gap: 12px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.study-note-points li {
+  border-bottom: 1px solid var(--line-soft);
+  padding-bottom: 12px;
+}
+
+.study-note-points li:last-child {
+  border-bottom: 0;
+}
+
+.study-note-points strong {
+  color: var(--ink);
+  display: block;
+  font-weight: 700;
+  margin-bottom: 2px;
+  text-decoration: underline;
+  text-decoration-color: var(--skku-green-line);
+  text-decoration-thickness: 2px;
+  text-underline-offset: 4px;
+}
+
+.study-note-text {
+  color: var(--ink-2);
+  white-space: pre-wrap;
+}
+
+.study-note-label {
+  display: inline;
+}
+
+.study-note-summary,
+.study-note-pitfall {
+  display: flex;
+  gap: 8px;
+}
+
+.study-note-summary b,
+.study-note-pitfall b {
+  flex: none;
+}
+
+.study-note-pitfall {
+  background: var(--surface-2);
+  border-radius: 6px;
+  margin-top: 16px;
+  padding: 12px 14px;
+}
+
+.study-note-empty {
+  color: var(--ink-3);
+}
+
+.study-note-ask {
+  background: var(--skku-green);
+  border: 0;
+  border-radius: 8px;
+  color: white;
+  font-size: 14px;
+  font-weight: 700;
+  margin-top: 18px;
+  min-height: 42px;
+  padding: 0 16px;
+  width: 100%;
+}
+
+.study-note-ask:hover {
+  background: var(--skku-green-deep);
+}
+
+.study-note-loading {
+  color: var(--ink-3);
+  display: grid;
+  font-size: 13px;
+  gap: 18px;
+  padding: 8px 0 16px;
+}
+
+.study-note-progress {
+  align-items: center;
+  display: grid;
+  gap: 4px 10px;
+  grid-template-columns: auto minmax(0, 1fr);
+}
+
+.study-note-progress > * {
+  min-width: 0;
+}
+
+.study-note-progress .study-note-shimmer {
+  display: block;
+  font-size: 14px;
+  line-height: 1.4;
+}
+
+.study-note-progress small {
+  color: var(--ink-3);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  grid-column: 2;
+}
+
+.study-note-spinner {
+  animation: study-spin 0.9s linear infinite;
+  border: 3px solid var(--skku-green-soft);
+  border-radius: 50%;
+  border-top-color: var(--skku-green);
+  grid-row: 1 / span 2;
+  height: 22px;
+  width: 22px;
+}
+
+@keyframes study-spin {
+  to { transform: rotate(360deg); }
+}
+
+.study-note-skeleton {
+  display: grid;
+  gap: 10px;
+}
+
+.study-note-skeleton i {
+  animation: study-skeleton 1.6s ease-in-out infinite;
+  background: linear-gradient(90deg, var(--line-soft) 0%, var(--surface-2) 50%, var(--line-soft) 100%);
+  background-size: 200% 100%;
+  border-radius: 6px;
+  display: block;
+  height: 14px;
+}
+
+.study-note-skeleton .study-note-skeleton-block {
+  height: 52px;
+  width: 100%;
+}
+
+@keyframes study-skeleton {
+  from { background-position: 200% 0; }
+  to { background-position: -200% 0; }
+}
+
+.study-note-error {
+  display: grid;
+  gap: 10px;
+  justify-items: start;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .study-note-spinner,
+  .study-note-skeleton i,
+  .study-note-shimmer {
+    animation: none;
+  }
+}
+
+.study-note-shimmer {
+  background: linear-gradient(90deg, var(--ink-2) 0%, var(--ink-2) 40%, var(--skku-green) 50%, var(--ink-2) 60%, var(--ink-2) 100%);
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  font-size: 15px;
+  font-weight: 700;
+  animation: study-shimmer 1.8s linear infinite;
+}
+
+@keyframes study-shimmer {
+  from { background-position: 200% 0; }
+  to { background-position: 0 0; }
+}
+
+/* Right panel: curriculum or agent */
+
+.study-panel {
+  background: var(--surface);
+  border-left: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  grid-column: 2;
+  min-height: 0;
+  width: 380px;
+}
+
+.study-panel--agent {
+  width: 480px;
+}
+
+.study-panel-head {
+  align-items: center;
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  flex: none;
+  gap: 8px;
+  justify-content: space-between;
+  min-height: 56px;
+  padding: 0 14px 0 18px;
+}
+
+.study-panel-head h2 {
+  align-items: center;
+  display: flex;
+  font-size: 16px;
+  font-weight: 800;
+  gap: 8px;
+  margin: 0;
+}
+
+.study-panel-head button {
+  background: transparent;
+  border: 0;
+  border-radius: 50%;
+  color: var(--ink-3);
+  display: inline-flex;
+  height: 34px;
+  justify-content: center;
+  align-items: center;
+  width: 34px;
+}
+
+.study-panel-head button:hover {
+  background: var(--surface-2);
+  color: var(--ink);
+}
+
+.study-panel-empty {
+  color: var(--ink-3);
+  font-size: 14px;
+  padding: 24px 18px;
+}
+
+.study-curriculum {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+
+.study-week {
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.study-week-head {
+  align-items: center;
+  background: var(--surface-2);
+  border: 0;
+  color: var(--ink);
+  display: flex;
+  gap: 8px;
+  min-height: 48px;
+  padding: 0 14px 0 12px;
+  text-align: left;
+  width: 100%;
+}
+
+.study-week[data-active="true"] .study-week-head strong {
+  color: var(--skku-green);
+}
+
+.study-week-head strong {
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.study-week-head span {
+  color: var(--ink-3);
+  font-size: 12px;
+  margin-left: auto;
+  white-space: nowrap;
+}
+
+.study-week-chevron {
+  color: var(--ink-3);
+  height: 16px;
+  transform: rotate(90deg);
+  transition: transform 0.15s ease;
+  width: 16px;
+}
+
+.study-week-head[aria-expanded="false"] .study-week-chevron {
+  transform: rotate(0deg);
+}
+
+.study-week ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.study-week li {
+  align-items: center;
+  display: flex;
+  gap: 4px;
+  padding-right: 8px;
+}
+
+.study-week li[data-active="true"] {
+  background: var(--skku-green-soft);
+  box-shadow: inset 3px 0 0 var(--skku-green);
+}
+
+.study-lesson {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  color: var(--ink);
+  display: flex;
+  flex: 1;
+  gap: 10px;
+  min-height: 60px;
+  min-width: 0;
+  padding: 8px 6px 8px 16px;
+  text-align: left;
+}
+
+.study-lesson:hover:not(:disabled) {
+  background: var(--surface-2);
+}
+
+.study-lesson:disabled {
+  color: var(--ink-3);
+  cursor: default;
+}
+
+.study-lesson-mark {
+  align-items: center;
+  border: 1.5px solid var(--line);
+  border-radius: 50%;
+  color: var(--ink-3);
+  display: inline-flex;
+  flex: none;
+  height: 24px;
+  justify-content: center;
+  width: 24px;
+}
+
+.study-lesson-mark .ui-icon {
+  height: 14px;
+  width: 14px;
+}
+
+.study-lesson-mark[data-status="completed"] {
+  background: var(--skku-green);
+  border-color: var(--skku-green);
+  color: white;
+}
+
+.study-lesson-mark[data-status="processing"] {
+  border-color: var(--skku-gold);
+  color: var(--skku-gold);
+}
+
+.study-lesson-mark[data-status="failed"] {
+  border-color: #c53c3c;
+  color: #c53c3c;
+}
+
+.study-lesson-text {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.study-lesson-text strong {
+  font-size: 14px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.study-lesson[aria-current="true"] .study-lesson-text strong {
+  color: var(--skku-green-deep);
+  font-weight: 800;
+}
+
+.study-lesson-text small {
+  color: var(--ink-3);
+  font-size: 12px;
+}
+
+.study-lesson-download {
+  background: transparent;
+  border: 0;
+  border-radius: 50%;
+  color: var(--ink-3);
+  display: inline-flex;
+  flex: none;
+  height: 32px;
+  justify-content: center;
+  align-items: center;
+  width: 32px;
+}
+
+.study-lesson-download:hover {
+  background: var(--surface-2);
+  color: var(--skku-green);
+}
+
+/* Agent drawer: one flat column -- no card inside the panel. The chat fills
+   the drawer and scrolls inside it, the composer and the voice row sit at the
+   bottom behind thin rules, everything on the same 16px gutter. */
+
+.study-agent-body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+  padding: 0;
+}
+
+.course-agent-page[data-embedded="true"] {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 0;
+  min-height: 0;
+}
+
+.course-agent-page[data-embedded="true"] .admin-alert {
+  flex: none;
+  font-size: 12px;
+  margin: 12px 16px 0;
+  padding: 8px 10px;
+}
+
+.course-agent-page[data-embedded="true"] .voice-chat-layout {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 0;
+  min-height: 0;
+}
+
+.course-agent-page[data-embedded="true"] .voice-chat-card {
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.course-agent-page[data-embedded="true"] .voice-chat-card .icampus-card-head {
+  display: none;
+}
+
+.course-agent-page[data-embedded="true"] .voice-chat-toolbar {
+  align-items: center;
+  border-bottom: 1px solid var(--line-soft);
+  color: var(--ink-3);
+  font-size: 12px;
+  padding: 8px 12px 8px 16px;
+}
+
+.course-agent-page[data-embedded="true"] .voice-chat-toolbar .voice-secondary {
+  min-height: 30px;
+  padding: 0 10px;
+}
+
+.course-agent-page[data-embedded="true"] .voice-messages {
+  background: transparent;
+  flex: 1 1 auto;
+  max-height: none;
+  min-height: 0;
+  padding: 16px;
+}
+
+.course-agent-page[data-embedded="true"] .voice-message {
+  margin-bottom: 14px;
+}
+
+.course-agent-page[data-embedded="true"] .voice-avatar {
+  flex-basis: 30px;
+  height: 30px;
+  width: 30px;
+}
+
+.course-agent-page[data-embedded="true"] .voice-who {
+  font-size: 11px;
+}
+
+.course-agent-page[data-embedded="true"] .voice-chat-form {
+  border-top: 1px solid var(--line);
+  padding: 12px 16px;
+}
+
+.course-agent-page[data-embedded="true"] .voice-chat-form input {
+  font-size: 13px;
+  padding: 9px 12px;
+}
+
+.course-agent-page[data-embedded="true"] .voice-attach-button {
+  border-radius: 8px;
+}
+
+/* Voice: a flat footer row -- small orb, state, help. */
+.course-agent-page[data-embedded="true"] .voice-panel {
+  border: 0;
+  border-radius: 0;
+  border-top: 1px solid var(--line);
+  box-shadow: none;
+  flex: none;
+}
+
+.course-agent-page[data-embedded="true"] .voice-panel .icampus-card-head {
+  display: none;
+}
+
+.course-agent-page[data-embedded="true"] .voice-panel .icampus-card-body {
+  align-items: center;
+  flex-direction: row;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  padding: 12px 16px;
+}
+
+.course-agent-page[data-embedded="true"] .voice-orb {
+  --orb-size: 44px;
+  flex: none;
+}
+
+.course-agent-page[data-embedded="true"] .voice-orb-label {
+  display: none;
+}
+
+.course-agent-page[data-embedded="true"] .voice-orb-mic {
+  height: 20px;
+  width: 20px;
+}
+
+.course-agent-page[data-embedded="true"] .voice-state {
+  flex: none;
+  margin: 0;
+}
+
+.course-agent-page[data-embedded="true"] .voice-help {
+  color: var(--ink-3);
+  flex: 1 1 160px;
+  font-size: 12px;
+  line-height: 1.45;
+  margin: 0;
+  text-align: left;
+}
+
+.course-agent-page[data-embedded="true"] .voice-call-controls {
+  margin: 0;
+}
+
+/* Weak concepts: a folded strip that scrolls on its own, never pushing the chat off screen. */
+.course-agent-page[data-embedded="true"] .weak-concepts-card {
+  display: flex;
+  flex: 0 1 auto;
+  flex-direction: column;
+  margin: 0;
+  max-height: 34%;
+  min-height: 0;
+}
+
+.course-agent-page[data-embedded="true"] .weak-concepts-card .icampus-card-head {
+  flex: none;
+  min-height: 0;
+  padding: 8px 12px;
+}
+
+.course-agent-page[data-embedded="true"] .weak-concepts-card .icampus-card-head h2 {
+  font-size: 14px;
+}
+
+.course-agent-page[data-embedded="true"] .weak-concepts-card .icampus-card-head small {
+  display: none;
+}
+
+.course-agent-page[data-embedded="true"] .weak-concepts-card .icampus-card-head .voice-secondary {
+  min-height: 28px;
+  padding: 0 10px;
+  white-space: nowrap;
+}
+
+.course-agent-page[data-embedded="true"] .weak-concepts-card .icampus-card-body {
+  min-height: 0;
+  overflow: auto;
+  padding: 10px 12px;
+}
+
+.voice-focus-row {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+}
+
+.voice-focus-row small {
+  color: var(--ink-3);
+  font-size: 12px;
+}
+
+.voice-focus-chip {
+  align-items: center;
+  background: var(--skku-green-soft);
+  border: 1px solid var(--skku-green-line);
+  border-radius: 999px;
+  color: var(--skku-green-deep);
+  display: inline-flex;
+  flex: none;
+  font-size: 12px;
+  font-weight: 700;
+  gap: 4px;
+  max-width: 240px;
+  min-height: 24px;
+  overflow: hidden;
+  padding: 0 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.voice-focus-chip .ui-icon {
+  height: 14px;
+  width: 14px;
+}
+
+/* Tool rail */
+
+.study-rail {
+  align-self: stretch;
+  background: var(--surface);
+  border-left: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  /* Always the last column: with no panel open the rail would otherwise be
+     auto-placed into the panel's column, leaving an empty 64px strip at the edge. */
+  grid-column: 3;
+  height: 100%;
+  padding: 8px 4px;
+}
+
+/* Scrollbars on the study page: thin, no track, thumb only while hovered. */
+.study-page * {
+  scrollbar-color: transparent transparent;
+  scrollbar-width: thin;
+}
+
+.study-page *:hover {
+  scrollbar-color: rgba(10, 46, 32, 0.22) transparent;
+}
+
+.study-page *::-webkit-scrollbar {
+  height: 8px;
+  width: 8px;
+}
+
+.study-page *::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.study-page *::-webkit-scrollbar-thumb {
+  background: transparent;
+  border: 2px solid transparent;
+  border-radius: 8px;
+}
+
+.study-page *:hover::-webkit-scrollbar-thumb {
+  background: rgba(10, 46, 32, 0.22);
+  background-clip: padding-box;
+}
+
+/* 대화 이력 tab */
+
+.study-history ul {
+  display: grid;
+  gap: 6px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.study-history-item {
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  color: var(--ink);
+  display: grid;
+  gap: 3px;
+  padding: 10px 12px;
+  text-align: left;
+  width: 100%;
+}
+
+.study-history-item:hover {
+  background: var(--surface-2);
+}
+
+.study-history-item[aria-current="true"] {
+  background: var(--skku-green-soft);
+  border-color: var(--skku-green-line);
+}
+
+.study-history-item strong {
+  font-size: 14px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.study-history-item small {
+  color: var(--ink-3);
+  font-size: 12px;
+}
+
+/* Weak-concept tab */
+
+.study-panel-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 14px 16px 24px;
+}
+
+.study-weak {
+  display: grid;
+  gap: 12px;
+}
+
+.study-weak-toolbar {
+  align-items: center;
+  display: flex;
+  gap: 10px;
+  justify-content: space-between;
+}
+
+.study-weak-toolbar small {
+  color: var(--ink-3);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.study-weak-toolbar .voice-secondary {
+  flex: none;
+  min-height: 32px;
+  white-space: nowrap;
+}
+
+.study-weak .weak-concept-list {
+  display: grid;
+  gap: 10px;
+}
+
+.study-weak .weak-concept-item {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 14px;
+}
+
+.study-weak .voice-empty {
+  color: var(--ink-3);
+  font-size: 14px;
+  padding: 24px 0;
+  text-align: center;
+}
+
+.study-rail button,
+.study-rail a {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  border-radius: 8px;
+  color: var(--ink-2);
+  display: grid;
+  font-size: 11px;
+  font-weight: 600;
+  gap: 4px;
+  justify-items: center;
+  padding: 10px 2px;
+  text-decoration: none;
+}
+
+.study-rail .ui-icon {
+  height: 22px;
+  width: 22px;
+}
+
+.study-rail button:hover,
+.study-rail a:hover {
+  background: var(--surface-2);
+  color: var(--skku-green);
+}
+
+.study-rail button[aria-pressed="true"] {
+  background: var(--skku-green-soft);
+  color: var(--skku-green);
+}
+
+@media (max-width: 1180px) {
+  .study-reader {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .study-note {
+    max-height: none;
+    position: static;
+  }
+
+  .study-stats {
+    display: none;
+  }
+}
+
+@media (max-width: 900px) {
+  .study-body {
+    grid-template-columns: minmax(0, 1fr) 64px;
+  }
+
+  .study-rail {
+    grid-column: 2;
+  }
+
+  .study-panel {
+    bottom: 0;
+    box-shadow: -8px 0 24px rgba(0, 0, 0, 0.12);
+    position: fixed;
+    right: 64px;
+    top: 56px;
+    width: min(420px, calc(100vw - 64px));
+    z-index: 15;
+  }
+
+  .skku-header-inner {
+    gap: 14px;
+    padding: 0 16px;
+  }
+
+  .skku-brand small {
+    display: none;
+  }
+}
+
+@media (max-width: 600px) {
+  .study-main {
+    padding: 12px;
+  }
+
+  .study-title span {
+    display: none;
+  }
+}
+
+/* ===========================================================================
+   One look for every page. The older role pages (professor, admin, 대화 이력,
+   dashboards, logs) were styled after i-Campus; the tokens they use are remapped
+   to the SKKU palette here and their shared furniture -- page headers, tables,
+   buttons, inputs, badges, cards -- is redrawn once, quietly, in the same voice
+   as the study page.
+   =========================================================================== */
+
+:root {
+  --icampus-rail: var(--skku-green-ink);
+  --icampus-navy: var(--skku-green);
+  --icampus-navy-dark: var(--skku-green-deep);
+  --icampus-navy-deep: var(--skku-green-ink);
+  --icampus-accent: var(--skku-green);
+  --icampus-teal: var(--skku-green);
+  --icampus-course-nav: var(--surface-2);
+  --icampus-border: var(--line);
+  --icampus-border-soft: var(--line-soft);
+  --icampus-text: var(--ink);
+  --icampus-muted: var(--ink-3);
+  --icampus-surface: var(--surface);
+  --icampus-canvas: var(--surface-2);
+  --icampus-soft: var(--surface-2);
+  --icampus-shadow: none;
+  --success: #2f7a4e;
+  --warning: #8a6a1a;
+  --danger: #b4362b;
+}
+
+a {
+  color: var(--skku-green);
+}
+
+/* Page headers: one size, one rhythm. */
+
+.role-page header,
+.role-page > header,
+.admin-page-header,
+.course-list-page > header,
+.material-manager > header,
+.admin-materials-page > header,
+.canvas-dashboard-header,
+.log-page > header,
+.rag-debug-page > header,
+.activity-header,
+.icampus-page-heading {
+  border-bottom: 1px solid var(--line);
+  margin-bottom: 4px;
+  padding-bottom: 18px;
+}
+
+.role-page h1,
+.admin-page-header h1,
+.course-list-page h1,
+.material-manager h1,
+.admin-materials-page h1,
+.canvas-dashboard-header h1,
+.log-page h1,
+.rag-debug-page h1,
+.activity-header h1,
+.icampus-page-heading h1,
+.learn-page h1 {
+  color: var(--ink);
+  font-size: 24px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  line-height: 1.3;
+}
+
+.role-page header p,
+.admin-page-header p,
+.course-list-page header p,
+.material-manager header p,
+.admin-materials-page header p,
+.canvas-dashboard-header p,
+.canvas-dashboard-header > span,
+.log-page > header p,
+.rag-debug-page > header p,
+.activity-header p,
+.icampus-page-heading p,
+.learn-page > header p {
+  color: var(--ink-3);
+  font-size: 14px;
+  line-height: 1.55;
+}
+
+.icampus-breadcrumb {
+  color: var(--ink-3);
+}
+
+.icampus-breadcrumb b {
+  color: var(--skku-green);
+}
+
+h2 {
+  color: var(--ink);
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+/* Tables */
+
+.course-table-wrap,
+.admin-table-wrap {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  box-shadow: none;
+}
+
+.course-table th,
+.admin-table th,
+.activity-table th {
+  background: transparent;
+  border-bottom: 1px solid var(--line);
+  color: var(--ink-3);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  padding: 12px 16px;
+}
+
+.course-table td,
+.admin-table td,
+.activity-table td {
+  border-bottom: 1px solid var(--line-soft);
+  color: var(--ink);
+  font-size: 14px;
+  padding: 14px 16px;
+}
+
+.course-table tbody tr:hover td,
+.admin-table tbody tr:hover td {
+  background: var(--surface-2);
+}
+
+.course-table td strong,
+.admin-table td strong {
+  font-weight: 600;
+}
+
+.course-table a,
+.admin-table a,
+.log-link,
+.course-table .log-link,
+.course-table button.log-link,
+.course-table button.log-link:hover {
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  color: var(--skku-green);
+  font-weight: 600;
+  min-height: 0;
+  padding: 0;
+  text-decoration: none;
+}
+
+.course-table a:hover,
+.admin-table a:hover,
+.log-link:hover {
+  text-decoration: underline;
+}
+
+.empty-state,
+.canvas-dashboard-empty,
+.weak-stats-empty,
+.canvas-activity-empty {
+  color: var(--ink-3);
+  font-size: 14px;
+}
+
+/* Buttons */
+
+.primary-action,
+.admin-course-form button[type="submit"],
+.admin-filter-bar button,
+.course-table button,
+.material-upload-form button,
+.rag-readiness button,
+.rag-debug-form button,
+.voice-primary,
+.weekly-content-tabs button:hover,
+.weekly-content-tabs button:focus-visible {
+  background: var(--skku-green);
+  border: 1px solid var(--skku-green);
+  border-radius: 8px;
+  color: white;
+  font-weight: 600;
+  min-height: 38px;
+  padding: 0 14px;
+}
+
+.primary-action:hover,
+.admin-course-form button[type="submit"]:hover,
+.admin-filter-bar button:hover,
+.course-table button:hover:not(:disabled),
+.material-upload-form button:hover:not(:disabled),
+.rag-readiness button:hover:not(:disabled),
+.rag-debug-form button:hover:not(:disabled),
+.voice-primary:hover:not(:disabled) {
+  background: var(--skku-green-deep);
+  border-color: var(--skku-green-deep);
+}
+
+.course-table button:disabled,
+.material-upload-form button:disabled,
+.rag-readiness button:disabled,
+.voice-primary:disabled {
+  background: var(--line);
+  border-color: var(--line);
+  color: var(--ink-3);
+}
+
+.secondary-action,
+.form-actions a,
+.table-actions a,
+.table-actions button,
+.voice-secondary,
+.log-filters button,
+.weekly-content-tabs button,
+.material-row-actions button,
+.icampus-user-menu button {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--ink-2);
+  font-weight: 600;
+  min-height: 38px;
+  padding: 0 14px;
+}
+
+.secondary-action:hover,
+.form-actions a:hover,
+.table-actions a:hover,
+.table-actions button:hover:not(:disabled),
+.voice-secondary:hover:not(:disabled),
+.log-filters button:hover,
+.material-row-actions button:hover:not(:disabled) {
+  border-color: var(--skku-green);
+  color: var(--skku-green);
+}
+
+.voice-danger {
+  background: var(--surface);
+  border: 1px solid #e3b5b0;
+  border-radius: 8px;
+  color: var(--danger);
+  font-weight: 600;
+  min-height: 38px;
+  padding: 0 14px;
+}
+
+/* Inputs */
+
+.admin-filter-bar input,
+.admin-filter-bar select,
+.admin-course-form input,
+.admin-course-form select,
+.admin-course-form textarea,
+.material-upload-form input,
+.material-upload-form select,
+.rag-debug-form select,
+.rag-debug-form textarea,
+.log-filters input,
+.log-filters select,
+.voice-chat-form input,
+.voice-site-form input {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--ink);
+  min-height: 38px;
+  padding: 8px 12px;
+}
+
+.admin-filter-bar input:focus,
+.admin-filter-bar select:focus,
+.admin-course-form input:focus,
+.admin-course-form select:focus,
+.admin-course-form textarea:focus,
+.material-upload-form input:focus,
+.material-upload-form select:focus,
+.rag-debug-form select:focus,
+.rag-debug-form textarea:focus,
+.log-filters input:focus,
+.log-filters select:focus,
+.voice-chat-form input:focus,
+.voice-site-form input:focus {
+  border-color: var(--skku-green);
+  box-shadow: 0 0 0 3px rgba(11, 93, 59, 0.12);
+  outline: 0;
+}
+
+.admin-filter-bar label,
+.admin-course-form label,
+.material-upload-form label,
+.rag-debug-form label,
+.log-filters label {
+  color: var(--ink-2);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.checkbox-field input {
+  accent-color: var(--skku-green);
+}
+
+/* Badges: one quiet pill, tinted by state. */
+
+.material-status,
+.icampus-term-badge,
+.admin-table td > span[data-active],
+.chat-badge,
+.weak-stats-status {
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--ink-2);
+  display: inline-flex;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1;
+  padding: 5px 10px;
+}
+
+.material-status[data-status="active"],
+.material-status[data-status="completed"],
+.admin-table td > span[data-active="true"] {
+  background: var(--skku-green-soft);
+  border-color: var(--skku-green-line);
+  color: var(--skku-green-deep);
+}
+
+.material-status[data-status="pending"],
+.material-status[data-status="processing"],
+.material-status[data-status="draft"] {
+  background: var(--skku-gold-soft);
+  border-color: #ecd9a0;
+  color: var(--warning);
+}
+
+.material-status[data-status="failed"],
+.material-status[data-status="disabled"] {
+  background: #fbf0ee;
+  border-color: #ecc8c3;
+  color: var(--danger);
+}
+
+/* Cards and panels */
+
+.icampus-card,
+.role-page-grid article,
+.dashboard-statistics-columns section,
+.dashboard-daily-summary,
+.admin-course-form,
+.admin-filter-bar,
+.material-upload-form,
+.rag-debug-form,
+.rag-debug-diagnostics > div,
+.rag-debug-results article,
+.weak-stats-course,
+.activity-tile,
+.log-detail,
+.canvas-dashboard-empty,
+.canvas-course-chat,
+.canvas-recent-activity {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  box-shadow: none;
+}
+
+.icampus-card-head {
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.dashboard-daily-summary {
+  color: var(--ink-3);
+  font-size: 12px;
+  line-height: 1.8;
+}
+
+.icampus-card-head h2 {
+  color: var(--ink);
+  font-size: 15px;
+}
+
+.activity-tile[aria-pressed="true"] {
+  border-color: var(--skku-green);
+  box-shadow: inset 0 0 0 1px var(--skku-green);
+}
+
+.activity-tile-value {
+  color: var(--ink);
+  font-weight: 700;
+}
+
+.admin-alert,
+.admin-success,
+.rag-readiness,
+.icampus-notice {
+  border-radius: 8px;
+  font-size: 13px;
+  line-height: 1.5;
+  padding: 11px 14px;
+}
+
+.admin-alert {
+  background: #fbf0ee;
+  border: 1px solid #ecc8c3;
+  color: var(--danger);
+}
+
+.admin-success {
+  background: var(--skku-green-soft);
+  border: 1px solid var(--skku-green-line);
+  color: var(--skku-green-deep);
+}
+
+.rag-readiness {
+  background: var(--skku-gold-soft);
+  border: 1px solid #ecd9a0;
+}
+
+.rag-readiness[data-ready="true"] {
+  background: var(--skku-green-soft);
+  border-color: var(--skku-green-line);
+}
+
+/* Dashboard course cards share the 내 학습 cover. */
+
+.canvas-course-card {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  box-shadow: none;
+}
+
+.canvas-course-card-visual,
+.canvas-course-card-visual[data-color="1"],
+.canvas-course-card-visual[data-color="2"],
+.canvas-course-card-visual[data-color="3"],
+.canvas-course-card-visual[data-color="4"],
+.canvas-course-card-visual[data-color="5"] {
+  background: linear-gradient(135deg, var(--skku-green-deep), var(--skku-green) 70%, #2d8a5e);
+  color: rgba(255, 255, 255, 0.82);
+  height: 112px;
+}
+
+.canvas-course-card-body strong {
+  color: var(--ink);
+  font-weight: 700;
+}
+
+.canvas-course-card-grid {
+  gap: 22px;
+}
+
+.canvas-dashboard-layout {
+  gap: 28px;
+}
+
+.canvas-dashboard-sidebar section {
+  border-bottom: 1px solid var(--line-soft);
+}
+
+/* The professor's weekly material list */
+
+.weekly-content-list {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.weekly-content-heading {
+  background: var(--surface-2);
+  border-color: var(--line-soft);
+  color: var(--ink);
+}
+
+.weekly-content-heading > span:last-child {
+  color: var(--ink-3);
+  font-weight: 600;
+}
+
+.weekly-content-panel {
+  border-color: var(--line-soft);
+}
+
+.weekly-content-tabs button {
+  font-weight: 600;
+  min-height: 34px;
+}
+
+/* Professor/admin course menu */
+
+.icampus-course-nav {
+  background: var(--surface);
+  border-right: 1px solid var(--line);
+}
+
+.icampus-context-nav nav a:hover {
+  background: var(--surface-2);
+  color: var(--skku-green);
+}
+
+.icampus-context-nav nav a[aria-current="page"] {
+  background: var(--skku-green-soft);
+  border-color: transparent;
+  color: var(--skku-green-deep);
+}
+
+/* COURSE AGENT chat colours follow the palette too. */
+
+.voice-avatar {
+  background: var(--skku-green);
+}
+
+.voice-message[data-role="user"] .voice-bubble {
+  background: var(--skku-green-soft);
+  border-color: var(--skku-green-line);
+}
+
+.voice-bubble {
+  border-color: var(--line);
+}
+
+.voice-state {
+  border-radius: 999px;
+}
+
+/* Hover: text turns green, nothing moves. */
+
+.course-table button.log-link:hover:not(:disabled),
+.course-table button.log-link:focus-visible {
+  background: transparent;
+  border: 0;
+  color: var(--skku-green-deep);
+  text-decoration: underline;
+}
+
+.canvas-course-card {
+  transition: border-color 0.15s ease;
+}
+
+.canvas-course-card:hover {
+  border-color: var(--skku-green-line);
+  box-shadow: none;
+  transform: none;
+}
+
+.canvas-course-card:hover .canvas-course-card-body strong {
+  color: var(--skku-green);
+}
+
+.canvas-course-card-body strong {
+  transition: color 0.15s ease;
+}
+
+.learn-card-body strong {
+  transition: color 0.15s ease;
+}

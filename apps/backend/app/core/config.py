@@ -26,6 +26,8 @@ class Settings(BaseSettings):
     jwt_secret: str = "local-dev-change-me"
     jwt_algorithm: str = "HS256"
     jwt_expires_in: int = Field(default=3600, gt=0)
+    keyword_minimum_students: int = Field(default=5, ge=5)
+    course_keyword_terms: dict[str, list[str]] = Field(default_factory=dict)
 
     vector_db_provider: Literal["pgvector", "local"] = "pgvector"
     vector_db_url: Optional[str] = None
@@ -284,6 +286,12 @@ class Settings(BaseSettings):
                 "JWT_SECRET must be a unique secret of at least 32 characters "
                 "when APP_ENV is not local"
             )
+        return self
+
+    @model_validator(mode="after")
+    def disable_nonlocal_content_tracing(self) -> "Settings":
+        if self.app_env != "local":
+            self.voice_trace_content = False
         return self
 
     @property

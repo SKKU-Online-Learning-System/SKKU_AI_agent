@@ -49,8 +49,8 @@ UV_PROJECT_ENVIRONMENT=.venv-app uv sync --locked --all-packages --extra dev --e
 PYTHONPATH=apps/backend .venv-app/bin/python scripts/reindex_materials.py --all
 ```
 
-`DATABASE_URL`은 실제 사용 DB로 지정해야 한다. `run.sh`의 Docker 없는 개발 모드는
-`sqlite:////home/work/workspace/SKKU_AI_agent/course-agent.sqlite`를 사용한다.
+`DATABASE_URL`은 실제 사용 PostgreSQL DB로 지정해야 한다. Docker 없이 접속할 수 있는 DB가
+있으면 `bash run.sh --external-db`를 사용한다. SQLite는 실행 시 자동으로 선택되지 않는다.
 `--course-id` 또는 `--material-id`로 재색인 범위를 제한할 수 있다.
 실패한 문서는 failed 상태와 오류를 남기며, 기존 청크 삭제는 전체 페이지 판독·임베딩 성공 후에 수행한다.
 

@@ -44,6 +44,7 @@ def client() -> Generator[TestClient, None, None]:
 def _no_session_cookie(client: TestClient) -> None:
     """The client is shared by the module; a login must not authenticate the next test."""
     client.cookies.clear()
+    login_throttle.reset()
 
 
 @pytest.mark.parametrize(
@@ -228,20 +229,58 @@ def test_repeated_failed_logins_are_throttled_per_account(client: TestClient) ->
     )
 
 
-def test_throttle_is_per_address_ignores_unknown_accounts_and_stays_bounded(
+def test_throttle_is_per_address_counts_unknown_accounts_and_stays_bounded(
     client: TestClient, monkeypatch
 ) -> None:
     for _ in range(5):
-        login_throttle.record_failure("professor@skku.edu", "10.0.0.1")
-    assert login_throttle.retry_after("professor@skku.edu", "10.0.0.1") > 0
-    assert login_throttle.retry_after("professor@skku.edu", "10.0.0.2") == 0
+        assert login_throttle.claim_attempt("professor@skku.edu", "10.0.0.1") == 0
+    assert login_throttle.claim_attempt("professor@skku.edu", "10.0.0.1") > 0
+    assert login_throttle.claim_attempt("professor@skku.edu", "10.0.0.2") == 0
 
-    for _ in range(10):
-        client.post("/api/auth/login", json={"email": "nobody@skku.edu", "password": "x"})
-    assert login_throttle.retry_after("nobody@skku.edu", "testclient") == 0
+    payload = {"email": "nobody@skku.edu", "password": "x"}
+    for _ in range(5):
+        assert client.post("/api/auth/login", json=payload).status_code == 401
+    assert client.post("/api/auth/login", json=payload).status_code == 429
 
     monkeypatch.setattr(login_throttle, "MAX_TRACKED", 3)
     login_throttle.reset()
     for index in range(10):
-        login_throttle.record_failure(f"user{index}@skku.edu", "10.0.0.1")
-    assert len(login_throttle._failures) == 3
+        login_throttle.claim_attempt(f"user{index}@skku.edu", "10.0.0.1")
+    assert len(login_throttle._attempts) == 3
+
+
+def test_browser_login_does_not_return_bearer_and_checks_origin(client: TestClient) -> None:
+    payload = {"email": "student@skku.edu", "password": "password123"}
+    denied = client.post("/api/auth/login", json=payload, headers={"Origin": "https://evil.test"})
+    assert denied.status_code == 403
+    assert "set-cookie" not in denied.headers
+    origin = get_settings().cors_origins[0]
+    response = client.post("/api/auth/login", json=payload, headers={"Origin": origin})
+    assert response.status_code == 200
+    assert "access_token" not in response.json()
+    assert response.headers["cache-control"] == "no-store"
+    assert "HttpOnly" in response.headers["set-cookie"]
+    assert client.get("/api/auth/me").status_code == 200
+    assert client.post("/api/auth/logout").status_code == 403
+    assert client.post(
+        "/api/auth/logout",
+        headers={"Origin": "https://evil.test", "X-Requested-With": "XMLHttpRequest"},
+    ).status_code == 403
+    assert client.get("/api/auth/me").status_code == 200
+
+
+def test_logout_revokes_copied_token_but_not_other_login(client: TestClient) -> None:
+    payload = {"email": "student@skku.edu", "password": "password123"}
+    other = client.post("/api/auth/login", json=payload).json()["access_token"]
+    current = client.post("/api/auth/login", json=payload).json()["access_token"]
+
+    assert current != other
+    assert client.post(
+        "/api/auth/logout", headers={"X-Requested-With": "XMLHttpRequest"},
+    ).status_code == 204
+    copied = {"Authorization": f"Bearer {current}"}
+    assert client.get("/api/auth/me", headers=copied).status_code == 401
+    assert client.post("/api/auth/logout", headers=copied).status_code == 204
+    assert client.get(
+        "/api/auth/me", headers={"Authorization": f"Bearer {other}"},
+    ).status_code == 200

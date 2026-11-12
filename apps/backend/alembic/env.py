@@ -4,6 +4,7 @@ from logging.config import fileConfig
 
 from alembic import context
 from sqlalchemy import engine_from_config, pool
+from sqlalchemy.engine import Connection
 
 from app.core.config import get_settings
 from app.models import Base
@@ -38,6 +39,11 @@ def run_migrations_offline() -> None:
 
 
 def run_migrations_online() -> None:
+    connection = config.attributes.get("connection")
+    if connection is not None:
+        run_migrations_with_connection(connection)
+        return
+
     section = config.get_section(config.config_ini_section, {})
     section["sqlalchemy.url"] = get_database_url()
     connectable = engine_from_config(
@@ -47,15 +53,18 @@ def run_migrations_online() -> None:
     )
 
     with connectable.connect() as connection:
-        context.configure(
-            connection=connection,
-            target_metadata=target_metadata,
-            compare_server_default=True,
-            compare_type=True,
-        )
+        run_migrations_with_connection(connection)
 
-        with context.begin_transaction():
-            context.run_migrations()
+
+def run_migrations_with_connection(connection: Connection) -> None:
+    context.configure(
+        connection=connection,
+        target_metadata=target_metadata,
+        compare_server_default=True,
+        compare_type=True,
+    )
+    with context.begin_transaction():
+        context.run_migrations()
 
 
 if context.is_offline_mode():

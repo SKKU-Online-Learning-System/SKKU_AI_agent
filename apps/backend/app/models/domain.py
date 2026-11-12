@@ -13,11 +13,13 @@ from sqlalchemy import (
     CheckConstraint,
     DateTime,
     ForeignKey,
+    Index,
     Integer,
     String,
     SmallInteger,
     Text,
     UniqueConstraint,
+    false,
     func,
 )
 from sqlalchemy import Enum as SQLEnum
@@ -30,6 +32,13 @@ def new_id() -> str:
 
 class Base(DeclarativeBase):
     pass
+
+
+class RevokedAccessToken(Base):
+    __tablename__ = "revoked_access_tokens"
+
+    token_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    expires_at: Mapped[int] = mapped_column(BigInteger, index=True, nullable=False)
 
 
 class UserRole(str, Enum):
@@ -234,6 +243,7 @@ class CourseAccess(Base):
 class CourseMaterial(Base):
     __tablename__ = "course_materials"
     __table_args__ = (
+        Index("ix_course_materials_course_id_created_at", "course_id", "created_at"),
         CheckConstraint(
             "file_size >= 0",
             name="ck_course_materials_file_size_non_negative",
@@ -247,7 +257,6 @@ class CourseMaterial(Base):
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
     course_id: Mapped[str] = mapped_column(
         ForeignKey("courses.id", ondelete="CASCADE"),
-        index=True,
         nullable=False,
     )
     uploaded_by: Mapped[str] = mapped_column(
@@ -323,7 +332,6 @@ class DocumentChunk(Base):
     )
     material_id: Mapped[str] = mapped_column(
         ForeignKey("course_materials.id", ondelete="CASCADE"),
-        index=True,
         nullable=False,
     )
     chunk_index: Mapped[int] = mapped_column(Integer, nullable=False)
@@ -334,6 +342,8 @@ class DocumentChunk(Base):
     embedding: Mapped[Optional[list[float]]] = mapped_column(JSON, nullable=True)
     page_evidence: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     page_image: Mapped[Optional[bytes]] = mapped_column(LargeBinary, nullable=True, deferred=True)
+    # JSON of the AI study note (title, summary, points) written on first request.
+    page_note: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     embedding_model: Mapped[Optional[str]] = mapped_column(String(120), nullable=True)
     embedded_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True),
@@ -395,24 +405,27 @@ class ChatSession(Base):
 
 
 class ChatLog(Base):
-    """One question/answer exchange kept for history, log review and statistics."""
+    """One question/answer exchange for private history and aggregate statistics."""
 
     __tablename__ = "chat_logs"
+    __table_args__ = (
+        Index("ix_chat_logs_course_id_created_at", "course_id", "created_at"),
+        Index("ix_chat_logs_session_id_created_at", "session_id", "created_at"),
+        Index("ix_chat_logs_user_id_created_at", "user_id", "created_at"),
+        CheckConstraint("response_time_ms >= 0", name="ck_chat_logs_response_time_non_negative"),
+    )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
     session_id: Mapped[str] = mapped_column(
         ForeignKey("chat_sessions.id", ondelete="CASCADE"),
-        index=True,
         nullable=False,
     )
     user_id: Mapped[str] = mapped_column(
         ForeignKey("users.id", ondelete="CASCADE"),
-        index=True,
         nullable=False,
     )
     course_id: Mapped[str] = mapped_column(
         ForeignKey("courses.id", ondelete="CASCADE"),
-        index=True,
         nullable=False,
     )
     question: Mapped[str] = mapped_column(Text, nullable=False)
@@ -431,7 +444,7 @@ class ChatLog(Base):
     is_grounded: Mapped[bool] = mapped_column(
         Boolean,
         default=False,
-        server_default="false",
+        server_default=false(),
         nullable=False,
     )
     answer_source_type: Mapped[ChatAnswerSourceType] = mapped_column(
@@ -441,6 +454,7 @@ class ChatLog(Base):
             native_enum=False,
             create_constraint=True,
             validate_strings=True,
+            length=32,
         ),
         default=ChatAnswerSourceType.rag,
         server_default=ChatAnswerSourceType.rag.value,

@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
+from uuid import uuid4
 
 from argon2 import PasswordHasher
 from argon2.exceptions import InvalidHashError, VerificationError
@@ -10,6 +12,13 @@ from jose import JWTError, jwt
 
 class InvalidAccessTokenError(Exception):
     """Raised when an access token cannot be trusted or used."""
+
+
+@dataclass(frozen=True)
+class AccessClaims:
+    user_id: str
+    token_id: str
+    expires_at: int
 
 
 class PasswordService:
@@ -36,6 +45,7 @@ class JWTService:
         issued_at = now or datetime.now(timezone.utc)
         payload = {
             "sub": user_id,
+            "jti": str(uuid4()),
             "type": "access",
             "iat": int(issued_at.timestamp()),
             "exp": int((issued_at + timedelta(seconds=self.expires_in)).timestamp()),
@@ -43,6 +53,11 @@ class JWTService:
         return jwt.encode(payload, self.secret, algorithm=self.algorithm)
 
     def decode_access_token(self, token: str, now: Optional[datetime] = None) -> str:
+        return self.decode_access_claims(token, now).user_id
+
+    def decode_access_claims(
+        self, token: str, now: Optional[datetime] = None
+    ) -> AccessClaims:
         try:
             payload: dict[str, Any] = jwt.decode(
                 token,
@@ -56,12 +71,15 @@ class JWTService:
         current_time = int((now or datetime.now(timezone.utc)).timestamp())
         expires_at = payload.get("exp")
         subject = payload.get("sub")
+        token_id = payload.get("jti")
 
-        if not isinstance(expires_at, (int, float)) or expires_at <= current_time:
+        if type(expires_at) is not int or expires_at <= current_time:
             raise InvalidAccessTokenError
         if payload.get("type") != "access":
             raise InvalidAccessTokenError
         if not isinstance(subject, str) or not subject:
             raise InvalidAccessTokenError
 
-        return subject
+        if not isinstance(token_id, str) or len(token_id) != 36:
+            raise InvalidAccessTokenError("Token has no revocable identifier")
+        return AccessClaims(user_id=subject, token_id=token_id, expires_at=expires_at)

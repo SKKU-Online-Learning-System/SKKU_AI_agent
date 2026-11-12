@@ -26,6 +26,7 @@ from app.services.material_processing_service import (
     process_uploaded_material,
 )
 from app.services.material_service import MaterialValidationError, remove_stored_file, save_upload
+from app.services.page_notes import list_pages, page_note
 from app.services.vector_store_service import VectorStoreService
 from app.services.rag_service import RagService
 from app.services.llm_service import LLMError
@@ -273,6 +274,38 @@ def read_material_page_image(
     if image is None:
         raise HTTPException(status_code=404, detail="Processed page image not found")
     return Response(image, media_type="image/jpeg", headers={"Cache-Control": "private, no-store"})
+
+
+@router.get("/courses/{course_id}/materials/{material_id}/pages")
+def list_material_pages(
+    course: Annotated[Course, Depends(require_course_access)],
+    material_id: str,
+    session: Annotated[Session, Depends(get_db)],
+) -> dict:
+    """The rendered pages of a 교안, for the study page's viewer."""
+    material = _load_course_material(session, course.id, material_id)
+    pages, noted = list_pages(session, course.id, material_id)
+    return {"material_id": material_id, "file": material.original_file_name,
+            "pages": pages, "noted": noted}
+
+
+@router.get("/courses/{course_id}/materials/{material_id}/pages/{page_number}/note")
+async def read_material_page_note(
+    course: Annotated[Course, Depends(require_course_access)],
+    material_id: str,
+    page_number: int,
+    session: Annotated[Session, Depends(get_db)],
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> dict:
+    """The AI 해설 for one page, written on first request and cached after."""
+    _load_course_material(session, course.id, material_id)
+    try:
+        note = await page_note(session, settings, course.id, material_id, page_number)
+    except LLMError as exc:
+        raise HTTPException(status_code=503, detail="페이지 해설을 지금 만들 수 없어요.") from exc
+    if note is None:
+        raise HTTPException(status_code=404, detail="Processed page not found")
+    return {"material_id": material_id, "page": page_number, **note}
 
 
 @router.post("/courses/{course_id}/materials/{material_id}/pages/{page_number}/inspect")

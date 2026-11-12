@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sys
+from argparse import ArgumentParser
 from dataclasses import dataclass
 
 from argon2 import PasswordHasher
@@ -49,11 +50,14 @@ COURSE_SEEDS = (
         "인공지능의 기본 개념과 응용을 학습하는 과목입니다.",
     ),
     CourseSeed(
-        "소프트웨어공학",
+        "시계열데이터처리개론",
         "2026-2",
-        "소프트웨어 개발 프로세스와 설계 원칙을 학습하는 과목입니다.",
+        "시계열 데이터의 전처리, 정상성, 예측 모델을 학습하는 과목입니다.",
     ),
 )
+
+# Earlier seeds used these names; an existing database is renamed in place.
+RENAMED_COURSES = {"소프트웨어공학": "시계열데이터처리개론"}
 
 
 def ensure_demo_password(user: User, hasher: PasswordHasher, password: str) -> None:
@@ -97,11 +101,12 @@ def seed_database(session: Session, password: str) -> SeedSummary:
 
         courses: list[Course] = []
         for course_seed in COURSE_SEEDS:
+            previous_names = [old for old, new in RENAMED_COURSES.items() if new == course_seed.name]
             course = session.scalar(
                 select(Course).where(
-                    Course.name == course_seed.name,
+                    Course.name.in_([course_seed.name, *previous_names]),
                     Course.semester == course_seed.semester,
-                )
+                ).order_by((Course.name == course_seed.name).desc())
             )
             if course is None:
                 course = Course(
@@ -111,6 +116,7 @@ def seed_database(session: Session, password: str) -> SeedSummary:
                 )
                 session.add(course)
 
+            course.name = course_seed.name
             course.description = course_seed.description
             course.professor_id = professor.id
             course.is_active = True
@@ -139,25 +145,22 @@ def seed_database(session: Session, password: str) -> SeedSummary:
     )
 
 
-# The documented demo password: fine on a laptop, a public login anywhere else.
-DEMO_PASSWORDS = frozenset({"password123"})
-
-
-def main() -> int:
+def main(*, only_if_empty: bool = False) -> int:
     settings = get_settings()
+    if settings.app_env != "local":
+        print("Seed refused: demo accounts are local development only.", file=sys.stderr)
+        return 1
     password = settings.seed_password
-    if not password:
-        print("Seed failed. Set SEED_PASSWORD in .env.", file=sys.stderr)
-        return 1
-    if settings.app_env != "local" and (password in DEMO_PASSWORDS or len(password) < 12):
-        print(
-            "Seed failed. SEED_PASSWORD must be a unique password of at least 12 characters "
-            "when APP_ENV is not local.",
-            file=sys.stderr,
-        )
-        return 1
     with SessionLocal() as session:
         try:
+            if only_if_empty:
+                if session.scalar(select(User.id).limit(1)) is not None:
+                    print("Seed skipped: the database already contains users.")
+                    return 0
+                session.rollback()
+            if not password:
+                print("Seed failed. Set SEED_PASSWORD in .env.", file=sys.stderr)
+                return 1
             summary = seed_database(session, password)
         except SQLAlchemyError as exc:
             session.rollback()
@@ -177,4 +180,6 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    parser = ArgumentParser(description="Seed local demo accounts and courses.")
+    parser.add_argument("--if-empty", action="store_true", help="Skip if users already exist.")
+    raise SystemExit(main(only_if_empty=parser.parse_args().if_empty))

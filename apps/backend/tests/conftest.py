@@ -4,13 +4,19 @@ from __future__ import annotations
 
 from collections.abc import Generator
 from dataclasses import dataclass
+from os import getenv
 from pathlib import Path
+from uuid import uuid4
 
 import pytest
+from alembic import command
+from alembic.config import Config
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
+from sqlalchemy.engine import Engine, make_url
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
+from sqlalchemy.schema import CreateSchema, DropSchema
 
 from app.core.config import Settings, get_settings
 from app.core.security import JWTService
@@ -97,18 +103,52 @@ def prepare_course_materials(chat_api: ChatApiContext) -> str:
 
 
 @pytest.fixture
-def chat_api(tmp_path: Path, monkeypatch) -> Generator[ChatApiContext, None, None]:
+def chat_engine() -> Generator[Engine, None, None]:
+    """Run the same API tests against SQLite or migrated PostgreSQL test schemas."""
+    postgres_url = getenv("TEST_POSTGRES_URL")
+    if not postgres_url:
+        engine = create_engine(
+            "sqlite://",
+            connect_args={"check_same_thread": False},
+            poolclass=StaticPool,
+        )
+        try:
+            Base.metadata.create_all(engine)
+            yield engine
+        finally:
+            engine.dispose()
+        return
+
+    url = make_url(postgres_url)
+    if url.drivername != "postgresql+psycopg":
+        pytest.fail("TEST_POSTGRES_URL must use postgresql+psycopg://")
+    schema = f"course_agent_test_{uuid4().hex}"
+    engine = create_engine(
+        url, hide_parameters=True,
+        connect_args={"options": f"-csearch_path={schema}", "connect_timeout": 5},
+    )
+    try:
+        config = Config(str(Path(__file__).resolve().parents[1] / "alembic.ini"))
+        with engine.begin() as connection:
+            connection.execute(CreateSchema(schema))
+            config.attributes["connection"] = connection
+            command.upgrade(config, "head")
+        try:
+            yield engine
+        finally:
+            with engine.begin() as connection:
+                connection.execute(DropSchema(schema, cascade=True))
+    finally:
+        engine.dispose()
+
+
+@pytest.fixture
+def chat_api(tmp_path: Path, monkeypatch, chat_engine: Engine) -> Generator[ChatApiContext, None, None]:
     # These cases drive /process explicitly; automatic upload work is tested separately.
     monkeypatch.setattr(
         "app.api.routes.materials.process_uploaded_material", lambda *args: None,
     )
-    engine = create_engine(
-        "sqlite://",
-        connect_args={"check_same_thread": False},
-        poolclass=StaticPool,
-    )
-    testing_session = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-    Base.metadata.create_all(engine)
+    testing_session = sessionmaker(autocommit=False, autoflush=False, bind=chat_engine)
 
     with testing_session() as session:
         users = {

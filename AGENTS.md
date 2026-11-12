@@ -10,7 +10,7 @@ This monorepo keeps the Next.js UI in `apps/frontend/app`, the FastAPI service i
 
 ## UI Reference
 
-The web app clones the SKKU i-Campus layout (Canvas LMS, <https://canvas.skku.edu/>): a 76px dark-blue global rail, a 64px top bar, and a 204px course menu. Keep the i-Campus menu entries this MVP does not implement visible but inactive rather than removing them, so the shell keeps matching the real LMS. Shell styles live in `apps/frontend/app/globals.css`; COURSE AGENT styles in `apps/frontend/app/course-agent.css`.
+The web app is an Inflearn-style learning site in 성균관대 green: a white header with the SKKU mark and the role menu as tabs, 내 학습 course cards, and for students one full-screen study page per course -- 교안 pages on the left with an AI 해설 beside each page, a right panel that switches between the 주차별 커리큘럼 and the COURSE AGENT drawer. Professor and admin pages keep the older i-Campus course menu; keep its unimplemented entries visible but inactive. Tokens, shell and study-page styles live in `apps/frontend/app/study.css`; COURSE AGENT styles in `apps/frontend/app/course-agent.css`.
 
 ## Architecture & Data Boundaries
 
@@ -22,7 +22,7 @@ Realtime speech orchestration must stay behind the `Transport` boundary. The def
 
 The application repository must never load Qwen weights or add CUDA/vLLM/qwen-asr/qwen-tts runtimes. GPU inference belongs to `SKKU_AI_model_server`. CPU-only dependencies needed for orchestration, such as Silero VAD, are allowed and must not resolve CUDA PyTorch wheels. Trusted web search is application-owned through self-hosted SearXNG and professor-managed allowlists; every returned URL must be revalidated locally before use.
 
-COURSE AGENT is bound by the same RBAC, SAFE, course-scoped RAG, citation and ChatLog rules as typed chat. Browsers authenticate with the httpOnly session cookie (WebSocket included, origin-checked); non-browser clients may pass the JWT as a Bearer header or, on the WebSocket, a `token` query parameter. Students ask questions only through COURSE AGENT; do not reintroduce a separate "AI 질문" menu or course tab. 대화 이력 links back into COURSE AGENT with `?sessionId=`, and the backend rehydrates that conversation into the agent session before answering.
+COURSE AGENT is bound by the same RBAC, SAFE, course-scoped RAG, citation and ChatLog rules as typed chat. Browsers authenticate with the httpOnly session cookie (WebSocket included, origin-checked); non-browser clients may pass the JWT as a Bearer header or, on the WebSocket, a `token` query parameter. Students ask questions only through COURSE AGENT; do not reintroduce a separate "AI 질문" menu or course tab, nor a separate 대화 이력 page: the study page's 대화 이력 tab reopens a conversation in the agent drawer with `?sessionId=`, and the backend rehydrates it into the agent session before answering.
 
 ## Build, Test, and Development Commands
 

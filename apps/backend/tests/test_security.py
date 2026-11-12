@@ -57,6 +57,13 @@ def test_nonlocal_settings_accept_unique_jwt_secret_of_at_least_32_characters() 
     assert settings.jwt_secret == "u9N4qT2mX7vL5cR8pK3sD6hJ1wF0aBzY"
 
 
+def test_nonlocal_settings_disable_private_voice_content_traces() -> None:
+    settings = Settings(
+        app_env="production", jwt_secret="q" * 36, voice_trace_content=True, _env_file=None
+    )
+    assert not settings.voice_trace_content
+
+
 def test_password_service_verifies_argon2_hash_without_leaking_hash_errors() -> None:
     security = load_security_module()
     password_hash = PasswordHasher().hash("password123")
@@ -74,6 +81,9 @@ def test_jwt_service_round_trips_access_token_subject() -> None:
 
     token = service.create_access_token("user-123", now=now)
     claims = jwt.get_unverified_claims(token)
+    assert claims.pop("jti") != jwt.get_unverified_claims(
+        service.create_access_token("user-123", now=now)
+    )["jti"]
 
     assert claims == {
         "sub": "user-123",

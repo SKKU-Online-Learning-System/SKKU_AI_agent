@@ -24,7 +24,13 @@ export function hasMath(text: string): boolean {
  * When it writes notation anyway the student used to see the raw source, so this
  * renders it rather than leaving something that looks broken on screen.
  */
-export function MathText({ text }: { text: string }) {
+export function MathText({
+  className = "voice-bubble",
+  text
+}: {
+  className?: string;
+  text: string;
+}) {
   const host = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -37,7 +43,7 @@ export function MathText({ text }: { text: string }) {
   }, [text]);
 
   return (
-    <div className="voice-bubble" ref={host}>
+    <div className={className} ref={host}>
       {text}
     </div>
   );

@@ -17,6 +17,7 @@ from app.api.routes import (
     voice,
 )
 from app.core.config import get_settings
+from app.core.logging_filters import RequestPathFilter
 from app.middleware.upload_request_limit import UploadRequestSizeLimitMiddleware
 from app.services.voice.session_store import shutdown as shutdown_voice
 
@@ -27,8 +28,16 @@ logging.basicConfig(level=logging.INFO)
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     """Flush the voice agent's weak-concept memory on shutdown."""
-    yield
-    await shutdown_voice()
+    path_filter = RequestPathFilter()
+    access_loggers = [logging.getLogger(name) for name in ("uvicorn.access", "uvicorn.error")]
+    for logger in access_loggers:
+        logger.addFilter(path_filter)
+    try:
+        yield
+    finally:
+        for logger in access_loggers:
+            logger.removeFilter(path_filter)
+        await shutdown_voice()
 
 
 def create_app() -> FastAPI:

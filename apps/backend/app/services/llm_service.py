@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from dataclasses import dataclass, field
 from typing import Awaitable, Callable, Literal, Optional, Sequence, cast
 
@@ -525,6 +526,8 @@ class LLMService:
         if self.provider == "mock":
             if "quiz_concept" in payload:
                 return _mock_quiz(payload)
+            if "page_text" in payload:
+                return _mock_page_note(payload)
             return {"save": None, "reviews": []}
         if self.provider == "anthropic":
             return await self._anthropic_generate_json(system, payload, max_tokens)
@@ -898,11 +901,30 @@ def _openai_usage(raw: object) -> LLMUsage:
     )
 
 
+_TEX_BACKSLASH = re.compile(
+    r"\\\\"  # an escaped backslash: already right, consumed so its halves are not re-read
+    r"|\\(?=[bfrt][a-zA-Z])"  # \beta \frac \rho \theta, read by JSON as BS, FF, CR, TAB
+    r"|\\(?=n(?:abla|u|eq|e|eg)\b)"  # \nabla \nu \neq; any other \n stays a newline
+    r"|\\(?=u(?![0-9a-fA-F]{4}))"  # \underline, not a \uXXXX escape
+    r'|\\(?!["\\/bfnrtu])'  # \sqrt \alpha: not a JSON escape at all
+)
+
+
+def escape_tex_backslashes(raw: str) -> str:
+    """JSON text with the single backslashes of TeX commands doubled.
+
+    A model writing ``"$\\frac{1}{d}$"`` into JSON often leaves one backslash. ``\\f`` is a
+    valid JSON escape, so the value arrived as a form feed plus "rac" and MathJax showed
+    "Math input error"; ``\\sqrt`` is not one, so the whole object failed to parse.
+    """
+    return _TEX_BACKSLASH.sub(lambda m: m.group() if m.group() == "\\\\" else "\\\\", raw)
+
+
 def _parse_tool_arguments(raw: str) -> dict:
     if not raw.strip():
         return {}
     try:
-        value = json.loads(raw)
+        value = json.loads(escape_tex_backslashes(raw))
     except json.JSONDecodeError as exc:
         raise LLMError("도구 호출 arguments가 올바른 JSON이 아닙니다.") from exc
     if not isinstance(value, dict):
@@ -914,10 +936,25 @@ def _parse_json_object(raw: str) -> dict:
     text = raw.strip()
     if text.startswith("```"):
         text = text.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
-    value = json.loads(text)
+    value = json.loads(escape_tex_backslashes(text))
     if not isinstance(value, dict):
         raise ValueError("structured response is not a JSON object")
     return value
+
+
+def _mock_page_note(payload: dict) -> dict:
+    """A deterministic study note so the 교안 해설 pane works with no model server."""
+    text = str(payload.get("page_text") or payload.get("native_text") or "").strip()
+    lines = [line.strip("-•* ") for line in text.splitlines() if line.strip()][:4]
+    return {
+        "title": f"{payload.get('page')}쪽 핵심 정리",
+        "summary": (lines[0] if lines else "이 페이지의 내용을 정리했어요.")[:200],
+        "points": [
+            {"label": line[:60], "text": f"{line[:120]} — 강의자료에 적힌 그대로의 내용이에요."}
+            for line in lines
+        ],
+        "pitfalls": "",
+    }
 
 
 def _mock_quiz(payload: dict) -> dict:

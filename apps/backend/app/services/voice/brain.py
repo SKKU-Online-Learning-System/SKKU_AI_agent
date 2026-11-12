@@ -568,17 +568,6 @@ def _json(data: dict) -> str:
     return json.dumps(data, ensure_ascii=False)
 
 
-def _tool_log_value(value: object, limit: int = 600) -> str:
-    """Return compact, bounded JSON for tool debugging logs."""
-    if isinstance(value, str):
-        try:
-            value = json.loads(value)
-        except json.JSONDecodeError:
-            pass
-    text = json.dumps(value, ensure_ascii=False, default=str, separators=(",", ":"))
-    return text if len(text) <= limit else f"{text[:limit]}…"
-
-
 def show_visualization(**args) -> str:
     """Validate one formula, flow diagram, or numeric plot for the chat UI.
 
@@ -790,12 +779,14 @@ async def prefetch_context(
     *,
     on_event: TurnEventSink | None = None,
     retrieval_hint: str = "",
+    focus: dict | None = None,
 ) -> dict:
     """Prefetch learner memory and course evidence in parallel for text chat.
 
     ``retrieval_hint`` is extra topic text for the course-material search only
     (an excerpt of what the student attached), never shown to the model as the
-    question itself.
+    question itself. ``focus`` names the 교안 page the student has open; its
+    stored reading is supplied as ``viewing_page`` so "이 슬라이드" resolves.
     """
 
     async def recall() -> dict:
@@ -869,16 +860,64 @@ async def prefetch_context(
             )
         return raw, citations
 
-    memory, (raw_materials, citations) = await asyncio.gather(recall(), retrieve())
+    async def viewing() -> dict | None:
+        if not focus:
+            return None
+        try:
+            return await asyncio.to_thread(
+                page_focus, context.course_id, str(focus["material_id"]), int(focus["page"])
+            )
+        except Exception as exc:
+            log.warning("viewing-page prefetch failed: %s", exc)
+            return None
+
+    memory, (raw_materials, citations), viewing_page = await asyncio.gather(
+        recall(), retrieve(), viewing()
+    )
     context.last_material_sources = citations
     try:
         materials = json.loads(raw_materials)
     except json.JSONDecodeError:
         materials = {"error": "course material prefetch returned invalid JSON"}
-    return {
+    prefetched = {
         "student_question": question.strip(),
         "weak_concepts": memory,
         "course_materials": materials,
+    }
+    if viewing_page:
+        prefetched["viewing_page"] = viewing_page
+    return prefetched
+
+
+def page_focus(course_id: str, material_id: str, page: int) -> dict | None:
+    """The stored reading of the 교안 page open beside the chat, course-scoped."""
+    from app.db.session import SessionLocal
+    from app.models import CourseMaterial, DocumentChunk
+    from sqlalchemy import select
+
+    with SessionLocal() as session:
+        row = session.execute(
+            select(CourseMaterial.original_file_name, DocumentChunk.page_evidence,
+                   DocumentChunk.chunk_text)
+            .join(CourseMaterial, CourseMaterial.id == DocumentChunk.material_id)
+            .where(
+                DocumentChunk.course_id == course_id,
+                CourseMaterial.course_id == course_id,
+                CourseMaterial.id == material_id,
+                DocumentChunk.page_number == page,
+            )
+            .limit(1)
+        ).first()
+    if row is None:
+        return None
+    file_name, evidence, text = row
+    return {
+        "note": "The page the student is looking at right now; 'this slide' means it.",
+        "source": _source_label(file_name, page),
+        "file": file_name,
+        "page": page,
+        "material_id": material_id,
+        "excerpt": ((evidence or text or "").strip())[:4000],
     }
 
 
@@ -1110,7 +1149,7 @@ async def run_tool(context: VoiceContext, name: str, args: dict, timer: StageTim
         "review_weak_concept": "review",
         "show_visualization": "visual",
     }.get(name, "tool")
-    log.info("tool call name=%s args=%s", name, _tool_log_value(args))
+    log.info("tool call stage=%s", stage)
     try:
         if not isinstance(args, dict):
             raise TypeError("tool arguments must be an object")
@@ -1139,7 +1178,7 @@ async def run_tool(context: VoiceContext, name: str, args: dict, timer: StageTim
     except (TypeError, ValueError) as exc:
         result = _json({"error": f"invalid {name} arguments: {exc}"})
     except Exception as exc:
-        log.exception("tool %s failed", name)
+        log.warning("tool failed stage=%s type=%s", stage, type(exc).__name__)
         result = _json({"error": str(exc)})
     finally:
         timer.record(stage, started_at)
@@ -1147,11 +1186,10 @@ async def run_tool(context: VoiceContext, name: str, args: dict, timer: StageTim
     status = "error" if isinstance(payload, dict) and "error" in payload else "ok"
     elapsed_ms = round((time.perf_counter() - started_at) * 1000)
     log.info(
-        "tool result name=%s status=%s elapsed_ms=%d result=%s",
-        name,
+        "tool result stage=%s status=%s elapsed_ms=%d",
+        stage,
         status,
         elapsed_ms,
-        _tool_log_value(payload),
     )
     return result
 
@@ -1216,6 +1254,7 @@ async def think(
     *,
     on_event: TurnEventSink | None = None,
     attachments: Sequence[AttachmentContent] = (),
+    focus: dict | None = None,
 ) -> tuple[str, list[str], list[str], list[dict]]:
     """Generate one grounded Socratic response through Claude's tool use.
 
@@ -1233,6 +1272,8 @@ async def think(
         attachments: Files the student attached to this question, already
             read. Their text joins the student's message for this turn and, in
             a bounded form, the conversation history.
+        focus: ``{"material_id", "page"}`` of the 교안 page open beside the
+            chat, whose stored reading is preloaded as ``viewing_page``.
 
     Returns:
         Reply text, tool names, trusted source URLs, and visual references.
@@ -1277,6 +1318,7 @@ async def think(
         timer,
         on_event=on_event,
         retrieval_hint=attachments_module.retrieval_hint(attachments),
+        focus=focus,
     )
     system = answer_instructions(context, prefetched)
     tools = anthropic_tools()
